@@ -95,6 +95,54 @@ public sealed class Vp9TileSyntaxScannerTests
         });
     }
 
+    [Fact]
+    public void TryProbeFirstLeafCoefficientToken_ForExternalMainFrame_ReadsExpectedFirstToken()
+    {
+        var packet = ReadRequiredSample(
+            "/tmp/vp9-main-frame-0.vp9",
+            30398,
+            "4c57b8dda880711b174483a27e1691c6c9aa9a6721351d041425f8dafb23b7e9");
+        var state = CreateState(packet);
+
+        Assert.True(Vp9TileSyntaxScanner.TryProbeFirstLeafCoefficientToken(packet, state, out var probes, out var diagnostic), diagnostic?.Message);
+
+        Assert.Equal(8, probes.Count);
+        Assert.All(probes, probe =>
+        {
+            Assert.Equal(Vp9TransformSize.Tx32X32, probe.TransformSize);
+            Assert.Equal(0, probe.PlaneType);
+            Assert.Equal(0, probe.ReferenceType);
+            Assert.Equal(0, probe.CoefficientBand);
+            Assert.Equal(0, probe.CoefficientContext);
+            Assert.Equal(Vp9CoefficientToken.Category6, probe.Token);
+            Assert.Equal(16625, probe.DequantizedValue);
+        });
+    }
+
+    [Fact]
+    public void TryProbeFirstLeafCoefficientToken_ForExternalAlphaFrame_ReadsExpectedFirstToken()
+    {
+        var packet = ReadRequiredSample(
+            "/tmp/vp9-alpha-frame-0.vp9",
+            6233,
+            "94079f539a2165b10f5db2d9e9b5d54ca8df534ca3d36e4eaa1234b0b17a7329");
+        var state = CreateState(packet);
+
+        Assert.True(Vp9TileSyntaxScanner.TryProbeFirstLeafCoefficientToken(packet, state, out var probes, out var diagnostic), diagnostic?.Message);
+
+        Assert.Equal(8, probes.Count);
+        Assert.All(probes, probe =>
+        {
+            Assert.Equal(Vp9TransformSize.Tx32X32, probe.TransformSize);
+            Assert.Equal(0, probe.PlaneType);
+            Assert.Equal(0, probe.ReferenceType);
+            Assert.Equal(0, probe.CoefficientBand);
+            Assert.Equal(0, probe.CoefficientContext);
+            Assert.Equal(Vp9CoefficientToken.Category6, probe.Token);
+            Assert.Equal(-16380, probe.DequantizedValue);
+        });
+    }
+
     private static Vp9KeyFrameDecodeState CreateState(byte[] packet)
     {
         var header = Vp9FrameHeaderParser.Parse(packet);
