@@ -2,6 +2,11 @@ namespace VPDecoder.Tests;
 
 public sealed class RawVp9DecoderTests
 {
+    private const string MainFrameSamplePath = "/tmp/vp9-main-frame-0.vp9";
+    private const string MainFrameSampleSha256 = "4c57b8dda880711b174483a27e1691c6c9aa9a6721351d041425f8dafb23b7e9";
+    private const string AlphaFrameSamplePath = "/tmp/vp9-alpha-frame-0.vp9";
+    private const string AlphaFrameSampleSha256 = "94079f539a2165b10f5db2d9e9b5d54ca8df534ca3d36e4eaa1234b0b17a7329";
+
     private static readonly byte[] MainFrameHeader =
     [
         0x82, 0x49, 0x83, 0x42, 0x10, 0xa5, 0xf0, 0x54, 0x76,
@@ -26,6 +31,20 @@ public sealed class RawVp9DecoderTests
     }
 
     [Fact]
+    public void DecodeFrame_WhenTileLayoutIsTruncated_ReturnsTruncatedPacket()
+    {
+        var packet = CreateHeaderAndCompressedHeaderOnlyPacket();
+        var decoder = new RawVp9Decoder();
+
+        var result = decoder.DecodeFrame(packet, new Vp9DecodeOptions(2656, 1352));
+
+        Assert.False(result.Succeeded);
+        Assert.NotNull(result.Header);
+        Assert.NotNull(result.CompressedHeader);
+        Assert.Equal(Vp9DecodeDiagnosticCode.TruncatedPacket, result.Diagnostic?.Code);
+    }
+
+    [Fact]
     public void DecodeFrame_WhenExpectedWidthDiffers_ReturnsDimensionMismatch()
     {
         var packet = CreatePaddedMainFramePacket();
@@ -36,6 +55,45 @@ public sealed class RawVp9DecoderTests
         Assert.False(result.Succeeded);
         Assert.Equal(Vp9DecodeDiagnosticCode.DimensionMismatch, result.Diagnostic?.Code);
         Assert.NotNull(result.Header);
+    }
+
+    [Fact]
+    public void DecodeFrame_WhenFrameExceedsPixelLimit_ReturnsAllocationLimitExceeded()
+    {
+        var packet = CreatePaddedMainFramePacket();
+        var decoder = new RawVp9Decoder();
+
+        var result = decoder.DecodeFrame(packet, new Vp9DecodeOptions(2656, 1352, MaxPixelCount: 1));
+
+        Assert.False(result.Succeeded);
+        Assert.NotNull(result.Header);
+        Assert.Equal(Vp9DecodeDiagnosticCode.AllocationLimitExceeded, result.Diagnostic?.Code);
+    }
+
+    [Fact]
+    public void DecodeFrame_WhenExpectedWidthIsInvalid_ReturnsInvalidDecodeOptions()
+    {
+        var packet = CreatePaddedMainFramePacket();
+        var decoder = new RawVp9Decoder();
+
+        var result = decoder.DecodeFrame(packet, new Vp9DecodeOptions(ExpectedWidth: 0));
+
+        Assert.False(result.Succeeded);
+        Assert.Null(result.Header);
+        Assert.Equal(Vp9DecodeDiagnosticCode.InvalidDecodeOptions, result.Diagnostic?.Code);
+    }
+
+    [Fact]
+    public void DecodeFrame_WhenOutputFormatIsInvalid_ReturnsInvalidDecodeOptions()
+    {
+        var packet = CreatePaddedMainFramePacket();
+        var decoder = new RawVp9Decoder();
+
+        var result = decoder.DecodeFrame(packet, new Vp9DecodeOptions(OutputFormat: (Vp9OutputPixelFormat)99));
+
+        Assert.False(result.Succeeded);
+        Assert.Null(result.Header);
+        Assert.Equal(Vp9DecodeDiagnosticCode.InvalidDecodeOptions, result.Diagnostic?.Code);
     }
 
     [Fact]
@@ -70,13 +128,7 @@ public sealed class RawVp9DecoderTests
     [Fact]
     public void DecodeFrame_ExternalMainFrameSample_ParsesExpectedHeaderWhenPresent()
     {
-        var path = "/tmp/vp9-main-frame-0.vp9";
-        if (!File.Exists(path))
-        {
-            return;
-        }
-
-        var packet = File.ReadAllBytes(path);
+        var packet = ReadRequiredSample(MainFrameSamplePath, 30398, MainFrameSampleSha256);
         var decoder = new RawVp9Decoder();
 
         var result = decoder.DecodeFrame(packet, new Vp9DecodeOptions(2656, 1352));
@@ -96,13 +148,7 @@ public sealed class RawVp9DecoderTests
     [Fact]
     public void DecodeFrame_ExternalAlphaFrameSample_ParsesExpectedHeaderWhenPresent()
     {
-        var path = "/tmp/vp9-alpha-frame-0.vp9";
-        if (!File.Exists(path))
-        {
-            return;
-        }
-
-        var packet = File.ReadAllBytes(path);
+        var packet = ReadRequiredSample(AlphaFrameSamplePath, 6233, AlphaFrameSampleSha256);
         var decoder = new RawVp9Decoder();
 
         var result = decoder.DecodeFrame(packet, new Vp9DecodeOptions(2656, 1352));
@@ -115,10 +161,57 @@ public sealed class RawVp9DecoderTests
         Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedFeature, result.Diagnostic?.Code);
     }
 
+    [Fact]
+    public void DecodeFrameWithAlpha_WhenColorDecodeIsUnsupported_PropagatesColorDiagnostic()
+    {
+        var colorPacket = ReadRequiredSample(MainFrameSamplePath, 30398, MainFrameSampleSha256);
+        var alphaPacket = ReadRequiredSample(AlphaFrameSamplePath, 6233, AlphaFrameSampleSha256);
+        var decoder = new RawVp9Decoder();
+
+        var result = decoder.DecodeFrameWithAlpha(colorPacket, alphaPacket, new Vp9DecodeOptions(2656, 1352));
+
+        Assert.False(result.Succeeded);
+        Assert.NotNull(result.Header);
+        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedFeature, result.Diagnostic?.Code);
+        Assert.Contains("pixel reconstruction", result.Diagnostic?.Message);
+    }
+
     private static byte[] CreatePaddedMainFramePacket()
+    {
+        const int firstPartitionSize = 320;
+        const int tileCount = 8;
+        const int tileSizeFieldBytes = 4 * (tileCount - 1);
+        var packet = new byte[MainFrameHeader.Length + firstPartitionSize + tileSizeFieldBytes + tileCount];
+        MainFrameHeader.CopyTo(packet, 0);
+
+        var position = MainFrameHeader.Length + firstPartitionSize;
+        for (var i = 0; i < tileCount - 1; i++)
+        {
+            packet[position + 3] = 1;
+            position += 4;
+            packet[position] = 0x80;
+            position++;
+        }
+
+        packet[position] = 0x80;
+        return packet;
+    }
+
+    private static byte[] CreateHeaderAndCompressedHeaderOnlyPacket()
     {
         var packet = new byte[MainFrameHeader.Length + 320];
         MainFrameHeader.CopyTo(packet, 0);
+        return packet;
+    }
+
+    private static byte[] ReadRequiredSample(string path, int expectedLength, string expectedSha256)
+    {
+        Assert.True(File.Exists(path), $"Required VP9 acceptance sample is missing: {path}");
+        var packet = File.ReadAllBytes(path);
+        Assert.Equal(expectedLength, packet.Length);
+
+        var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(packet)).ToLowerInvariant();
+        Assert.Equal(expectedSha256, hash);
         return packet;
     }
 }

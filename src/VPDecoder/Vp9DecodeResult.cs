@@ -8,9 +8,12 @@ public sealed record Vp9DecodeResult(
 {
     public bool Succeeded => Frame is not null && Diagnostic is null;
 
-    public static Vp9DecodeResult Success(Vp9DecodedFrame frame, Vp9FrameHeader header)
+    public static Vp9DecodeResult Success(
+        Vp9DecodedFrame frame,
+        Vp9FrameHeader header,
+        Vp9CompressedHeader? compressedHeader = null)
     {
-        return new Vp9DecodeResult(frame, header, null, null);
+        return new Vp9DecodeResult(frame, header, compressedHeader, null);
     }
 
     public static Vp9DecodeResult Fail(
