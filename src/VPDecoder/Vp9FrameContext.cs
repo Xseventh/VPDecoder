@@ -29,7 +29,10 @@ public sealed class Vp9FrameContext
     public static Vp9FrameContext CreateDefault()
     {
         var coefficientProbabilities = new byte[CoefficientProbabilityCount];
-        Array.Fill(coefficientProbabilities, (byte)128);
+        CopyCoefficientDefaults(coefficientProbabilities, 0, Vp9DefaultCoefficientProbabilities.FourByFour);
+        CopyCoefficientDefaults(coefficientProbabilities, 1, Vp9DefaultCoefficientProbabilities.EightByEight);
+        CopyCoefficientDefaults(coefficientProbabilities, 2, Vp9DefaultCoefficientProbabilities.SixteenBySixteen);
+        CopyCoefficientDefaults(coefficientProbabilities, 3, Vp9DefaultCoefficientProbabilities.ThirtyTwoByThirtyTwo);
         return new Vp9FrameContext(
             Vp9TxProbabilities.CreateDefault(),
             [192, 128, 64],
@@ -49,6 +52,21 @@ public sealed class Vp9FrameContext
                     Vp9FrameContextConstants.CoefficientBands + coefficientBand) *
                     Vp9FrameContextConstants.CoefficientContexts + coefficientContext) *
                     Vp9FrameContextConstants.UnconstrainedNodes + node;
+    }
+
+    private static void CopyCoefficientDefaults(byte[] coefficientProbabilities, int transformSize, ReadOnlySpan<byte> defaults)
+    {
+        var transformSizeLength = Vp9FrameContextConstants.PlaneTypes *
+            Vp9FrameContextConstants.ReferenceTypes *
+            Vp9FrameContextConstants.CoefficientBands *
+            Vp9FrameContextConstants.CoefficientContexts *
+            Vp9FrameContextConstants.UnconstrainedNodes;
+        if (defaults.Length != transformSizeLength)
+        {
+            throw new InvalidOperationException("VP9 default coefficient probability table has an unexpected length.");
+        }
+
+        defaults.CopyTo(coefficientProbabilities.AsSpan(transformSize * transformSizeLength, transformSizeLength));
     }
 }
 
