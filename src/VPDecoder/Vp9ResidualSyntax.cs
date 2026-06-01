@@ -39,6 +39,12 @@ public sealed record Vp9CoefficientBlockProbe(
     int[] DequantizedCoefficients,
     string CoefficientsSha256);
 
+public sealed record Vp9CoefficientBlockGroupProbe(
+    int TileIndex,
+    Vp9BlockSize BlockSize,
+    Vp9TransformSize TransformSize,
+    IReadOnlyList<Vp9CoefficientBlockProbe> Blocks);
+
 internal static class Vp9ResidualSyntax
 {
     public static Vp9CoefficientTokenProbe ReadFirstYCoefficientToken(
@@ -120,11 +126,18 @@ internal static class Vp9ResidualSyntax
     public static Vp9CoefficientBlockProbe ReadFirstYCoefficientBlock(
         ref Vp9BoolReader reader,
         Vp9KeyFrameDecodeState state,
-        Vp9ModeInfoProbe modeInfo)
+        Vp9ModeInfoProbe modeInfo,
+        int initialCoefficientContext = 0)
     {
         const int planeType = 0;
         const int referenceType = 0;
-        const int initialCoefficientContext = 0;
+
+        if (initialCoefficientContext is < 0 or > 2)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(initialCoefficientContext),
+                "VP9 coefficient entropy context must be between 0 and 2.");
+        }
 
         if (modeInfo.TransformSize != Vp9TransformSize.Tx32X32)
         {
@@ -220,6 +233,51 @@ internal static class Vp9ResidualSyntax
             initialCoefficientContext,
             coefficientIndex,
             coefficients);
+    }
+
+    public static Vp9CoefficientBlockGroupProbe ReadFirstYCoefficientBlocks(
+        ref Vp9BoolReader reader,
+        Vp9KeyFrameDecodeState state,
+        Vp9ModeInfoProbe modeInfo)
+    {
+        if (modeInfo.TransformSize != Vp9TransformSize.Tx32X32)
+        {
+            throw new NotSupportedException("VP9 first Y coefficient block group probe currently supports only TX32 blocks.");
+        }
+
+        var gridSize = GetFirstLeafTx32GridSize(modeInfo.BlockSize);
+        var blocks = new Vp9CoefficientBlockProbe[gridSize * gridSize];
+        var nonZeroContexts = new bool[gridSize, gridSize];
+        for (var row = 0; row < gridSize; row++)
+        {
+            for (var column = 0; column < gridSize; column++)
+            {
+                var blockIndex = (row * gridSize) + column;
+                if (modeInfo.Skip)
+                {
+                    blocks[blockIndex] = CreateBlockProbe(
+                        modeInfo,
+                        planeType: 0,
+                        referenceType: 0,
+                        initialCoefficientContext: 0,
+                        eob: 0,
+                        new int[Vp9ScanTables.GetMaximumEob(modeInfo.TransformSize)]);
+                    continue;
+                }
+
+                var context = (row > 0 && nonZeroContexts[row - 1, column] ? 1 : 0) +
+                    (column > 0 && nonZeroContexts[row, column - 1] ? 1 : 0);
+                var block = ReadFirstYCoefficientBlock(ref reader, state, modeInfo, context);
+                blocks[blockIndex] = block;
+                nonZeroContexts[row, column] = block.Eob > 0;
+            }
+        }
+
+        return new Vp9CoefficientBlockGroupProbe(
+            modeInfo.TileIndex,
+            modeInfo.BlockSize,
+            modeInfo.TransformSize,
+            blocks);
     }
 
     private static Vp9DecodedCoefficient ReadNonZeroCoefficientValue(ref Vp9BoolReader reader, int pivotProbability)
@@ -372,6 +430,17 @@ internal static class Vp9ResidualSyntax
         }
 
         return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes)).ToLowerInvariant();
+    }
+
+    private static int GetFirstLeafTx32GridSize(Vp9BlockSize blockSize)
+    {
+        return blockSize switch
+        {
+            Vp9BlockSize.Block32X32 => 1,
+            Vp9BlockSize.Block64X64 => 2,
+            _ => throw new NotSupportedException(
+                $"VP9 first Y coefficient block group probe does not support block size {blockSize}.")
+        };
     }
 
     private readonly record struct Vp9DecodedCoefficient(int TokenValue, byte TokenCacheValue);

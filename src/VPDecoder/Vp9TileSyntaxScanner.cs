@@ -197,6 +197,52 @@ internal static class Vp9TileSyntaxScanner
         }
     }
 
+    public static bool TryProbeFirstLeafYCoefficientBlocks(
+        ReadOnlyMemory<byte> packet,
+        Vp9KeyFrameDecodeState state,
+        out IReadOnlyList<Vp9CoefficientBlockGroupProbe> probes,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
+        var parsed = new Vp9CoefficientBlockGroupProbe[state.TileGeometries.Count];
+        probes = parsed;
+        diagnostic = null;
+
+        try
+        {
+            for (var i = 0; i < state.TileGeometries.Count; i++)
+            {
+                var geometry = state.TileGeometries[i];
+                if (geometry.Buffer.DataOffset + geometry.Buffer.Size > packet.Length)
+                {
+                    diagnostic = Vp9DecodeDiagnostic.TruncatedPacket("VP9 tile buffer extends past the packet boundary.");
+                    return false;
+                }
+
+                var tileBytes = packet.Span.Slice(geometry.Buffer.DataOffset, geometry.Buffer.Size);
+                var reader = new Vp9BoolReader(tileBytes);
+                var modeInfo = ReadFirstLeafModeInfo(ref reader, state, geometry);
+                parsed[i] = Vp9ResidualSyntax.ReadFirstYCoefficientBlocks(ref reader, state, modeInfo);
+                if (reader.HasError)
+                {
+                    diagnostic = Vp9DecodeDiagnostic.TruncatedPacket("VP9 first Y coefficient block group probe ended unexpectedly.");
+                    return false;
+                }
+            }
+
+            return true;
+        }
+        catch (NotSupportedException ex)
+        {
+            diagnostic = Vp9DecodeDiagnostic.UnsupportedFeature(ex.Message);
+            return false;
+        }
+        catch (Vp9BoolReaderException ex)
+        {
+            diagnostic = ex.Diagnostic;
+            return false;
+        }
+    }
+
     public static bool TryReconstructFirstLeafYDc(
         ReadOnlyMemory<byte> packet,
         Vp9KeyFrameDecodeState state,

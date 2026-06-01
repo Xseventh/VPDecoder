@@ -208,6 +208,63 @@ public sealed class Vp9TileSyntaxScannerTests
     }
 
     [Fact]
+    public void TryProbeFirstLeafYCoefficientBlocks_ForExternalMainFrame_DecodesAllFirstLeafTx32Blocks()
+    {
+        var packet = ReadRequiredSample(
+            "/tmp/vp9-main-frame-0.vp9",
+            30398,
+            "4c57b8dda880711b174483a27e1691c6c9aa9a6721351d041425f8dafb23b7e9");
+        var state = CreateState(packet);
+
+        Assert.True(Vp9TileSyntaxScanner.TryProbeFirstLeafYCoefficientBlocks(packet, state, out var groups, out var diagnostic), diagnostic?.Message);
+
+        var secondState = CreateState(packet);
+        Assert.True(Vp9TileSyntaxScanner.TryProbeFirstLeafYCoefficientBlocks(packet, secondState, out var secondGroups, out var secondDiagnostic), secondDiagnostic?.Message);
+
+        Assert.Equal(8, groups.Count);
+        Assert.Equal(
+            groups.SelectMany(group => group.Blocks).Select(block => block.CoefficientsSha256),
+            secondGroups.SelectMany(group => group.Blocks).Select(block => block.CoefficientsSha256));
+        Assert.All(groups, group =>
+        {
+            Assert.Equal(Vp9BlockSize.Block64X64, group.BlockSize);
+            Assert.Equal(Vp9TransformSize.Tx32X32, group.TransformSize);
+            Assert.Equal(4, group.Blocks.Count);
+            AssertCoefficientBlock(group.Blocks[0], initialContext: 0, eob: 1, nonZeroCount: 1, dc: 16625, firstNonZero: 0, lastNonZero: 0, hash: "3878815e7c5359a006b9706f73c0c80f445f8dc8e063739dd09adf63bb4df1fd");
+            AssertCoefficientBlock(group.Blocks[1], initialContext: 1, eob: 0, nonZeroCount: 0, dc: 0, firstNonZero: -1, lastNonZero: -1, hash: "ad7facb2586fc6e966c004d7d1d16b024f5805ff7cb47c7a85dabd8b48892ca7");
+            AssertCoefficientBlock(group.Blocks[2], initialContext: 1, eob: 1, nonZeroCount: 1, dc: 200, firstNonZero: 0, lastNonZero: 0, hash: "3dc873eebf42181783041b82c11f23cd10404d6ae0a36e5b48463a6deee1e21e");
+            AssertCoefficientBlock(group.Blocks[3], initialContext: 1, eob: 0, nonZeroCount: 0, dc: 0, firstNonZero: -1, lastNonZero: -1, hash: "ad7facb2586fc6e966c004d7d1d16b024f5805ff7cb47c7a85dabd8b48892ca7");
+        });
+    }
+
+    [Fact]
+    public void TryProbeFirstLeafYCoefficientBlocks_ForExternalAlphaFrame_DecodesAllFirstLeafTx32Blocks()
+    {
+        var packet = ReadRequiredSample(
+            "/tmp/vp9-alpha-frame-0.vp9",
+            6233,
+            "94079f539a2165b10f5db2d9e9b5d54ca8df534ca3d36e4eaa1234b0b17a7329");
+        var state = CreateState(packet);
+
+        Assert.True(Vp9TileSyntaxScanner.TryProbeFirstLeafYCoefficientBlocks(packet, state, out var groups, out var diagnostic), diagnostic?.Message);
+
+        var secondState = CreateState(packet);
+        Assert.True(Vp9TileSyntaxScanner.TryProbeFirstLeafYCoefficientBlocks(packet, secondState, out var secondGroups, out var secondDiagnostic), secondDiagnostic?.Message);
+
+        Assert.Equal(8, groups.Count);
+        Assert.Equal(
+            groups.SelectMany(group => group.Blocks).Select(block => block.CoefficientsSha256),
+            secondGroups.SelectMany(group => group.Blocks).Select(block => block.CoefficientsSha256));
+        Assert.All(groups, group =>
+        {
+            Assert.Equal(Vp9BlockSize.Block32X32, group.BlockSize);
+            Assert.Equal(Vp9TransformSize.Tx32X32, group.TransformSize);
+            Assert.Single(group.Blocks);
+            AssertCoefficientBlock(group.Blocks[0], initialContext: 0, eob: 1, nonZeroCount: 1, dc: -16380, firstNonZero: 0, lastNonZero: 0, hash: "11c1b2812be2ade82d7d2f30c5e2fd5f312cff471fd9294ed134e59f004335fc");
+        });
+    }
+
+    [Fact]
     public void TryReconstructFirstLeafYDc_ForExternalMainFrame_WritesDeterministicYBlocks()
     {
         var packet = ReadRequiredSample(
@@ -249,6 +306,29 @@ public sealed class Vp9TileSyntaxScannerTests
         Assert.True(Vp9FrameLayoutParser.TryReadTileBuffers(packet, header, out var tileBuffers, out var layoutDiagnostic), layoutDiagnostic?.Message);
         Assert.True(Vp9KeyFrameDecodeState.TryCreate(header, compressedHeader!, tileBuffers, out var state, out var stateDiagnostic), stateDiagnostic?.Message);
         return state!;
+    }
+
+    private static void AssertCoefficientBlock(
+        Vp9CoefficientBlockProbe block,
+        int initialContext,
+        int eob,
+        int nonZeroCount,
+        int dc,
+        int firstNonZero,
+        int lastNonZero,
+        string hash)
+    {
+        Assert.Equal(Vp9TransformSize.Tx32X32, block.TransformSize);
+        Assert.Equal(0, block.PlaneType);
+        Assert.Equal(0, block.ReferenceType);
+        Assert.Equal(initialContext, block.InitialCoefficientContext);
+        Assert.Equal(eob, block.Eob);
+        Assert.Equal(nonZeroCount, block.NonZeroCount);
+        Assert.Equal(1024, block.DequantizedCoefficients.Length);
+        Assert.Equal(dc, block.DequantizedCoefficients[0]);
+        Assert.Equal(firstNonZero, block.FirstNonZeroRasterIndex);
+        Assert.Equal(lastNonZero, block.LastNonZeroRasterIndex);
+        Assert.Equal(hash, block.CoefficientsSha256);
     }
 
     private static byte[] ReadRequiredSample(string path, int expectedLength, string expectedSha256)
