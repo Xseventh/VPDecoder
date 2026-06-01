@@ -4,6 +4,7 @@ internal sealed record Vp9KeyFrameDecodeState(
     Vp9FrameHeader Header,
     Vp9CompressedHeader CompressedHeader,
     IReadOnlyList<Vp9TileBuffer> TileBuffers,
+    IReadOnlyList<Vp9TileGeometry> TileGeometries,
     Vp9DequantTables DequantTables,
     Vp9YuvFrameBuffer FrameBuffer)
 {
@@ -47,13 +48,20 @@ internal sealed record Vp9KeyFrameDecodeState(
 
         try
         {
+            var tileGeometries = Vp9TileGeometryBuilder.Build(header, tileBuffers);
             state = new Vp9KeyFrameDecodeState(
                 header,
                 compressedHeader,
                 tileBuffers,
+                tileGeometries,
                 Vp9DequantTables.Create(header.Quantization, header.BitDepth),
                 Vp9YuvFrameBuffer.Create(header.Width, header.Height));
             return true;
+        }
+        catch (ArgumentException ex)
+        {
+            diagnostic = Vp9DecodeDiagnostic.InvalidPacket(ex.Message);
+            return false;
         }
         catch (NotSupportedException ex)
         {
