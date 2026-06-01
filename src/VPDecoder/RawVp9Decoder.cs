@@ -68,6 +68,14 @@ public sealed class RawVp9Decoder
                 compressedHeader);
         }
 
+        if (!Vp9KeyFrameDecodeState.TryCreate(header, compressedHeader, tileBuffers, out _, out diagnostic))
+        {
+            return Vp9DecodeResult.Fail(
+                diagnostic ?? Vp9DecodeDiagnostic.InternalDecodeFailure("VP9 key-frame decode state creation failed without a diagnostic."),
+                header,
+                compressedHeader);
+        }
+
         return Vp9DecodeResult.Fail(
             Vp9DecodeDiagnostic.UnsupportedFeature(
                 "VP9 pixel reconstruction is not implemented yet. Header parsing and feature gating succeeded."),
