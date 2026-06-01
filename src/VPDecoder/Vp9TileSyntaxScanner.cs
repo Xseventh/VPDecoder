@@ -275,39 +275,53 @@ internal static class Vp9TileSyntaxScanner
                     return false;
                 }
 
-                var coefficients = Vp9ResidualSyntax.ReadFirstYCoefficientBlock(ref reader, state, modeInfo);
-                if (coefficients.Eob == 0)
-                {
-                    continue;
-                }
-
-                if (coefficients.Eob != 1 || coefficients.DequantizedCoefficients[0] == 0)
-                {
-                    diagnostic = Vp9DecodeDiagnostic.UnsupportedFeature(
-                        "VP9 first-leaf Y DC reconstruction probe supports only DC-only TX32 coefficient blocks.");
-                    return false;
-                }
-
-                var blockSize = modeInfo.BlockSize == Vp9BlockSize.Block64X64 ? 32 : 32;
-                var yOffset = state.FrameBuffer.YPlane.Offset +
-                    (modeInfo.MiRow * 8 * state.FrameBuffer.YStride) +
-                    (modeInfo.MiColumn * 8);
+                var group = Vp9ResidualSyntax.ReadFirstYCoefficientBlocks(ref reader, state, modeInfo);
+                var gridSize = GetFirstLeafTx32GridSize(group.BlockSize);
                 var plane = state.FrameBuffer.Pixels.AsSpan(
                     state.FrameBuffer.YPlane.Offset,
                     state.FrameBuffer.YPlane.Length);
-                var block = state.FrameBuffer.Pixels.AsSpan(yOffset);
-                Vp9IntraPredictor.PredictDc(block, state.FrameBuffer.YStride, blockSize, [], []);
-                Vp9DcOnlyReconstructor.AddDcOnly(
-                    plane,
-                    state.FrameBuffer.YStride,
-                    modeInfo.MiColumn * 8,
-                    modeInfo.MiRow * 8,
-                    blockSize,
-                    coefficients.DequantizedCoefficients[0]);
+                const int transformSize = 32;
+                for (var blockRow = 0; blockRow < gridSize; blockRow++)
+                {
+                    for (var blockColumn = 0; blockColumn < gridSize; blockColumn++)
+                    {
+                        var blockIndex = (blockRow * gridSize) + blockColumn;
+                        var coefficients = group.Blocks[blockIndex];
+                        if (!IsDcOnlyOrEmpty(coefficients))
+                        {
+                            diagnostic = Vp9DecodeDiagnostic.UnsupportedFeature(
+                                "VP9 first-leaf Y DC reconstruction probe supports only empty or DC-only TX32 coefficient blocks.");
+                            return false;
+                        }
+
+                        var x = (modeInfo.MiColumn * 8) + (blockColumn * transformSize);
+                        var y = (modeInfo.MiRow * 8) + (blockRow * transformSize);
+                        var yOffset = state.FrameBuffer.YPlane.Offset + (y * state.FrameBuffer.YStride) + x;
+                        var block = state.FrameBuffer.Pixels.AsSpan(yOffset);
+                        var above = blockRow > 0 ? ReadAboveEdge(plane, state.FrameBuffer.YStride, x, y, transformSize) : [];
+                        var left = blockColumn > 0 ? ReadLeftEdge(plane, state.FrameBuffer.YStride, x, y, transformSize) : [];
+                        Vp9IntraPredictor.PredictDc(block, state.FrameBuffer.YStride, transformSize, above, left);
+                        if (coefficients.DequantizedCoefficients[0] != 0)
+                        {
+                            Vp9DcOnlyReconstructor.AddDcOnly(
+                                plane,
+                                state.FrameBuffer.YStride,
+                                x,
+                                y,
+                                transformSize,
+                                coefficients.DequantizedCoefficients[0]);
+                        }
+                    }
+                }
             }
 
             frame = state.FrameBuffer.ToDecodedFrame();
             return true;
+        }
+        catch (NotSupportedException ex)
+        {
+            diagnostic = Vp9DecodeDiagnostic.UnsupportedFeature(ex.Message);
+            return false;
         }
         catch (Vp9BoolReaderException ex)
         {
@@ -376,5 +390,46 @@ internal static class Vp9TileSyntaxScanner
             transformSizeContext,
             yMode,
             uvMode);
+    }
+
+    private static bool IsDcOnlyOrEmpty(Vp9CoefficientBlockProbe coefficients)
+    {
+        return coefficients.Eob switch
+        {
+            0 => coefficients.NonZeroCount == 0,
+            1 => coefficients.NonZeroCount == 1 &&
+                coefficients.FirstNonZeroRasterIndex == 0 &&
+                coefficients.LastNonZeroRasterIndex == 0,
+            _ => false
+        };
+    }
+
+    private static byte[] ReadAboveEdge(ReadOnlySpan<byte> plane, int stride, int x, int y, int size)
+    {
+        var above = new byte[size];
+        plane.Slice(((y - 1) * stride) + x, size).CopyTo(above);
+        return above;
+    }
+
+    private static byte[] ReadLeftEdge(ReadOnlySpan<byte> plane, int stride, int x, int y, int size)
+    {
+        var left = new byte[size];
+        for (var row = 0; row < size; row++)
+        {
+            left[row] = plane[((y + row) * stride) + x - 1];
+        }
+
+        return left;
+    }
+
+    private static int GetFirstLeafTx32GridSize(Vp9BlockSize blockSize)
+    {
+        return blockSize switch
+        {
+            Vp9BlockSize.Block32X32 => 1,
+            Vp9BlockSize.Block64X64 => 2,
+            _ => throw new NotSupportedException(
+                $"VP9 first-leaf Y DC reconstruction probe does not support block size {blockSize}.")
+        };
     }
 }

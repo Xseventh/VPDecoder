@@ -278,8 +278,11 @@ public sealed class Vp9TileSyntaxScannerTests
         Assert.NotNull(frame);
         Assert.Equal(Vp9OutputPixelFormat.Yuv420, frame.PixelFormat);
         Assert.Equal(5_386_368, frame.Pixels.Length);
-        Assert.Equal(8192, frame.Pixels.Count(value => value != 0));
-        Assert.All(frame.Pixels.Take(32), value => Assert.Equal(255, value));
+        Assert.Equal(32768, frame.Pixels.Count(value => value != 0));
+        foreach (var x in new[] { 0, 320, 640, 960, 1344, 1664, 1984, 2304 })
+        {
+            AssertYBlock(frame, x, y: 0, size: 64, expected: 255);
+        }
     }
 
     [Fact]
@@ -329,6 +332,16 @@ public sealed class Vp9TileSyntaxScannerTests
         Assert.Equal(firstNonZero, block.FirstNonZeroRasterIndex);
         Assert.Equal(lastNonZero, block.LastNonZeroRasterIndex);
         Assert.Equal(hash, block.CoefficientsSha256);
+    }
+
+    private static void AssertYBlock(Vp9DecodedFrame frame, int x, int y, int size, byte expected)
+    {
+        var yPlane = frame.Planes[0];
+        for (var row = 0; row < size; row++)
+        {
+            var offset = yPlane.Offset + ((y + row) * yPlane.Stride) + x;
+            Assert.All(frame.Pixels.Skip(offset).Take(size), value => Assert.Equal(expected, value));
+        }
     }
 
     private static byte[] ReadRequiredSample(string path, int expectedLength, string expectedSha256)
