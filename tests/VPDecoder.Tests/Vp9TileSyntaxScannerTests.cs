@@ -45,6 +45,56 @@ public sealed class Vp9TileSyntaxScannerTests
         Assert.Equal([0, 40, 80, 120, 168, 208, 248, 288], probes.Select(probe => probe.MiColumn).ToArray());
     }
 
+    [Fact]
+    public void TryProbeFirstLeafModeInfo_ForExternalMainFrame_ReadsExpectedFirstLeafModes()
+    {
+        var packet = ReadRequiredSample(
+            "/tmp/vp9-main-frame-0.vp9",
+            30398,
+            "4c57b8dda880711b174483a27e1691c6c9aa9a6721351d041425f8dafb23b7e9");
+        var state = CreateState(packet);
+
+        Assert.True(Vp9TileSyntaxScanner.TryProbeFirstLeafModeInfo(packet, state, out var probes, out var diagnostic), diagnostic?.Message);
+
+        Assert.Equal(8, probes.Count);
+        Assert.All(probes, probe =>
+        {
+            Assert.Equal([Vp9PartitionType.None], probe.PartitionPath);
+            Assert.Equal(Vp9BlockSize.Block64X64, probe.BlockSize);
+            Assert.False(probe.Skip);
+            Assert.Equal(0, probe.SkipContext);
+            Assert.Equal(Vp9TransformSize.Tx32X32, probe.TransformSize);
+            Assert.Equal(1, probe.TransformSizeContext);
+            Assert.Equal(Vp9PredictionMode.Dc, probe.YMode);
+            Assert.Equal(Vp9PredictionMode.Dc, probe.UvMode);
+        });
+    }
+
+    [Fact]
+    public void TryProbeFirstLeafModeInfo_ForExternalAlphaFrame_ReadsExpectedFirstLeafModes()
+    {
+        var packet = ReadRequiredSample(
+            "/tmp/vp9-alpha-frame-0.vp9",
+            6233,
+            "94079f539a2165b10f5db2d9e9b5d54ca8df534ca3d36e4eaa1234b0b17a7329");
+        var state = CreateState(packet);
+
+        Assert.True(Vp9TileSyntaxScanner.TryProbeFirstLeafModeInfo(packet, state, out var probes, out var diagnostic), diagnostic?.Message);
+
+        Assert.Equal(8, probes.Count);
+        Assert.All(probes, probe =>
+        {
+            Assert.Equal([Vp9PartitionType.Split, Vp9PartitionType.None], probe.PartitionPath);
+            Assert.Equal(Vp9BlockSize.Block32X32, probe.BlockSize);
+            Assert.False(probe.Skip);
+            Assert.Equal(0, probe.SkipContext);
+            Assert.Equal(Vp9TransformSize.Tx32X32, probe.TransformSize);
+            Assert.Equal(1, probe.TransformSizeContext);
+            Assert.Equal(Vp9PredictionMode.Dc, probe.YMode);
+            Assert.Equal(Vp9PredictionMode.Dc, probe.UvMode);
+        });
+    }
+
     private static Vp9KeyFrameDecodeState CreateState(byte[] packet)
     {
         var header = Vp9FrameHeaderParser.Parse(packet);

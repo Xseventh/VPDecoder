@@ -59,4 +59,111 @@ internal static class Vp9TileSyntaxScanner
             return false;
         }
     }
+
+    public static bool TryProbeFirstLeafModeInfo(
+        ReadOnlyMemory<byte> packet,
+        Vp9KeyFrameDecodeState state,
+        out IReadOnlyList<Vp9ModeInfoProbe> probes,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
+        var parsed = new Vp9ModeInfoProbe[state.TileGeometries.Count];
+        probes = parsed;
+        diagnostic = null;
+
+        try
+        {
+            for (var i = 0; i < state.TileGeometries.Count; i++)
+            {
+                var geometry = state.TileGeometries[i];
+                if (geometry.Buffer.DataOffset + geometry.Buffer.Size > packet.Length)
+                {
+                    diagnostic = Vp9DecodeDiagnostic.TruncatedPacket("VP9 tile buffer extends past the packet boundary.");
+                    return false;
+                }
+
+                var tileBytes = packet.Span.Slice(geometry.Buffer.DataOffset, geometry.Buffer.Size);
+                var reader = new Vp9BoolReader(tileBytes);
+                parsed[i] = ReadFirstLeafModeInfo(ref reader, state, geometry);
+                if (reader.HasError)
+                {
+                    diagnostic = Vp9DecodeDiagnostic.TruncatedPacket("VP9 tile mode-info probe ended unexpectedly.");
+                    return false;
+                }
+            }
+
+            return true;
+        }
+        catch (NotSupportedException ex)
+        {
+            diagnostic = Vp9DecodeDiagnostic.UnsupportedPredictionMode(ex.Message);
+            return false;
+        }
+        catch (Vp9BoolReaderException ex)
+        {
+            diagnostic = ex.Diagnostic;
+            return false;
+        }
+    }
+
+    private static Vp9ModeInfoProbe ReadFirstLeafModeInfo(
+        ref Vp9BoolReader reader,
+        Vp9KeyFrameDecodeState state,
+        Vp9TileGeometry geometry)
+    {
+        var miRow = geometry.MiRowStart;
+        var miColumn = geometry.MiColumnStart;
+        var blockSize = Vp9BlockSize.Block64X64;
+        var partitionPath = new List<Vp9PartitionType>();
+
+        while (true)
+        {
+            var hbs = Vp9ModeInfoSyntax.GetHalfBlockSizeInMiUnits(blockSize);
+            var hasRows = miRow + hbs < state.Header.TileInfo.MiRows;
+            var hasColumns = miColumn + hbs < state.Header.TileInfo.MiColumns;
+            var context = Vp9PartitionSyntax.GetPartitionContext(
+                aboveContext: 0,
+                leftContext: 0,
+                Vp9ModeInfoSyntax.GetPartitionContextLog2(blockSize));
+            var partition = Vp9PartitionSyntax.ReadPartition(ref reader, context, hasRows, hasColumns);
+            partitionPath.Add(partition);
+            blockSize = Vp9ModeInfoSyntax.GetSubsize(blockSize, partition);
+
+            if (partition != Vp9PartitionType.Split)
+            {
+                break;
+            }
+
+            if (blockSize < Vp9BlockSize.Block8X8)
+            {
+                throw new NotSupportedException("VP9 sub-8x8 key-frame mode info is not supported yet.");
+            }
+        }
+
+        if (blockSize < Vp9BlockSize.Block8X8)
+        {
+            throw new NotSupportedException("VP9 sub-8x8 key-frame mode info is not supported yet.");
+        }
+
+        var skip = Vp9ModeInfoSyntax.ReadSkip(ref reader, state.CompressedHeader.FrameContext, out var skipContext);
+        var transformSize = Vp9ModeInfoSyntax.ReadTransformSize(
+            ref reader,
+            state.CompressedHeader,
+            blockSize,
+            out var transformSizeContext);
+        var yMode = Vp9ModeInfoSyntax.ReadFirstLeafYMode(ref reader);
+        var uvMode = Vp9ModeInfoSyntax.ReadUvMode(ref reader, yMode);
+
+        return new Vp9ModeInfoProbe(
+            geometry.Buffer.Index,
+            miRow,
+            miColumn,
+            blockSize,
+            partitionPath,
+            skip,
+            skipContext,
+            transformSize,
+            transformSizeContext,
+            yMode,
+            uvMode);
+    }
 }
