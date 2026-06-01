@@ -144,26 +144,8 @@ public sealed class RawVp9Decoder
                 colorResult.CompressedHeader);
         }
 
-        var merged = (byte[])colorResult.Frame.Pixels.Clone();
-        var colorStride = colorResult.Frame.Stride;
-        var alphaStride = alphaResult.Frame.Stride;
-        for (var y = 0; y < colorResult.Frame.Height; y++)
-        {
-            var colorRow = y * colorStride;
-            var alphaRow = y * alphaStride;
-            for (var x = 0; x < colorResult.Frame.Width; x++)
-            {
-                merged[colorRow + (x * 4) + 3] = alphaResult.Frame.Pixels[alphaRow + (x * 4) + 2];
-            }
-        }
-
         return Vp9DecodeResult.Success(
-            Vp9DecodedFrame.CreatePacked(
-                colorResult.Frame.Width,
-                colorResult.Frame.Height,
-                Vp9OutputPixelFormat.Bgra8888,
-                merged,
-                colorStride),
+            Vp9AlphaComposer.MergeBgraWithBgraAlpha(colorResult.Frame, alphaResult.Frame),
             colorResult.Header!,
             colorResult.CompressedHeader);
     }

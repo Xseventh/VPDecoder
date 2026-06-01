@@ -1,0 +1,67 @@
+namespace VPDecoder;
+
+public static class Vp9AlphaComposer
+{
+    public static Vp9DecodedFrame MergeBgraWithBgraAlpha(Vp9DecodedFrame colorFrame, Vp9DecodedFrame alphaFrame)
+    {
+        if (colorFrame.PixelFormat != Vp9OutputPixelFormat.Bgra8888 || alphaFrame.PixelFormat != Vp9OutputPixelFormat.Bgra8888)
+        {
+            throw new ArgumentException("VP9 BGRA alpha merge requires BGRA8888 color and alpha frames.");
+        }
+
+        ValidateMatchingDimensions(colorFrame, alphaFrame);
+        var merged = (byte[])colorFrame.Pixels.Clone();
+        for (var y = 0; y < colorFrame.Height; y++)
+        {
+            var colorRow = y * colorFrame.Stride;
+            var alphaRow = y * alphaFrame.Stride;
+            for (var x = 0; x < colorFrame.Width; x++)
+            {
+                merged[colorRow + (x * 4) + 3] = alphaFrame.Pixels[alphaRow + (x * 4) + 2];
+            }
+        }
+
+        return Vp9DecodedFrame.CreatePacked(
+            colorFrame.Width,
+            colorFrame.Height,
+            Vp9OutputPixelFormat.Bgra8888,
+            merged,
+            colorFrame.Stride);
+    }
+
+    public static Vp9DecodedFrame MergeBgraWithYuvAlpha(Vp9DecodedFrame colorFrame, Vp9DecodedFrame alphaFrame)
+    {
+        if (colorFrame.PixelFormat != Vp9OutputPixelFormat.Bgra8888 || alphaFrame.PixelFormat != Vp9OutputPixelFormat.Yuv420)
+        {
+            throw new ArgumentException("VP9 YUV alpha merge requires BGRA8888 color and YUV420 alpha frames.");
+        }
+
+        ValidateMatchingDimensions(colorFrame, alphaFrame);
+        var yPlane = alphaFrame.Planes.Single(plane => plane.Plane == Vp9Plane.Y);
+        var merged = (byte[])colorFrame.Pixels.Clone();
+        for (var y = 0; y < colorFrame.Height; y++)
+        {
+            var colorRow = y * colorFrame.Stride;
+            var alphaRow = yPlane.Offset + (y * yPlane.Stride);
+            for (var x = 0; x < colorFrame.Width; x++)
+            {
+                merged[colorRow + (x * 4) + 3] = alphaFrame.Pixels[alphaRow + x];
+            }
+        }
+
+        return Vp9DecodedFrame.CreatePacked(
+            colorFrame.Width,
+            colorFrame.Height,
+            Vp9OutputPixelFormat.Bgra8888,
+            merged,
+            colorFrame.Stride);
+    }
+
+    private static void ValidateMatchingDimensions(Vp9DecodedFrame colorFrame, Vp9DecodedFrame alphaFrame)
+    {
+        if (colorFrame.Width != alphaFrame.Width || colorFrame.Height != alphaFrame.Height)
+        {
+            throw new ArgumentException("VP9 alpha frame dimensions must match the color frame.");
+        }
+    }
+}
