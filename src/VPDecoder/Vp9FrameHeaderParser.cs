@@ -369,6 +369,7 @@ public static class Vp9FrameHeaderParser
         {
             maxLog2TileColumns++;
         }
+        maxLog2TileColumns--;
 
         var log2TileColumns = minLog2TileColumns;
         for (var maxOnes = maxLog2TileColumns - minLog2TileColumns; maxOnes > 0 && reader.ReadBit(); maxOnes--)

@@ -42,7 +42,7 @@ public sealed class Vp9FrameHeaderParserTests
         Assert.Equal(169, header.TileInfo.MiRows);
         Assert.Equal(8, header.TileInfo.TileColumns);
         Assert.Equal(1, header.TileInfo.TileRows);
-        Assert.Equal(640, header.FirstPartitionSize);
+        Assert.Equal(320, header.FirstPartitionSize);
         Assert.Equal(18, header.HeaderSizeInBytes);
     }
 
@@ -56,7 +56,7 @@ public sealed class Vp9FrameHeaderParserTests
         Assert.Equal(1352, header.Height);
         Assert.Equal(9, header.LoopFilter.FilterLevel);
         Assert.Equal(58, header.Quantization.BaseQIndex);
-        Assert.Equal(284, header.FirstPartitionSize);
+        Assert.Equal(142, header.FirstPartitionSize);
         Assert.Equal(8, header.TileInfo.TileColumns);
     }
 

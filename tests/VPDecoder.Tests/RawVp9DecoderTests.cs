@@ -68,7 +68,7 @@ public sealed class RawVp9DecoderTests
         Assert.Equal(2656, result.Header.Width);
         Assert.Equal(1352, result.Header.Height);
         Assert.Equal(30398, result.Header.PacketLength);
-        Assert.Equal(640, result.Header.FirstPartitionSize);
+        Assert.Equal(320, result.Header.FirstPartitionSize);
         Assert.Equal(8, result.Header.TileInfo.TileColumns);
         Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedFeature, result.Diagnostic?.Code);
     }
@@ -91,13 +91,13 @@ public sealed class RawVp9DecoderTests
         Assert.NotNull(result.Header);
         Assert.Equal(Vp9ColorRange.Studio, result.Header.ColorRange);
         Assert.Equal(6233, result.Header.PacketLength);
-        Assert.Equal(284, result.Header.FirstPartitionSize);
+        Assert.Equal(142, result.Header.FirstPartitionSize);
         Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedFeature, result.Diagnostic?.Code);
     }
 
     private static byte[] CreatePaddedMainFramePacket()
     {
-        var packet = new byte[MainFrameHeader.Length + 640];
+        var packet = new byte[MainFrameHeader.Length + 320];
         MainFrameHeader.CopyTo(packet, 0);
         return packet;
     }
