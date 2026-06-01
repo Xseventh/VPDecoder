@@ -229,10 +229,17 @@ internal static class Vp9TileSyntaxScanner
                     return false;
                 }
 
-                var token = Vp9ResidualSyntax.ReadFirstYCoefficientToken(ref reader, state, modeInfo);
-                if (token.DequantizedValue is null)
+                var coefficients = Vp9ResidualSyntax.ReadFirstYCoefficientBlock(ref reader, state, modeInfo);
+                if (coefficients.Eob == 0)
                 {
                     continue;
+                }
+
+                if (coefficients.Eob != 1 || coefficients.DequantizedCoefficients[0] == 0)
+                {
+                    diagnostic = Vp9DecodeDiagnostic.UnsupportedFeature(
+                        "VP9 first-leaf Y DC reconstruction probe supports only DC-only TX32 coefficient blocks.");
+                    return false;
                 }
 
                 var blockSize = modeInfo.BlockSize == Vp9BlockSize.Block64X64 ? 32 : 32;
@@ -250,7 +257,7 @@ internal static class Vp9TileSyntaxScanner
                     modeInfo.MiColumn * 8,
                     modeInfo.MiRow * 8,
                     blockSize,
-                    token.DequantizedValue.Value);
+                    coefficients.DequantizedCoefficients[0]);
             }
 
             frame = state.FrameBuffer.ToDecodedFrame();

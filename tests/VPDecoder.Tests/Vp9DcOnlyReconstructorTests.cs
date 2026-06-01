@@ -7,6 +7,8 @@ public sealed class Vp9DcOnlyReconstructorTests
     [InlineData(8, 32, 1)]
     [InlineData(16, 64, 1)]
     [InlineData(32, 128, 1)]
+    [InlineData(32, 16625, 130)]
+    [InlineData(32, -16380, -128)]
     public void GetDcResidual_ReturnsRoundedResidual(int size, int dequantizedDc, int expected)
     {
         Assert.Equal(expected, Vp9DcOnlyReconstructor.GetDcResidual(size, dequantizedDc));
@@ -22,7 +24,7 @@ public sealed class Vp9DcOnlyReconstructorTests
 
         for (var y = 0; y < 4; y++)
         {
-            Assert.Equal([228, 228, 228, 228], plane.Skip(y * 8).Take(4).ToArray());
+            Assert.Equal([178, 178, 178, 178], plane.Skip(y * 8).Take(4).ToArray());
         }
     }
 }
