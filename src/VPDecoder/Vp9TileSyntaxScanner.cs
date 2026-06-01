@@ -151,6 +151,72 @@ internal static class Vp9TileSyntaxScanner
         }
     }
 
+    public static bool TryReconstructFirstLeafYDc(
+        ReadOnlyMemory<byte> packet,
+        Vp9KeyFrameDecodeState state,
+        out Vp9DecodedFrame? frame,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
+        frame = null;
+        diagnostic = null;
+
+        try
+        {
+            for (var i = 0; i < state.TileGeometries.Count; i++)
+            {
+                var geometry = state.TileGeometries[i];
+                if (geometry.Buffer.DataOffset + geometry.Buffer.Size > packet.Length)
+                {
+                    diagnostic = Vp9DecodeDiagnostic.TruncatedPacket("VP9 tile buffer extends past the packet boundary.");
+                    return false;
+                }
+
+                var tileBytes = packet.Span.Slice(geometry.Buffer.DataOffset, geometry.Buffer.Size);
+                var reader = new Vp9BoolReader(tileBytes);
+                var modeInfo = ReadFirstLeafModeInfo(ref reader, state, geometry);
+                if (modeInfo.BlockSize is not (Vp9BlockSize.Block64X64 or Vp9BlockSize.Block32X32) ||
+                    modeInfo.YMode != Vp9PredictionMode.Dc ||
+                    modeInfo.UvMode != Vp9PredictionMode.Dc)
+                {
+                    diagnostic = Vp9DecodeDiagnostic.UnsupportedPredictionMode(
+                        "VP9 first-leaf Y DC reconstruction probe supports only DC intra modes on 32x32 or 64x64 blocks.");
+                    return false;
+                }
+
+                var token = Vp9ResidualSyntax.ReadFirstYCoefficientToken(ref reader, state, modeInfo);
+                if (token.DequantizedValue is null)
+                {
+                    continue;
+                }
+
+                var blockSize = modeInfo.BlockSize == Vp9BlockSize.Block64X64 ? 32 : 32;
+                var yOffset = state.FrameBuffer.YPlane.Offset +
+                    (modeInfo.MiRow * 8 * state.FrameBuffer.YStride) +
+                    (modeInfo.MiColumn * 8);
+                var plane = state.FrameBuffer.Pixels.AsSpan(
+                    state.FrameBuffer.YPlane.Offset,
+                    state.FrameBuffer.YPlane.Length);
+                var block = state.FrameBuffer.Pixels.AsSpan(yOffset);
+                Vp9IntraPredictor.PredictDc(block, state.FrameBuffer.YStride, blockSize, [], []);
+                Vp9DcOnlyReconstructor.AddDcOnly(
+                    plane,
+                    state.FrameBuffer.YStride,
+                    modeInfo.MiColumn * 8,
+                    modeInfo.MiRow * 8,
+                    blockSize,
+                    token.DequantizedValue.Value);
+            }
+
+            frame = state.FrameBuffer.ToDecodedFrame();
+            return true;
+        }
+        catch (Vp9BoolReaderException ex)
+        {
+            diagnostic = ex.Diagnostic;
+            return false;
+        }
+    }
+
     private static Vp9ModeInfoProbe ReadFirstLeafModeInfo(
         ref Vp9BoolReader reader,
         Vp9KeyFrameDecodeState state,

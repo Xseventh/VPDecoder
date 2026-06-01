@@ -143,6 +143,41 @@ public sealed class Vp9TileSyntaxScannerTests
         });
     }
 
+    [Fact]
+    public void TryReconstructFirstLeafYDc_ForExternalMainFrame_WritesDeterministicYBlocks()
+    {
+        var packet = ReadRequiredSample(
+            "/tmp/vp9-main-frame-0.vp9",
+            30398,
+            "4c57b8dda880711b174483a27e1691c6c9aa9a6721351d041425f8dafb23b7e9");
+        var state = CreateState(packet);
+
+        Assert.True(Vp9TileSyntaxScanner.TryReconstructFirstLeafYDc(packet, state, out var frame, out var diagnostic), diagnostic?.Message);
+
+        Assert.NotNull(frame);
+        Assert.Equal(Vp9OutputPixelFormat.Yuv420, frame.PixelFormat);
+        Assert.Equal(5_386_368, frame.Pixels.Length);
+        Assert.Equal(8192, frame.Pixels.Count(value => value != 0));
+        Assert.All(frame.Pixels.Take(32), value => Assert.Equal(255, value));
+    }
+
+    [Fact]
+    public void TryReconstructFirstLeafYDc_ForExternalAlphaFrame_ClipsNegativeDcToZero()
+    {
+        var packet = ReadRequiredSample(
+            "/tmp/vp9-alpha-frame-0.vp9",
+            6233,
+            "94079f539a2165b10f5db2d9e9b5d54ca8df534ca3d36e4eaa1234b0b17a7329");
+        var state = CreateState(packet);
+
+        Assert.True(Vp9TileSyntaxScanner.TryReconstructFirstLeafYDc(packet, state, out var frame, out var diagnostic), diagnostic?.Message);
+
+        Assert.NotNull(frame);
+        Assert.Equal(Vp9OutputPixelFormat.Yuv420, frame.PixelFormat);
+        Assert.Equal(5_386_368, frame.Pixels.Length);
+        Assert.All(frame.Pixels, value => Assert.Equal(0, value));
+    }
+
     private static Vp9KeyFrameDecodeState CreateState(byte[] packet)
     {
         var header = Vp9FrameHeaderParser.Parse(packet);
