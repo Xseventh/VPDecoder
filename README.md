@@ -14,9 +14,11 @@ Current status:
 - Parses VP9 compressed-header transform mode, TX probability updates,
   coefficient probability updates, and skip probability updates.
 - Builds key-frame decode state, dequant tables, YUV420 frame buffers, and
-  libvpx-derived default coefficient probabilities.
+  libvpx-derived default coefficient probabilities, Pareto coefficient
+  probability models, and TX32 scan tables.
 - Probes early tile syntax for the provided samples: first superblock
-  partition, first key-frame mode-info fields, and first Y coefficient token.
+  partition, first key-frame mode-info fields, first Y coefficient token, and
+  full first Y TX32 coefficient block.
 - Converts decoded YUV420 frames to BGRA8888/RGBA8888 and composes alpha from
   either BGRA red or YUV luma once real frame pixels are available.
 - Provides a small raw VP9 CLI smoke workflow in `src/VPDecoder.Cli`.
@@ -26,7 +28,7 @@ Current status:
   2656x1352, 8 tile columns.
 - Fails explicitly for unsupported decode work instead of emitting pixels.
 
-Pixel reconstruction, full residual decode, inverse transforms, intra
+Pixel reconstruction, full-frame residual decode, inverse transforms, intra
 prediction, loop filtering, inter frames, and real VP8 decoding are planned
 follow-up slices. The decoder must continue to return explicit unsupported
 diagnostics until those pieces are complete.
