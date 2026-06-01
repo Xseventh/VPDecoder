@@ -18,7 +18,9 @@ public sealed class RawVp9DecoderTests
 
         Assert.False(result.Succeeded);
         Assert.NotNull(result.Header);
+        Assert.NotNull(result.CompressedHeader);
         Assert.Equal(2656, result.Header.Width);
+        Assert.Equal(Vp9TransformMode.Only4X4, result.CompressedHeader.TransformMode);
         Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedFeature, result.Diagnostic?.Code);
         Assert.Contains("pixel reconstruction", result.Diagnostic?.Message);
     }
@@ -34,6 +36,22 @@ public sealed class RawVp9DecoderTests
         Assert.False(result.Succeeded);
         Assert.Equal(Vp9DecodeDiagnosticCode.DimensionMismatch, result.Diagnostic?.Code);
         Assert.NotNull(result.Header);
+    }
+
+    [Fact]
+    public void DecodeFrame_WhenCompressedHeaderMarkerIsInvalid_ReturnsInvalidPacket()
+    {
+        var packet = CreatePaddedMainFramePacket();
+        var frameHeader = Vp9FrameHeaderParser.Parse(packet);
+        packet[frameHeader.HeaderSizeInBytes] = 0xff;
+        var decoder = new RawVp9Decoder();
+
+        var result = decoder.DecodeFrame(packet, new Vp9DecodeOptions(2656, 1352));
+
+        Assert.False(result.Succeeded);
+        Assert.NotNull(result.Header);
+        Assert.Null(result.CompressedHeader);
+        Assert.Equal(Vp9DecodeDiagnosticCode.InvalidPacket, result.Diagnostic?.Code);
     }
 
     [Fact]
@@ -70,6 +88,8 @@ public sealed class RawVp9DecoderTests
         Assert.Equal(30398, result.Header.PacketLength);
         Assert.Equal(320, result.Header.FirstPartitionSize);
         Assert.Equal(8, result.Header.TileInfo.TileColumns);
+        Assert.NotNull(result.CompressedHeader);
+        Assert.Equal(Vp9TransformMode.Select, result.CompressedHeader.TransformMode);
         Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedFeature, result.Diagnostic?.Code);
     }
 

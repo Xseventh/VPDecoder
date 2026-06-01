@@ -32,10 +32,25 @@ public sealed class RawVp9Decoder
             return Vp9DecodeResult.Fail(diagnostic, header);
         }
 
+        if (!Vp9CompressedHeaderParser.TryParse(packet, header, out var compressedHeader, out diagnostic))
+        {
+            return Vp9DecodeResult.Fail(
+                diagnostic ?? Vp9DecodeDiagnostic.InternalDecodeFailure("VP9 compressed header parser failed without a diagnostic."),
+                header);
+        }
+
+        if (compressedHeader is null)
+        {
+            return Vp9DecodeResult.Fail(
+                Vp9DecodeDiagnostic.InternalDecodeFailure("VP9 compressed header parser succeeded without returning a header."),
+                header);
+        }
+
         return Vp9DecodeResult.Fail(
             Vp9DecodeDiagnostic.UnsupportedFeature(
                 "VP9 pixel reconstruction is not implemented yet. Header parsing and feature gating succeeded."),
-            header);
+            header,
+            compressedHeader);
     }
 
     public void Reset()
