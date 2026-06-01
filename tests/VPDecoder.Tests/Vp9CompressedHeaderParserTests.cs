@@ -2,21 +2,54 @@ namespace VPDecoder.Tests;
 
 public sealed class Vp9CompressedHeaderParserTests
 {
-    [Fact]
-    public void TryParse_ExternalMainFrameSample_ReturnsTransformModeWhenPresent()
-    {
-        var path = "/tmp/vp9-main-frame-0.vp9";
-        if (!File.Exists(path))
-        {
-            return;
-        }
+    private const string MainFrameSamplePath = "/tmp/vp9-main-frame-0.vp9";
+    private const string MainFrameSampleSha256 = "4c57b8dda880711b174483a27e1691c6c9aa9a6721351d041425f8dafb23b7e9";
+    private const string AlphaFrameSamplePath = "/tmp/vp9-alpha-frame-0.vp9";
+    private const string AlphaFrameSampleSha256 = "94079f539a2165b10f5db2d9e9b5d54ca8df534ca3d36e4eaa1234b0b17a7329";
 
-        var packet = File.ReadAllBytes(path);
+    [Fact]
+    public void TryParse_ExternalMainFrameSample_ReturnsProbabilityUpdateSummary()
+    {
+        var packet = ReadRequiredSample(MainFrameSamplePath, 30398, MainFrameSampleSha256);
         var frameHeader = Vp9FrameHeaderParser.Parse(packet);
 
         Assert.True(Vp9CompressedHeaderParser.TryParse(packet, frameHeader, out var compressedHeader, out var diagnostic), diagnostic?.Message);
         Assert.NotNull(compressedHeader);
         Assert.Equal(Vp9TransformMode.Select, compressedHeader.TransformMode);
+        Assert.Equal(9, compressedHeader.TxProbabilityUpdateCount);
+        Assert.Equal(200, compressedHeader.CoefficientProbabilityUpdateCount);
+        Assert.Equal(1, compressedHeader.SkipProbabilityUpdateCount);
+        Assert.Equal([192, 128, 42], compressedHeader.FrameContext.SkipProbabilities);
+    }
+
+    [Fact]
+    public void TryParse_ExternalAlphaFrameSample_ReturnsProbabilityUpdateSummary()
+    {
+        var packet = ReadRequiredSample(AlphaFrameSamplePath, 6233, AlphaFrameSampleSha256);
+        var frameHeader = Vp9FrameHeaderParser.Parse(packet);
+
+        Assert.True(Vp9CompressedHeaderParser.TryParse(packet, frameHeader, out var compressedHeader, out var diagnostic), diagnostic?.Message);
+        Assert.NotNull(compressedHeader);
+        Assert.Equal(Vp9TransformMode.Select, compressedHeader.TransformMode);
+        Assert.Equal(9, compressedHeader.TxProbabilityUpdateCount);
+        Assert.Equal(84, compressedHeader.CoefficientProbabilityUpdateCount);
+        Assert.Equal(2, compressedHeader.SkipProbabilityUpdateCount);
+        Assert.Equal([192, 111, 21], compressedHeader.FrameContext.SkipProbabilities);
+    }
+
+    [Fact]
+    public void TryParse_WhenCompressedHeaderHasNoUpdates_ReturnsDefaultFrameContext()
+    {
+        var packet = CreatePaddedMainFramePacket();
+        var frameHeader = Vp9FrameHeaderParser.Parse(packet);
+
+        Assert.True(Vp9CompressedHeaderParser.TryParse(packet, frameHeader, out var compressedHeader, out var diagnostic), diagnostic?.Message);
+        Assert.NotNull(compressedHeader);
+        Assert.Equal(Vp9TransformMode.Only4X4, compressedHeader.TransformMode);
+        Assert.Equal(0, compressedHeader.TxProbabilityUpdateCount);
+        Assert.Equal(0, compressedHeader.CoefficientProbabilityUpdateCount);
+        Assert.Equal(0, compressedHeader.SkipProbabilityUpdateCount);
+        Assert.Equal([192, 128, 64], compressedHeader.FrameContext.SkipProbabilities);
     }
 
     [Fact]
@@ -41,6 +74,17 @@ public sealed class Vp9CompressedHeaderParserTests
         ];
         var packet = new byte[header.Length + 320];
         header.CopyTo(packet, 0);
+        return packet;
+    }
+
+    private static byte[] ReadRequiredSample(string path, int expectedLength, string expectedSha256)
+    {
+        Assert.True(File.Exists(path), $"Required VP9 acceptance sample is missing: {path}");
+        var packet = File.ReadAllBytes(path);
+        Assert.Equal(expectedLength, packet.Length);
+
+        var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(packet)).ToLowerInvariant();
+        Assert.Equal(expectedSha256, hash);
         return packet;
     }
 }
