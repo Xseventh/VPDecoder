@@ -1,5 +1,7 @@
 namespace VPDecoder.Tests;
 
+using System.Diagnostics;
+
 public sealed class RawVp9DecoderTests
 {
     private const string MainFrameSamplePath = "/tmp/vp9-main-frame-0.vp9";
@@ -174,6 +176,25 @@ public sealed class RawVp9DecoderTests
         Assert.NotNull(result.Header);
         Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedFeature, result.Diagnostic?.Code);
         Assert.Contains("pixel reconstruction", result.Diagnostic?.Message);
+    }
+
+    [Fact]
+    public void DecodeFrame_ExternalSamples_CompletesWithinBoundedTime()
+    {
+        var colorPacket = ReadRequiredSample(MainFrameSamplePath, 30398, MainFrameSampleSha256);
+        var alphaPacket = ReadRequiredSample(AlphaFrameSamplePath, 6233, AlphaFrameSampleSha256);
+        var decoder = new RawVp9Decoder();
+        var stopwatch = Stopwatch.StartNew();
+
+        var colorResult = decoder.DecodeFrame(colorPacket, new Vp9DecodeOptions(2656, 1352));
+        var alphaResult = decoder.DecodeFrame(alphaPacket, new Vp9DecodeOptions(2656, 1352));
+
+        stopwatch.Stop();
+        Assert.False(colorResult.Succeeded);
+        Assert.False(alphaResult.Succeeded);
+        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedFeature, colorResult.Diagnostic?.Code);
+        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedFeature, alphaResult.Diagnostic?.Code);
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(1), $"VP9 sample parse took {stopwatch.Elapsed}.");
     }
 
     private static byte[] CreatePaddedMainFramePacket()
