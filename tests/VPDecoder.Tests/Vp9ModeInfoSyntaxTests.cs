@@ -1,0 +1,23 @@
+namespace VPDecoder.Tests;
+
+public sealed class Vp9ModeInfoSyntaxTests
+{
+    [Theory]
+    [InlineData(Vp9BlockSize.Block4X4, Vp9TransformSize.Tx4X4)]
+    [InlineData(Vp9BlockSize.Block4X8, Vp9TransformSize.Tx4X4)]
+    [InlineData(Vp9BlockSize.Block8X4, Vp9TransformSize.Tx4X4)]
+    [InlineData(Vp9BlockSize.Block8X8, Vp9TransformSize.Tx8X8)]
+    [InlineData(Vp9BlockSize.Block8X16, Vp9TransformSize.Tx8X8)]
+    [InlineData(Vp9BlockSize.Block16X8, Vp9TransformSize.Tx8X8)]
+    [InlineData(Vp9BlockSize.Block16X16, Vp9TransformSize.Tx16X16)]
+    [InlineData(Vp9BlockSize.Block16X32, Vp9TransformSize.Tx16X16)]
+    [InlineData(Vp9BlockSize.Block32X16, Vp9TransformSize.Tx16X16)]
+    [InlineData(Vp9BlockSize.Block32X32, Vp9TransformSize.Tx32X32)]
+    [InlineData(Vp9BlockSize.Block32X64, Vp9TransformSize.Tx32X32)]
+    [InlineData(Vp9BlockSize.Block64X32, Vp9TransformSize.Tx32X32)]
+    [InlineData(Vp9BlockSize.Block64X64, Vp9TransformSize.Tx32X32)]
+    public void GetMaximumTransformSize_ReturnsLibvpxLookup(Vp9BlockSize blockSize, Vp9TransformSize expected)
+    {
+        Assert.Equal(expected, Vp9ModeInfoSyntax.GetMaximumTransformSize(blockSize));
+    }
+}

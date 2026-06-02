@@ -251,10 +251,24 @@ internal static class Vp9ModeInfoSyntax
     {
         return blockSize switch
         {
-            <= Vp9BlockSize.Block8X4 => Vp9TransformSize.Tx4X4,
-            <= Vp9BlockSize.Block16X8 => Vp9TransformSize.Tx8X8,
-            <= Vp9BlockSize.Block32X16 => Vp9TransformSize.Tx16X16,
-            _ => Vp9TransformSize.Tx32X32
+            Vp9BlockSize.Block4X4 or
+            Vp9BlockSize.Block4X8 or
+            Vp9BlockSize.Block8X4 => Vp9TransformSize.Tx4X4,
+
+            Vp9BlockSize.Block8X8 or
+            Vp9BlockSize.Block8X16 or
+            Vp9BlockSize.Block16X8 => Vp9TransformSize.Tx8X8,
+
+            Vp9BlockSize.Block16X16 or
+            Vp9BlockSize.Block16X32 or
+            Vp9BlockSize.Block32X16 => Vp9TransformSize.Tx16X16,
+
+            Vp9BlockSize.Block32X32 or
+            Vp9BlockSize.Block32X64 or
+            Vp9BlockSize.Block64X32 or
+            Vp9BlockSize.Block64X64 => Vp9TransformSize.Tx32X32,
+
+            _ => throw new ArgumentOutOfRangeException(nameof(blockSize), blockSize, "Unsupported VP9 block size.")
         };
     }
 
