@@ -84,7 +84,7 @@ public sealed class RawVp9Decoder
                 compressedHeader);
         }
 
-        if (!Vp9TileSyntaxScanner.TryReconstructFullFrame(packet.ToArray(), state, out var yuvFrame, out diagnostic))
+        if (!Vp9TileSyntaxScanner.TryReconstructFullFrameWithSyntax(packet.ToArray(), state, out var reconstructedFrame, out diagnostic))
         {
             return Vp9DecodeResult.Fail(
                 diagnostic ?? Vp9DecodeDiagnostic.InternalDecodeFailure("VP9 full-frame reconstruction failed without a diagnostic."),
@@ -92,7 +92,7 @@ public sealed class RawVp9Decoder
                 compressedHeader);
         }
 
-        if (yuvFrame is null)
+        if (reconstructedFrame is null)
         {
             return Vp9DecodeResult.Fail(
                 Vp9DecodeDiagnostic.InternalDecodeFailure("VP9 full-frame reconstruction succeeded without returning a frame."),
@@ -100,15 +100,15 @@ public sealed class RawVp9Decoder
                 compressedHeader);
         }
 
-        if (header.LoopFilter.FilterLevel != 0)
+        if (!Vp9LoopFilter.TryApply(header, reconstructedFrame, out diagnostic))
         {
             return Vp9DecodeResult.Fail(
-                Vp9DecodeDiagnostic.UnsupportedLoopFilter(
-                    $"VP9 loop filter level {header.LoopFilter.FilterLevel} is not implemented yet; full-frame unfiltered YUV reconstruction succeeded but final output is gated."),
+                diagnostic ?? Vp9DecodeDiagnostic.InternalDecodeFailure("VP9 loop filter failed without a diagnostic."),
                 header,
                 compressedHeader);
         }
 
+        var yuvFrame = reconstructedFrame.Frame;
         var outputFrame = options.OutputFormat == Vp9OutputPixelFormat.Yuv420
             ? yuvFrame
             : Vp9ColorConverter.ConvertYuv420ToPacked(yuvFrame, header.ColorRange, options.OutputFormat);

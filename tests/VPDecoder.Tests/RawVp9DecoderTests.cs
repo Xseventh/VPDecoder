@@ -135,7 +135,7 @@ public sealed class RawVp9DecoderTests
 
         var result = decoder.DecodeFrame(packet, new Vp9DecodeOptions(2656, 1352));
 
-        Assert.False(result.Succeeded);
+        Assert.True(result.Succeeded, result.Diagnostic?.Message);
         Assert.NotNull(result.Header);
         Assert.Equal(2656, result.Header.Width);
         Assert.Equal(1352, result.Header.Height);
@@ -144,9 +144,12 @@ public sealed class RawVp9DecoderTests
         Assert.Equal(8, result.Header.TileInfo.TileColumns);
         Assert.NotNull(result.CompressedHeader);
         Assert.Equal(Vp9TransformMode.Select, result.CompressedHeader.TransformMode);
-        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedLoopFilter, result.Diagnostic?.Code);
-        Assert.Contains("loop filter level 2", result.Diagnostic?.Message);
-        Assert.Contains("unfiltered YUV reconstruction succeeded", result.Diagnostic?.Message);
+        Assert.Null(result.Diagnostic);
+        Assert.NotNull(result.Frame);
+        Assert.Equal(Vp9OutputPixelFormat.Bgra8888, result.Frame.PixelFormat);
+        Assert.Equal(2656 * 1352 * 4, result.Frame.Pixels.Length);
+        Assert.Equal("bd018f0c6eac5ae58945a2517c96c29a40f703b6c8c0a07c99debb9a8a864902", Hash(result.Frame.Pixels));
+        Assert.Equal([255], result.Frame.Pixels.Chunk(4).Select(pixel => pixel[3]).Distinct().ToArray());
     }
 
     [Fact]
@@ -157,18 +160,20 @@ public sealed class RawVp9DecoderTests
 
         var result = decoder.DecodeFrame(packet, new Vp9DecodeOptions(2656, 1352));
 
-        Assert.False(result.Succeeded);
+        Assert.True(result.Succeeded, result.Diagnostic?.Message);
         Assert.NotNull(result.Header);
         Assert.Equal(Vp9ColorRange.Studio, result.Header.ColorRange);
         Assert.Equal(6233, result.Header.PacketLength);
         Assert.Equal(142, result.Header.FirstPartitionSize);
-        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedLoopFilter, result.Diagnostic?.Code);
-        Assert.Contains("loop filter level 9", result.Diagnostic?.Message);
-        Assert.Contains("unfiltered YUV reconstruction succeeded", result.Diagnostic?.Message);
+        Assert.Null(result.Diagnostic);
+        Assert.NotNull(result.Frame);
+        Assert.Equal(Vp9OutputPixelFormat.Bgra8888, result.Frame.PixelFormat);
+        Assert.Equal(2656 * 1352 * 4, result.Frame.Pixels.Length);
+        Assert.Equal("de5f6cf32681237d0076b8e106c2d8803a54379f639d9f6e7d10a864ad1ff306", Hash(result.Frame.Pixels));
     }
 
     [Fact]
-    public void DecodeFrameWithAlpha_WhenColorDecodeIsUnsupported_PropagatesColorDiagnostic()
+    public void DecodeFrameWithAlpha_ForExternalSamples_MergesAlphaDeterministically()
     {
         var colorPacket = ReadRequiredSample(MainFrameSamplePath, 30398, MainFrameSampleSha256);
         var alphaPacket = ReadRequiredSample(AlphaFrameSamplePath, 6233, AlphaFrameSampleSha256);
@@ -176,10 +181,17 @@ public sealed class RawVp9DecoderTests
 
         var result = decoder.DecodeFrameWithAlpha(colorPacket, alphaPacket, new Vp9DecodeOptions(2656, 1352));
 
-        Assert.False(result.Succeeded);
+        Assert.True(result.Succeeded, result.Diagnostic?.Message);
         Assert.NotNull(result.Header);
-        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedLoopFilter, result.Diagnostic?.Code);
-        Assert.Contains("loop filter level 2", result.Diagnostic?.Message);
+        Assert.Null(result.Diagnostic);
+        Assert.NotNull(result.Frame);
+        Assert.Equal(Vp9OutputPixelFormat.Bgra8888, result.Frame.PixelFormat);
+        Assert.Equal(2656 * 1352 * 4, result.Frame.Pixels.Length);
+        Assert.Equal("c8095ee5e4b760a8a6f7c18d10b357b9f579c6864bb1cd815061d8d6e930a2ff", Hash(result.Frame.Pixels));
+        var alphaValues = result.Frame.Pixels.Chunk(4).Select(pixel => pixel[3]).ToArray();
+        Assert.Equal(0, alphaValues.Min());
+        Assert.Equal(168, alphaValues.Max());
+        Assert.True(alphaValues.Distinct().Count() > 1);
     }
 
     [Fact]
@@ -194,10 +206,8 @@ public sealed class RawVp9DecoderTests
         var alphaResult = decoder.DecodeFrame(alphaPacket, new Vp9DecodeOptions(2656, 1352));
 
         stopwatch.Stop();
-        Assert.False(colorResult.Succeeded);
-        Assert.False(alphaResult.Succeeded);
-        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedLoopFilter, colorResult.Diagnostic?.Code);
-        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedLoopFilter, alphaResult.Diagnostic?.Code);
+        Assert.True(colorResult.Succeeded, colorResult.Diagnostic?.Message);
+        Assert.True(alphaResult.Succeeded, alphaResult.Diagnostic?.Message);
         Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(3), $"VP9 sample parse took {stopwatch.Elapsed}.");
     }
 
@@ -235,8 +245,13 @@ public sealed class RawVp9DecoderTests
         var packet = File.ReadAllBytes(path);
         Assert.Equal(expectedLength, packet.Length);
 
-        var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(packet)).ToLowerInvariant();
+        var hash = Hash(packet);
         Assert.Equal(expectedSha256, hash);
         return packet;
+    }
+
+    private static string Hash(byte[] bytes)
+    {
+        return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes)).ToLowerInvariant();
     }
 }

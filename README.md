@@ -25,12 +25,16 @@ Current status:
 - Reconstructs deterministic unfiltered YUV420 frames for the provided main and
   alpha samples through intra prediction, inverse transform, and clipped
   transform edge handling.
-- Runs public raw VP9 decode through reconstruction and returns a concrete
-  `UnsupportedLoopFilter` diagnostic when the frame requires loop filtering.
+- Applies the VP9 key-frame loop filter for the current profile0/8-bit/YUV420
+  sample shape, including libvpx-style superblock masks and scalar 4/8/16-tap
+  filters.
+- Runs public raw VP9 decode through filtered YUV420 reconstruction and returns
+  deterministic BGRA8888/RGBA8888/YUV420 output for the provided main and alpha
+  samples.
 - Preserves deterministic evidence for the first Block16X16 luma TX4 group
   that previously exposed residual synchronization drift.
 - Converts decoded YUV420 frames to BGRA8888/RGBA8888 and composes alpha from
-  either BGRA red or YUV luma once real frame pixels are available.
+  either BGRA red or YUV luma.
 - Provides a small raw VP9 CLI smoke workflow in `src/VPDecoder.Cli`.
 - Exposes a VP8 raw decoder scaffold that returns strict unsupported
   diagnostics until VP8 bitstream support is implemented.
@@ -38,9 +42,9 @@ Current status:
   2656x1352, 8 tile columns.
 - Fails explicitly for unsupported decode work instead of emitting pixels.
 
-Loop filtering, public final-frame output, inter frames, and real VP8 decoding
-remain follow-up slices. The decoder must continue to return explicit
-unsupported diagnostics until those pieces are complete.
+Inter frames/reference state and real VP8 decoding remain follow-up slices. The
+decoder must continue to return explicit unsupported diagnostics until those
+pieces are complete.
 
 CLI smoke example:
 
@@ -51,6 +55,6 @@ dotnet run --project src/VPDecoder.Cli/VPDecoder.Cli.csproj -- \
   --height 1352
 ```
 
-Until loop filtering lands, this command is expected to parse and reconstruct
-the unfiltered frame, then return an `UnsupportedLoopFilter` diagnostic for the
-current samples.
+The command decodes the raw packet to BGRA8888 by default. Pass
+`--format yuv420` or `--format rgba` to select another supported output shape,
+and `--out frame.raw` to write the pixel buffer.
