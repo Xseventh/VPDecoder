@@ -136,13 +136,20 @@ public sealed class Vp9InverseTransformTests
     [Theory]
     [InlineData(Vp9TransformSize.Tx4X4, Vp9TransformType.AdstAdst, 14, "5a0c3297895f2039590942b1f4267e6caa5ca52881b92488da71da6912f548c6")]
     [InlineData(Vp9TransformSize.Tx8X8, Vp9TransformType.AdstDct, 3, "2900f08f68992ae5c150a7951566383f06ac8e3ac10619d31d7f3b7277e6d5e3")]
-    public void AddBlock_ForSmallHybridTransforms_IsDeterministic(
+    [InlineData(Vp9TransformSize.Tx16X16, Vp9TransformType.DctAdst, 2, "4f3e318a14bcd79d2d8eb632006541c3e2da6a4cd6d3e41d9b8b985706164cd5")]
+    public void AddBlock_ForHybridTransforms_IsDeterministic(
         Vp9TransformSize transformSize,
         Vp9TransformType transformType,
         int eob,
         string expectedHash)
     {
-        var side = transformSize == Vp9TransformSize.Tx4X4 ? 4 : 8;
+        var side = transformSize switch
+        {
+            Vp9TransformSize.Tx4X4 => 4,
+            Vp9TransformSize.Tx8X8 => 8,
+            Vp9TransformSize.Tx16X16 => 16,
+            _ => throw new ArgumentOutOfRangeException(nameof(transformSize))
+        };
         var coefficients = new int[side * side];
         coefficients[0] = 800;
         coefficients[1] = -120;
@@ -180,17 +187,6 @@ public sealed class Vp9InverseTransformTests
     {
         var coefficients = new int[1024];
         var plane = new byte[32 * 32];
-
-        var size = Assert.Throws<NotSupportedException>(() => Vp9InverseTransform.AddBlock(
-            plane,
-            stride: 32,
-            x: 0,
-            y: 0,
-            Vp9TransformSize.Tx16X16,
-            Vp9TransformType.DctDct,
-            coefficients,
-            eob: 2));
-        Assert.Contains("currently supports TX4, TX8, and TX32", size.Message);
 
         var type = Assert.Throws<NotSupportedException>(() => Vp9InverseTransform.AddBlock(
             plane,

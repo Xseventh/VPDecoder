@@ -580,14 +580,14 @@ internal static class Vp9ResidualSyntax
             return;
         }
 
-        if (block.TransformSize is Vp9TransformSize.Tx4X4 or Vp9TransformSize.Tx8X8 or Vp9TransformSize.Tx32X32 &&
+        if (block.TransformSize is Vp9TransformSize.Tx4X4 or Vp9TransformSize.Tx8X8 or Vp9TransformSize.Tx16X16 or Vp9TransformSize.Tx32X32 &&
             block.Eob <= 1024)
         {
             return;
         }
 
         throw new NotSupportedException(
-            $"VP9 full-frame residual probe currently supports only DC-only, TX4, TX8, or TX32 coefficient blocks; got MI ({modeInfo.MiRow},{modeInfo.MiColumn}) plane {plane} block {modeInfo.BlockSize} transform {block.TransformSize}/{block.TransformType} transform offset ({row4},{column4}) eob {block.Eob}.");
+            $"VP9 full-frame residual probe currently supports only DC-only, TX4, TX8, TX16, or TX32 coefficient blocks; got MI ({modeInfo.MiRow},{modeInfo.MiColumn}) plane {plane} block {modeInfo.BlockSize} transform {block.TransformSize}/{block.TransformType} transform offset ({row4},{column4}) eob {block.Eob}.");
     }
 
     private static void ThrowIfUnsupportedResidualGrid(

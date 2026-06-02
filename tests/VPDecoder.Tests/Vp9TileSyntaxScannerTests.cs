@@ -363,10 +363,10 @@ public sealed class Vp9TileSyntaxScannerTests
 
         Assert.NotNull(diagnostic);
         Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedFeature, diagnostic.Code);
-        Assert.Equal("VP9 full-frame residual probe currently supports only DC-only, TX4, TX8, or TX32 coefficient blocks; got MI (10,20) plane 0 block Block16X16 transform Tx16X16/DctAdst transform offset (0,0) eob 2.", diagnostic.Message);
-        Assert.Equal(7, probes.Count);
-        Assert.Equal(7, probes.SelectMany(probe => probe.ModeInfos).Count());
-        Assert.Equal(21, probes.SelectMany(probe => probe.CoefficientGroups).Count());
+        Assert.Equal("VP9 full-frame residual probe does not support Tx8X8 transform grids in Block16X32 blocks yet at MI (8,26) plane 0.", diagnostic.Message);
+        Assert.Equal(8, probes.Count);
+        Assert.Equal(57, probes.SelectMany(probe => probe.ModeInfos).Count());
+        Assert.Equal(171, probes.SelectMany(probe => probe.CoefficientGroups).Count());
     }
 
     [Fact]
