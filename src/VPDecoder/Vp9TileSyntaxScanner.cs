@@ -316,6 +316,35 @@ internal static class Vp9TileSyntaxScanner
         out IReadOnlyList<Vp9SuperblockSyntaxProbe> probes,
         out Vp9DecodeDiagnostic? diagnostic)
     {
+        return TryProbeFullFrameSyntax(
+            packet,
+            state,
+            allowFullFrameGridContinuationProbe: false,
+            out probes,
+            out diagnostic);
+    }
+
+    public static bool TryProbeFullFrameSyntaxAllowingGatedTx4ForDiagnostics(
+        ReadOnlyMemory<byte> packet,
+        Vp9KeyFrameDecodeState state,
+        out IReadOnlyList<Vp9SuperblockSyntaxProbe> probes,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
+        return TryProbeFullFrameSyntax(
+            packet,
+            state,
+            allowFullFrameGridContinuationProbe: true,
+            out probes,
+            out diagnostic);
+    }
+
+    private static bool TryProbeFullFrameSyntax(
+        ReadOnlyMemory<byte> packet,
+        Vp9KeyFrameDecodeState state,
+        bool allowFullFrameGridContinuationProbe,
+        out IReadOnlyList<Vp9SuperblockSyntaxProbe> probes,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
         var parsed = new List<Vp9SuperblockSyntaxProbe>();
         probes = parsed;
         diagnostic = null;
@@ -355,12 +384,18 @@ internal static class Vp9TileSyntaxScanner
                             Vp9BlockSize.Block64X64,
                             [],
                             modes,
-                            coefficientGroups);
+                            coefficientGroups,
+                            allowFullFrameGridContinuationProbe);
                         parsed.Add(new Vp9SuperblockSyntaxProbe(geometry.Buffer.Index, modes, coefficientGroups));
                         if (reader.HasError)
                         {
                             diagnostic = Vp9DecodeDiagnostic.TruncatedPacket(
-                                $"VP9 full-frame syntax probe ended unexpectedly at tile {geometry.Buffer.Index} MI ({miRow},{miColumn}).");
+                                CreateFullFrameSyntaxTruncatedMessage(
+                                    geometry.Buffer.Index,
+                                    miRow,
+                                    miColumn,
+                                    modes,
+                                    coefficientGroups));
                             return false;
                         }
                     }
@@ -637,7 +672,8 @@ internal static class Vp9TileSyntaxScanner
         Vp9BlockSize blockSize,
         IReadOnlyList<Vp9PartitionType> partitionPath,
         List<Vp9ModeInfoProbe> modes,
-        List<Vp9CoefficientBlockGroupProbe> coefficientGroups)
+        List<Vp9CoefficientBlockGroupProbe> coefficientGroups,
+        bool allowFullFrameGridContinuationProbe = false)
     {
         if (miRow >= state.Header.TileInfo.MiRows || miColumn >= state.Header.TileInfo.MiColumns)
         {
@@ -667,7 +703,8 @@ internal static class Vp9TileSyntaxScanner
                 subsize,
                 childPath,
                 modes,
-                coefficientGroups);
+                coefficientGroups,
+                allowFullFrameGridContinuationProbe);
             syntaxContext.UpdatePartitionContext(miRow, miColumn, blockSize, subsize);
             return;
         }
@@ -686,7 +723,8 @@ internal static class Vp9TileSyntaxScanner
                     subsize,
                     childPath,
                     modes,
-                    coefficientGroups);
+                    coefficientGroups,
+                    allowFullFrameGridContinuationProbe);
                 break;
 
             case Vp9PartitionType.Horizontal:
@@ -701,7 +739,8 @@ internal static class Vp9TileSyntaxScanner
                     subsize,
                     childPath,
                     modes,
-                    coefficientGroups);
+                    coefficientGroups,
+                    allowFullFrameGridContinuationProbe);
                 if (hasRows)
                 {
                     ReadBlockSyntax(
@@ -715,7 +754,8 @@ internal static class Vp9TileSyntaxScanner
                         subsize,
                         childPath,
                         modes,
-                        coefficientGroups);
+                        coefficientGroups,
+                        allowFullFrameGridContinuationProbe);
                 }
 
                 break;
@@ -732,7 +772,8 @@ internal static class Vp9TileSyntaxScanner
                     subsize,
                     childPath,
                     modes,
-                    coefficientGroups);
+                    coefficientGroups,
+                    allowFullFrameGridContinuationProbe);
                 if (hasColumns)
                 {
                     ReadBlockSyntax(
@@ -746,7 +787,8 @@ internal static class Vp9TileSyntaxScanner
                         subsize,
                         childPath,
                         modes,
-                        coefficientGroups);
+                        coefficientGroups,
+                        allowFullFrameGridContinuationProbe);
                 }
 
                 break;
@@ -763,7 +805,8 @@ internal static class Vp9TileSyntaxScanner
                     subsize,
                     childPath,
                     modes,
-                    coefficientGroups);
+                    coefficientGroups,
+                    allowFullFrameGridContinuationProbe);
                 ReadPartitionSyntax(
                     ref reader,
                     state,
@@ -775,7 +818,8 @@ internal static class Vp9TileSyntaxScanner
                     subsize,
                     childPath,
                     modes,
-                    coefficientGroups);
+                    coefficientGroups,
+                    allowFullFrameGridContinuationProbe);
                 ReadPartitionSyntax(
                     ref reader,
                     state,
@@ -787,7 +831,8 @@ internal static class Vp9TileSyntaxScanner
                     subsize,
                     childPath,
                     modes,
-                    coefficientGroups);
+                    coefficientGroups,
+                    allowFullFrameGridContinuationProbe);
                 ReadPartitionSyntax(
                     ref reader,
                     state,
@@ -799,7 +844,8 @@ internal static class Vp9TileSyntaxScanner
                     subsize,
                     childPath,
                     modes,
-                    coefficientGroups);
+                    coefficientGroups,
+                    allowFullFrameGridContinuationProbe);
                 break;
 
             default:
@@ -824,7 +870,8 @@ internal static class Vp9TileSyntaxScanner
         Vp9BlockSize blockSize,
         IReadOnlyList<Vp9PartitionType> partitionPath,
         List<Vp9ModeInfoProbe> modes,
-        List<Vp9CoefficientBlockGroupProbe> coefficientGroups)
+        List<Vp9CoefficientBlockGroupProbe> coefficientGroups,
+        bool allowFullFrameGridContinuationProbe = false)
     {
         if (blockSize is not (
             Vp9BlockSize.Block4X4 or
@@ -863,8 +910,32 @@ internal static class Vp9TileSyntaxScanner
                 state,
                 modeInfo,
                 coefficientContext,
-                plane));
+                plane,
+                allowFullFrameGridContinuationProbe));
         }
+    }
+
+    private static string CreateFullFrameSyntaxTruncatedMessage(
+        int tileIndex,
+        int miRow,
+        int miColumn,
+        IReadOnlyList<Vp9ModeInfoProbe> modes,
+        IReadOnlyList<Vp9CoefficientBlockGroupProbe> coefficientGroups)
+    {
+        var message = $"VP9 full-frame syntax probe ended unexpectedly at tile {tileIndex} MI ({miRow},{miColumn}); parsed {modes.Count} mode infos and {coefficientGroups.Count} coefficient groups in this superblock";
+        if (modes.Count > 0)
+        {
+            var lastMode = modes[^1];
+            message += $"; last mode MI ({lastMode.MiRow},{lastMode.MiColumn}) block {lastMode.BlockSize} transform {lastMode.TransformSize} skip {lastMode.Skip} Y {lastMode.YMode} UV {lastMode.UvMode}";
+        }
+
+        if (coefficientGroups.Count > 0)
+        {
+            var lastGroup = coefficientGroups[^1];
+            message += $"; last coefficient group block {lastGroup.BlockSize} transform {lastGroup.TransformSize} blocks {lastGroup.Blocks.Count}";
+        }
+
+        return message + ".";
     }
 
     private static bool TryReadFirstBlock16X16LumaTx4Group(

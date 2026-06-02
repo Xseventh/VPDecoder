@@ -393,6 +393,84 @@ public sealed class Vp9TileSyntaxScannerTests
     }
 
     [Fact]
+    public void TryProbeFullFrameSyntaxAllowingGatedTx4ForDiagnostics_ForExternalMainFrame_ReachesPostGateTruncationSnapshot()
+    {
+        var packet = ReadRequiredSample(
+            "/tmp/vp9-main-frame-0.vp9",
+            30398,
+            "4c57b8dda880711b174483a27e1691c6c9aa9a6721351d041425f8dafb23b7e9");
+        var state = CreateState(packet);
+
+        Assert.False(Vp9TileSyntaxScanner.TryProbeFullFrameSyntaxAllowingGatedTx4ForDiagnostics(packet, state, out var probes, out var diagnostic));
+
+        Assert.NotNull(diagnostic);
+        Assert.Equal(Vp9DecodeDiagnosticCode.TruncatedPacket, diagnostic.Code);
+        Assert.Equal(
+            "VP9 full-frame syntax probe ended unexpectedly at tile 1 MI (152,64); parsed 13 mode infos and 39 coefficient groups in this superblock; last mode MI (156,68) block Block32X32 transform Tx4X4 skip False Y Dc UV Dc; last coefficient group block Block32X32 transform Tx4X4 blocks 16.",
+            diagnostic.Message);
+
+        var superblock = Assert.Single(
+            probes,
+            probe => probe.TileIndex == 1 && probe.ModeInfos.Any(mode => mode.MiRow == 152 && mode.MiColumn == 64));
+        Assert.Equal(13, superblock.ModeInfos.Count);
+        Assert.Equal(39, superblock.CoefficientGroups.Count);
+        Assert.Equal([152, 152, 152, 152, 153, 153, 154, 154, 154, 155, 155, 156, 156], superblock.ModeInfos.Select(mode => mode.MiRow).ToArray());
+        Assert.Equal([64, 68, 70, 71, 70, 71, 68, 70, 71, 70, 71, 64, 68], superblock.ModeInfos.Select(mode => mode.MiColumn).ToArray());
+        Assert.Equal(
+            [
+                Vp9BlockSize.Block32X32,
+                Vp9BlockSize.Block16X16,
+                Vp9BlockSize.Block8X8,
+                Vp9BlockSize.Block8X8,
+                Vp9BlockSize.Block4X4,
+                Vp9BlockSize.Block4X4,
+                Vp9BlockSize.Block16X16,
+                Vp9BlockSize.Block4X8,
+                Vp9BlockSize.Block4X4,
+                Vp9BlockSize.Block4X4,
+                Vp9BlockSize.Block8X8,
+                Vp9BlockSize.Block32X32,
+                Vp9BlockSize.Block32X32
+            ],
+            superblock.ModeInfos.Select(mode => mode.BlockSize).ToArray());
+        Assert.Equal([true, false, true, true, false, true, false, false, true, false, false, false, false], superblock.ModeInfos.Select(mode => mode.Skip).ToArray());
+        Assert.Equal(
+            [
+                Vp9TransformSize.Tx32X32,
+                Vp9TransformSize.Tx16X16,
+                Vp9TransformSize.Tx8X8,
+                Vp9TransformSize.Tx8X8,
+                Vp9TransformSize.Tx4X4,
+                Vp9TransformSize.Tx4X4,
+                Vp9TransformSize.Tx16X16,
+                Vp9TransformSize.Tx4X4,
+                Vp9TransformSize.Tx4X4,
+                Vp9TransformSize.Tx4X4,
+                Vp9TransformSize.Tx4X4,
+                Vp9TransformSize.Tx4X4,
+                Vp9TransformSize.Tx4X4
+            ],
+            superblock.ModeInfos.Select(mode => mode.TransformSize).ToArray());
+        Assert.Equal(
+            [
+                Vp9PredictionMode.Vertical,
+                Vp9PredictionMode.Horizontal,
+                Vp9PredictionMode.Dc,
+                Vp9PredictionMode.D45,
+                Vp9PredictionMode.Horizontal,
+                Vp9PredictionMode.Horizontal,
+                Vp9PredictionMode.D135,
+                Vp9PredictionMode.D207,
+                Vp9PredictionMode.Horizontal,
+                Vp9PredictionMode.TrueMotion,
+                Vp9PredictionMode.Dc,
+                Vp9PredictionMode.Dc,
+                Vp9PredictionMode.Dc
+            ],
+            superblock.ModeInfos.Select(mode => mode.YMode).ToArray());
+    }
+
+    [Fact]
     public void TryProbeFirstBlock16X16LumaTx4Group_ForExternalMainFrame_ReadsFirstGatedGroup()
     {
         var packet = ReadRequiredSample(
