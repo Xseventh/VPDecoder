@@ -579,35 +579,13 @@ internal static class Vp9ResidualSyntax
         }
 
         if (block.TransformSize == Vp9TransformSize.Tx32X32 &&
-            block.Eob <= 34 &&
-            HasNonZeroCoefficientsOnlyInUpperLeft8x8(block.DequantizedCoefficients))
+            block.Eob <= 1024)
         {
             return;
         }
 
         throw new NotSupportedException(
-            $"VP9 full-frame residual probe currently supports only DC-only or TX32 eob <= 34 coefficient blocks; got MI ({modeInfo.MiRow},{modeInfo.MiColumn}) plane {plane} block {modeInfo.BlockSize} transform {block.TransformSize}/{block.TransformType} transform offset ({row4},{column4}) eob {block.Eob}.");
-    }
-
-    private static bool HasNonZeroCoefficientsOnlyInUpperLeft8x8(ReadOnlySpan<int> coefficients)
-    {
-        var limit = Math.Min(coefficients.Length, 32 * 32);
-        for (var i = 0; i < limit; i++)
-        {
-            if (coefficients[i] == 0)
-            {
-                continue;
-            }
-
-            var row = i / 32;
-            var column = i % 32;
-            if (row >= 8 || column >= 8)
-            {
-                return false;
-            }
-        }
-
-        return true;
+            $"VP9 full-frame residual probe currently supports only DC-only or TX32 coefficient blocks; got MI ({modeInfo.MiRow},{modeInfo.MiColumn}) plane {plane} block {modeInfo.BlockSize} transform {block.TransformSize}/{block.TransformType} transform offset ({row4},{column4}) eob {block.Eob}.");
     }
 
     private static Vp9TransformSize GetUvTransformSize(Vp9BlockSize blockSize, Vp9TransformSize yTransformSize)

@@ -96,27 +96,34 @@ internal static class Vp9InverseTransform
             return;
         }
 
-        if (eob > 34)
+        if (eob > Size32 * Size32)
         {
             throw new NotSupportedException(
-                $"VP9 TX32 inverse transform currently supports eob <= 34, not eob {eob}.");
+                $"VP9 TX32 inverse transform eob {eob} exceeds the 1024 coefficient block size.");
         }
 
-        ThrowIfNonZeroOutsideUpperLeft8x8(coefficients);
-        AddIdct32x32_34(plane, stride, x, y, coefficients);
+        var rowsToTransform = Size32;
+        if (eob <= 34)
+        {
+            ThrowIfNonZeroOutsideUpperLeft8x8(coefficients);
+            rowsToTransform = 8;
+        }
+
+        AddIdct32x32(plane, stride, x, y, coefficients, rowsToTransform);
     }
 
-    private static void AddIdct32x32_34(
+    private static void AddIdct32x32(
         Span<byte> plane,
         int stride,
         int x,
         int y,
-        ReadOnlySpan<int> coefficients)
+        ReadOnlySpan<int> coefficients,
+        int rowsToTransform)
     {
         Span<int> output = stackalloc int[Size32 * Size32];
         Span<int> rowInput = stackalloc int[Size32];
         Span<int> rowOutput = stackalloc int[Size32];
-        for (var row = 0; row < 8; row++)
+        for (var row = 0; row < rowsToTransform; row++)
         {
             coefficients.Slice(row * Size32, Size32).CopyTo(rowInput);
             Idct32(rowInput, rowOutput);

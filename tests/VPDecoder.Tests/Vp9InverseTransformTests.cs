@@ -62,6 +62,41 @@ public sealed class Vp9InverseTransformTests
         Assert.True(transformedPixels.Distinct().Count() > 1);
     }
 
+    [Fact]
+    public void AddBlock_ForTx32FullPath_UsesCoefficientsOutsideUpperLeft8x8()
+    {
+        var coefficients = new int[1024];
+        coefficients[0] = 1300;
+        coefficients[9 * 32] = 180;
+        coefficients[(17 * 32) + 11] = -240;
+        coefficients[(31 * 32) + 31] = 95;
+        var first = Enumerable.Repeat((byte)96, 32 * 32).ToArray();
+        var second = first.ToArray();
+
+        Vp9InverseTransform.AddBlock(
+            first,
+            stride: 32,
+            x: 0,
+            y: 0,
+            Vp9TransformSize.Tx32X32,
+            Vp9TransformType.DctDct,
+            coefficients,
+            eob: 512);
+        Vp9InverseTransform.AddBlock(
+            second,
+            stride: 32,
+            x: 0,
+            y: 0,
+            Vp9TransformSize.Tx32X32,
+            Vp9TransformType.DctDct,
+            coefficients,
+            eob: 512);
+
+        Assert.Equal(Hash(first), Hash(second));
+        Assert.Equal("2d7d2110450b69a000ba0c7ac6b919ab2b263ddfee3da724568fc4176a13df70", Hash(first));
+        Assert.True(first.Distinct().Count() > 1);
+    }
+
     [Theory]
     [InlineData(Vp9TransformType.AdstDct)]
     [InlineData(Vp9TransformType.DctAdst)]
@@ -134,8 +169,8 @@ public sealed class Vp9InverseTransformTests
             Vp9TransformSize.Tx32X32,
             Vp9TransformType.DctDct,
             coefficients,
-            eob: 35));
-        Assert.Contains("eob <= 34", eob.Message);
+            eob: 1025));
+        Assert.Contains("exceeds the 1024 coefficient block size", eob.Message);
     }
 
     [Fact]
