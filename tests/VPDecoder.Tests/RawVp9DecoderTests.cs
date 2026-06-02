@@ -16,7 +16,7 @@ public sealed class RawVp9DecoderTests
     ];
 
     [Fact]
-    public void DecodeFrame_WhenHeaderIsSupported_ReturnsPixelDecoderUnsupportedDiagnosticWithHeader()
+    public void DecodeFrame_WhenHeaderIsSupportedButSyntaxIsInvalid_ReturnsConcreteSyntaxDiagnosticWithHeader()
     {
         var packet = CreatePaddedMainFramePacket();
         var decoder = new RawVp9Decoder();
@@ -28,8 +28,8 @@ public sealed class RawVp9DecoderTests
         Assert.NotNull(result.CompressedHeader);
         Assert.Equal(2656, result.Header.Width);
         Assert.Equal(Vp9TransformMode.Only4X4, result.CompressedHeader.TransformMode);
-        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedFeature, result.Diagnostic?.Code);
-        Assert.Contains("pixel reconstruction", result.Diagnostic?.Message);
+        Assert.Equal(Vp9DecodeDiagnosticCode.InvalidPacket, result.Diagnostic?.Code);
+        Assert.Contains("marker bit", result.Diagnostic?.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -145,6 +145,7 @@ public sealed class RawVp9DecoderTests
         Assert.NotNull(result.CompressedHeader);
         Assert.Equal(Vp9TransformMode.Select, result.CompressedHeader.TransformMode);
         Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedFeature, result.Diagnostic?.Code);
+        Assert.Contains("full-frame residual probe", result.Diagnostic?.Message);
     }
 
     [Fact]
@@ -161,6 +162,7 @@ public sealed class RawVp9DecoderTests
         Assert.Equal(6233, result.Header.PacketLength);
         Assert.Equal(142, result.Header.FirstPartitionSize);
         Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedFeature, result.Diagnostic?.Code);
+        Assert.Contains("full-frame residual probe", result.Diagnostic?.Message);
     }
 
     [Fact]
@@ -175,7 +177,7 @@ public sealed class RawVp9DecoderTests
         Assert.False(result.Succeeded);
         Assert.NotNull(result.Header);
         Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedFeature, result.Diagnostic?.Code);
-        Assert.Contains("pixel reconstruction", result.Diagnostic?.Message);
+        Assert.Contains("full-frame residual probe", result.Diagnostic?.Message);
     }
 
     [Fact]

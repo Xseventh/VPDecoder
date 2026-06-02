@@ -68,7 +68,7 @@ public sealed class RawVp9Decoder
                 compressedHeader);
         }
 
-        if (!Vp9KeyFrameDecodeState.TryCreate(header, compressedHeader, tileBuffers, out _, out diagnostic))
+        if (!Vp9KeyFrameDecodeState.TryCreate(header, compressedHeader, tileBuffers, out var state, out diagnostic))
         {
             return Vp9DecodeResult.Fail(
                 diagnostic ?? Vp9DecodeDiagnostic.InternalDecodeFailure("VP9 key-frame decode state creation failed without a diagnostic."),
@@ -76,9 +76,25 @@ public sealed class RawVp9Decoder
                 compressedHeader);
         }
 
+        if (state is null)
+        {
+            return Vp9DecodeResult.Fail(
+                Vp9DecodeDiagnostic.InternalDecodeFailure("VP9 key-frame decode state creation succeeded without returning a state."),
+                header,
+                compressedHeader);
+        }
+
+        if (!Vp9TileSyntaxScanner.TryProbeFullFrameSyntax(packet.ToArray(), state, out _, out diagnostic))
+        {
+            return Vp9DecodeResult.Fail(
+                diagnostic ?? Vp9DecodeDiagnostic.InternalDecodeFailure("VP9 full-frame syntax probe failed without a diagnostic."),
+                header,
+                compressedHeader);
+        }
+
         return Vp9DecodeResult.Fail(
             Vp9DecodeDiagnostic.UnsupportedFeature(
-                "VP9 pixel reconstruction is not implemented yet. Header parsing and feature gating succeeded."),
+                "VP9 pixel reconstruction is not implemented yet. Header parsing, tile layout, and full-frame syntax gating succeeded."),
             header,
             compressedHeader);
     }
