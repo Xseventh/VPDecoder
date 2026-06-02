@@ -573,13 +573,24 @@ internal static class Vp9TileSyntaxScanner
             hasRows,
             hasColumns);
         var subsize = Vp9ModeInfoSyntax.GetSubsize(blockSize, partition);
-        if (hbs == 0 && partition != Vp9PartitionType.None)
-        {
-            throw new NotSupportedException(
-                $"VP9 key-frame syntax probe does not support sub-8x8 partition {partition} at MI ({miRow},{miColumn}); subsize {subsize}.");
-        }
-
         var childPath = partitionPath.Concat([partition]).ToArray();
+        if (hbs == 0)
+        {
+            ReadBlockSyntax(
+                ref reader,
+                state,
+                geometry,
+                syntaxContext,
+                coefficientContext,
+                miRow,
+                miColumn,
+                subsize,
+                childPath,
+                modes,
+                coefficientGroups);
+            syntaxContext.UpdatePartitionContext(miRow, miColumn, blockSize, subsize);
+            return;
+        }
 
         switch (partition)
         {
@@ -735,10 +746,16 @@ internal static class Vp9TileSyntaxScanner
         List<Vp9ModeInfoProbe> modes,
         List<Vp9CoefficientBlockGroupProbe> coefficientGroups)
     {
-        if (blockSize is not (Vp9BlockSize.Block8X8 or Vp9BlockSize.Block32X32 or Vp9BlockSize.Block64X64))
+        if (blockSize is not (
+            Vp9BlockSize.Block4X4 or
+            Vp9BlockSize.Block4X8 or
+            Vp9BlockSize.Block8X4 or
+            Vp9BlockSize.Block8X8 or
+            Vp9BlockSize.Block32X32 or
+            Vp9BlockSize.Block64X64))
         {
             throw new NotSupportedException(
-                $"VP9 key-frame syntax probe supports only 8x8, 32x32, or 64x64 leaf blocks, not {blockSize}.");
+                $"VP9 key-frame syntax probe supports only 4x4, 4x8, 8x4, 8x8, 32x32, or 64x64 leaf blocks, not {blockSize}.");
         }
 
         var modeInfo = ReadModeInfoAfterPartition(
@@ -832,10 +849,16 @@ internal static class Vp9TileSyntaxScanner
             state.CompressedHeader,
             blockSize,
             transformSizeContext);
-        var yModeContext = syntaxContext.GetYModeContext(miRow, miColumn, geometry.MiColumnStart);
-        var yMode = Vp9ModeInfoSyntax.ReadYMode(ref reader, yModeContext.Above, yModeContext.Left);
+        var ySubModes = ReadYSubModes(
+            ref reader,
+            syntaxContext,
+            miRow,
+            miColumn,
+            geometry.MiColumnStart,
+            blockSize,
+            out var yMode);
         var uvMode = Vp9ModeInfoSyntax.ReadUvMode(ref reader, yMode);
-        syntaxContext.SetModeInfo(miRow, miColumn, blockSize, skip, transformSize, yMode);
+        syntaxContext.SetModeInfo(miRow, miColumn, blockSize, skip, transformSize, yMode, ySubModes);
 
         return new Vp9ModeInfoProbe(
             geometry.Buffer.Index,
@@ -848,7 +871,62 @@ internal static class Vp9TileSyntaxScanner
             transformSize,
             transformSizeContext,
             yMode,
-            uvMode);
+            uvMode,
+            ySubModes);
+    }
+
+    private static IReadOnlyList<Vp9PredictionMode> ReadYSubModes(
+        ref Vp9BoolReader reader,
+        Vp9KeyFrameSyntaxContext syntaxContext,
+        int miRow,
+        int miColumn,
+        int tileMiColumnStart,
+        Vp9BlockSize blockSize,
+        out Vp9PredictionMode yMode)
+    {
+        var subModes = new Vp9PredictionMode[4];
+        switch (blockSize)
+        {
+            case Vp9BlockSize.Block4X4:
+                for (var block = 0; block < subModes.Length; block++)
+                {
+                    subModes[block] = ReadYSubMode(ref reader, syntaxContext, miRow, miColumn, tileMiColumnStart, block, subModes);
+                }
+
+                yMode = subModes[3];
+                return subModes;
+
+            case Vp9BlockSize.Block4X8:
+                subModes[0] = subModes[2] = ReadYSubMode(ref reader, syntaxContext, miRow, miColumn, tileMiColumnStart, 0, subModes);
+                subModes[1] = subModes[3] = ReadYSubMode(ref reader, syntaxContext, miRow, miColumn, tileMiColumnStart, 1, subModes);
+                yMode = subModes[3];
+                return subModes;
+
+            case Vp9BlockSize.Block8X4:
+                subModes[0] = subModes[1] = ReadYSubMode(ref reader, syntaxContext, miRow, miColumn, tileMiColumnStart, 0, subModes);
+                subModes[2] = subModes[3] = ReadYSubMode(ref reader, syntaxContext, miRow, miColumn, tileMiColumnStart, 2, subModes);
+                yMode = subModes[3];
+                return subModes;
+
+            default:
+                var yModeContext = syntaxContext.GetYModeContext(miRow, miColumn, tileMiColumnStart);
+                yMode = Vp9ModeInfoSyntax.ReadYMode(ref reader, yModeContext.Above, yModeContext.Left);
+                Array.Fill(subModes, yMode);
+                return subModes;
+        }
+    }
+
+    private static Vp9PredictionMode ReadYSubMode(
+        ref Vp9BoolReader reader,
+        Vp9KeyFrameSyntaxContext syntaxContext,
+        int miRow,
+        int miColumn,
+        int tileMiColumnStart,
+        int block,
+        IReadOnlyList<Vp9PredictionMode> currentSubModes)
+    {
+        var context = syntaxContext.GetYSubModeContext(miRow, miColumn, tileMiColumnStart, block, currentSubModes);
+        return Vp9ModeInfoSyntax.ReadYMode(ref reader, context.Above, context.Left);
     }
 
     private static byte[] ReadAboveEdge(ReadOnlySpan<byte> plane, int stride, int x, int y, int size)

@@ -342,7 +342,7 @@ public sealed class Vp9TileSyntaxScannerTests
     }
 
     [Fact]
-    public void TryProbeFullFrameSyntax_ForExternalMainFrame_ReturnsConcreteSub8Unsupported()
+    public void TryProbeFullFrameSyntax_ForExternalMainFrame_ReturnsConcreteBlock16Unsupported()
     {
         var packet = ReadRequiredSample(
             "/tmp/vp9-main-frame-0.vp9",
@@ -354,14 +354,14 @@ public sealed class Vp9TileSyntaxScannerTests
 
         Assert.NotNull(diagnostic);
         Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedFeature, diagnostic.Code);
-        Assert.Equal("VP9 key-frame syntax probe does not support sub-8x8 partition Split at MI (8,17); subsize Block4X4.", diagnostic.Message);
+        Assert.Equal("VP9 key-frame syntax probe supports only 4x4, 4x8, 8x4, 8x8, 32x32, or 64x64 leaf blocks, not Block16X16.", diagnostic.Message);
         Assert.Equal(7, probes.Count);
         Assert.Equal(7, probes.SelectMany(probe => probe.ModeInfos).Count());
         Assert.Equal(21, probes.SelectMany(probe => probe.CoefficientGroups).Count());
     }
 
     [Fact]
-    public void TryProbeFullFrameSyntax_ForExternalAlphaFrame_ReturnsConcreteSub8Unsupported()
+    public void TryProbeFullFrameSyntax_ForExternalAlphaFrame_ReturnsConcreteBlock16Unsupported()
     {
         var packet = ReadRequiredSample(
             "/tmp/vp9-alpha-frame-0.vp9",
@@ -373,7 +373,7 @@ public sealed class Vp9TileSyntaxScannerTests
 
         Assert.NotNull(diagnostic);
         Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedFeature, diagnostic.Code);
-        Assert.Equal("VP9 key-frame syntax probe does not support sub-8x8 partition Split at MI (8,4); subsize Block4X4.", diagnostic.Message);
+        Assert.Equal("VP9 key-frame syntax probe supports only 4x4, 4x8, 8x4, 8x8, 32x32, or 64x64 leaf blocks, not Block16X16.", diagnostic.Message);
         Assert.Equal(5, probes.Count);
         Assert.Equal(8, probes.SelectMany(probe => probe.ModeInfos).Count());
         Assert.Equal(24, probes.SelectMany(probe => probe.CoefficientGroups).Count());

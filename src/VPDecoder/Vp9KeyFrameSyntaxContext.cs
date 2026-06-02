@@ -96,18 +96,46 @@ internal sealed class Vp9KeyFrameSyntaxContext
         return (above, left);
     }
 
+    public (Vp9PredictionMode Above, Vp9PredictionMode Left) GetYSubModeContext(
+        int miRow,
+        int miColumn,
+        int tileMiColumnStart,
+        int block,
+        IReadOnlyList<Vp9PredictionMode> currentSubModes)
+    {
+        ValidateMiPosition(miRow, miColumn);
+        if (block is < 0 or > 3)
+        {
+            throw new ArgumentOutOfRangeException(nameof(block), "VP9 sub-8x8 block index must be between 0 and 3.");
+        }
+
+        if (currentSubModes.Count != 4)
+        {
+            throw new ArgumentException("VP9 sub-8x8 mode context requires four current sub modes.", nameof(currentSubModes));
+        }
+
+        var above = block is 0 or 1
+            ? TryGetAbove(miRow, miColumn, out var aboveInfo) ? aboveInfo.GetYModeForBlock(block + 2) : Vp9PredictionMode.Dc
+            : currentSubModes[block - 2];
+        var left = block is 0 or 2
+            ? TryGetLeft(miRow, miColumn, tileMiColumnStart, out var leftInfo) ? leftInfo.GetYModeForBlock(block + 1) : Vp9PredictionMode.Dc
+            : currentSubModes[block - 1];
+        return (above, left);
+    }
+
     public void SetModeInfo(
         int miRow,
         int miColumn,
         Vp9BlockSize blockSize,
         bool skip,
         Vp9TransformSize transformSize,
-        Vp9PredictionMode yMode)
+        Vp9PredictionMode yMode,
+        IReadOnlyList<Vp9PredictionMode>? ySubModes = null)
     {
         ValidateMiPosition(miRow, miColumn);
         var width = Math.Min(Vp9ModeInfoSyntax.GetBlockWidthInMiUnits(blockSize), _miColumns - miColumn);
         var height = Math.Min(Vp9ModeInfoSyntax.GetBlockHeightInMiUnits(blockSize), _miRows - miRow);
-        var entry = new Vp9ModeInfoContextEntry(skip, transformSize, yMode);
+        var entry = new Vp9ModeInfoContextEntry(skip, transformSize, yMode, CreateSubModeSnapshot(yMode, ySubModes));
         for (var row = 0; row < height; row++)
         {
             var offset = ((miRow + row) * _miColumns) + miColumn;
@@ -191,5 +219,29 @@ internal sealed class Vp9KeyFrameSyntaxContext
     private readonly record struct Vp9ModeInfoContextEntry(
         bool Skip,
         Vp9TransformSize TransformSize,
-        Vp9PredictionMode YMode);
+        Vp9PredictionMode YMode,
+        Vp9PredictionMode[] YSubModes)
+    {
+        public Vp9PredictionMode GetYModeForBlock(int block)
+        {
+            return YSubModes[block];
+        }
+    }
+
+    private static Vp9PredictionMode[] CreateSubModeSnapshot(
+        Vp9PredictionMode yMode,
+        IReadOnlyList<Vp9PredictionMode>? ySubModes)
+    {
+        if (ySubModes is null)
+        {
+            return [yMode, yMode, yMode, yMode];
+        }
+
+        if (ySubModes.Count != 4)
+        {
+            throw new ArgumentException("VP9 mode info must carry exactly four Y sub modes.", nameof(ySubModes));
+        }
+
+        return [ySubModes[0], ySubModes[1], ySubModes[2], ySubModes[3]];
+    }
 }

@@ -50,7 +50,8 @@ public sealed record Vp9ModeInfoProbe(
     Vp9TransformSize TransformSize,
     int TransformSizeContext,
     Vp9PredictionMode YMode,
-    Vp9PredictionMode UvMode);
+    Vp9PredictionMode UvMode,
+    IReadOnlyList<Vp9PredictionMode> YSubModes);
 
 internal static class Vp9ModeInfoSyntax
 {
