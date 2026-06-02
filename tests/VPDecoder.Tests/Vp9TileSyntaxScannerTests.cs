@@ -354,7 +354,7 @@ public sealed class Vp9TileSyntaxScannerTests
 
         Assert.NotNull(diagnostic);
         Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedFeature, diagnostic.Code);
-        Assert.Equal("VP9 key-frame syntax probe does not support sub-8x8 partitions yet.", diagnostic.Message);
+        Assert.Equal("VP9 key-frame syntax probe does not support sub-8x8 partition None at MI (8,16); subsize Block8X8.", diagnostic.Message);
         Assert.Equal(7, probes.Count);
         Assert.Equal(7, probes.SelectMany(probe => probe.ModeInfos).Count());
         Assert.Equal(21, probes.SelectMany(probe => probe.CoefficientGroups).Count());
@@ -373,7 +373,7 @@ public sealed class Vp9TileSyntaxScannerTests
 
         Assert.NotNull(diagnostic);
         Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedFeature, diagnostic.Code);
-        Assert.Equal("VP9 key-frame syntax probe does not support sub-8x8 partitions yet.", diagnostic.Message);
+        Assert.Equal("VP9 key-frame syntax probe does not support sub-8x8 partition Split at MI (8,4); subsize Block4X4.", diagnostic.Message);
         Assert.Equal(5, probes.Count);
         Assert.Equal(8, probes.SelectMany(probe => probe.ModeInfos).Count());
         Assert.Equal(24, probes.SelectMany(probe => probe.CoefficientGroups).Count());

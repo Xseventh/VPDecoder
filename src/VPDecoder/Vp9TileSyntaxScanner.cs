@@ -565,11 +565,6 @@ internal static class Vp9TileSyntaxScanner
         }
 
         var hbs = Vp9ModeInfoSyntax.GetHalfBlockSizeInMiUnits(blockSize);
-        if (hbs == 0)
-        {
-            throw new NotSupportedException("VP9 key-frame syntax probe does not support sub-8x8 partitions yet.");
-        }
-
         var hasRows = miRow + hbs < state.Header.TileInfo.MiRows;
         var hasColumns = miColumn + hbs < state.Header.TileInfo.MiColumns;
         var partition = Vp9PartitionSyntax.ReadPartition(
@@ -578,6 +573,12 @@ internal static class Vp9TileSyntaxScanner
             hasRows,
             hasColumns);
         var subsize = Vp9ModeInfoSyntax.GetSubsize(blockSize, partition);
+        if (hbs == 0)
+        {
+            throw new NotSupportedException(
+                $"VP9 key-frame syntax probe does not support sub-8x8 partition {partition} at MI ({miRow},{miColumn}); subsize {subsize}.");
+        }
+
         var childPath = partitionPath.Concat([partition]).ToArray();
 
         switch (partition)
