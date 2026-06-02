@@ -8,6 +8,16 @@ public static class Vp9CompressedHeaderParser
         out Vp9CompressedHeader? compressedHeader,
         out Vp9DecodeDiagnostic? diagnostic)
     {
+        return TryParse(packet, frameHeader, Vp9FrameContext.CreateDefault(), out compressedHeader, out diagnostic);
+    }
+
+    public static bool TryParse(
+        ReadOnlySpan<byte> packet,
+        Vp9FrameHeader frameHeader,
+        Vp9FrameContext baseFrameContext,
+        out Vp9CompressedHeader? compressedHeader,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
         compressedHeader = null;
         diagnostic = null;
 
@@ -21,7 +31,7 @@ public static class Vp9CompressedHeaderParser
         {
             var compressedHeaderBytes = packet.Slice(frameHeader.HeaderSizeInBytes, frameHeader.FirstPartitionSize);
             var reader = new Vp9BoolReader(compressedHeaderBytes);
-            var frameContext = Vp9FrameContext.CreateDefault();
+            var frameContext = baseFrameContext.Clone();
             var transformMode = frameHeader.Quantization.Lossless
                 ? Vp9TransformMode.Only4X4
                 : ReadTransformMode(ref reader);

@@ -40,6 +40,9 @@ Current status:
   unsupported diagnostics for inter prediction. Inter frame sizes that are
   coded from reference frames use decoder-owned reference metadata when
   available and otherwise return `MissingReferenceFrame`.
+- Maintains decoder-owned VP9 frame-context slots for compressed-header
+  probability state, commits refreshed contexts only after successful decode,
+  and resets them with `Reset()`.
 - Preserves deterministic evidence for the first Block16X16 luma TX4 group
   that previously exposed residual synchronization drift.
 - Converts decoded YUV420 frames to BGRA8888/RGBA8888 and composes alpha from

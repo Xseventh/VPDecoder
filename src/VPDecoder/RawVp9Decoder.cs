@@ -6,8 +6,10 @@ namespace VPDecoder;
 public sealed class RawVp9Decoder
 {
     private const int Vp9ReferenceFrameCount = 8;
+    private const int Vp9FrameContextCount = 4;
 
     private readonly Vp9ReferenceFrame?[] _referenceFrames = new Vp9ReferenceFrame?[Vp9ReferenceFrameCount];
+    private readonly Vp9FrameContext[] _frameContexts = CreateDefaultFrameContexts();
 
     public Vp9DecodeResult DecodeFrame(ReadOnlySpan<byte> packet, Vp9DecodeOptions? options = null)
     {
@@ -53,7 +55,8 @@ public sealed class RawVp9Decoder
             return Vp9DecodeResult.Fail(diagnostic, header);
         }
 
-        if (!Vp9CompressedHeaderParser.TryParse(packet, header, out var compressedHeader, out diagnostic))
+        var baseFrameContext = GetBaseFrameContext(header);
+        if (!Vp9CompressedHeaderParser.TryParse(packet, header, baseFrameContext, out var compressedHeader, out diagnostic))
         {
             return Vp9DecodeResult.Fail(
                 diagnostic ?? Vp9DecodeDiagnostic.InternalDecodeFailure("VP9 compressed header parser failed without a diagnostic."),
@@ -124,6 +127,7 @@ public sealed class RawVp9Decoder
         }
 
         var yuvFrame = reconstructedFrame.Frame;
+        RefreshFrameContext(header, compressedHeader.FrameContext);
         RefreshReferenceFrames(yuvFrame, header.ColorRange);
 
         var outputFrame = options.OutputFormat == Vp9OutputPixelFormat.Yuv420
@@ -187,6 +191,7 @@ public sealed class RawVp9Decoder
     public void Reset()
     {
         Array.Clear(_referenceFrames);
+        ResetFrameContexts();
     }
 
     private Vp9DecodeResult DecodeShowExistingFrame(Vp9FrameHeader header, Vp9DecodeOptions options, int packetLength)
@@ -294,6 +299,43 @@ public sealed class RawVp9Decoder
         }
 
         return referenceFrameInfos;
+    }
+
+    private static Vp9FrameContext[] CreateDefaultFrameContexts()
+    {
+        var frameContexts = new Vp9FrameContext[Vp9FrameContextCount];
+        for (var i = 0; i < frameContexts.Length; i++)
+        {
+            frameContexts[i] = Vp9FrameContext.CreateDefault();
+        }
+
+        return frameContexts;
+    }
+
+    private void ResetFrameContexts()
+    {
+        for (var i = 0; i < _frameContexts.Length; i++)
+        {
+            _frameContexts[i] = Vp9FrameContext.CreateDefault();
+        }
+    }
+
+    private Vp9FrameContext GetBaseFrameContext(Vp9FrameHeader header)
+    {
+        if (header.FrameType == Vp9FrameType.KeyFrame || header.IntraOnly || header.ErrorResilientMode)
+        {
+            return Vp9FrameContext.CreateDefault();
+        }
+
+        return _frameContexts[header.FrameContextIndex];
+    }
+
+    private void RefreshFrameContext(Vp9FrameHeader header, Vp9FrameContext frameContext)
+    {
+        if (header.RefreshFrameContext)
+        {
+            _frameContexts[header.FrameContextIndex] = frameContext.Clone();
+        }
     }
 
     private static Vp9DecodedFrame ConvertReferenceFrame(Vp9ReferenceFrame referenceFrame, Vp9OutputPixelFormat outputFormat)

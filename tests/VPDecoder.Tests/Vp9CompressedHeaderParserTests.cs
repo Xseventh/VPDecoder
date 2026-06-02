@@ -53,6 +53,31 @@ public sealed class Vp9CompressedHeaderParserTests
     }
 
     [Fact]
+    public void TryParse_WithBaseFrameContext_ClonesBeforeApplyingUpdates()
+    {
+        var packet = CreatePaddedMainFramePacket();
+        var frameHeader = Vp9FrameHeaderParser.Parse(packet);
+        var baseFrameContext = Vp9FrameContext.CreateDefault();
+        baseFrameContext.SkipProbabilities[0] = 7;
+        baseFrameContext.SkipProbabilities[1] = 8;
+        baseFrameContext.SkipProbabilities[2] = 9;
+
+        Assert.True(
+            Vp9CompressedHeaderParser.TryParse(
+                packet,
+                frameHeader,
+                baseFrameContext,
+                out var compressedHeader,
+                out var diagnostic),
+            diagnostic?.Message);
+
+        Assert.NotNull(compressedHeader);
+        Assert.Equal([7, 8, 9], compressedHeader.FrameContext.SkipProbabilities);
+        compressedHeader.FrameContext.SkipProbabilities[0] = 99;
+        Assert.Equal([7, 8, 9], baseFrameContext.SkipProbabilities);
+    }
+
+    [Fact]
     public void TryParse_WhenBoolReaderMarkerIsInvalid_ReturnsInvalidPacketDiagnostic()
     {
         var packet = CreatePaddedMainFramePacket();

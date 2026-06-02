@@ -39,6 +39,14 @@ public sealed class Vp9FrameContext
             coefficientProbabilities);
     }
 
+    public Vp9FrameContext Clone()
+    {
+        return new Vp9FrameContext(
+            TxProbabilities.Clone(),
+            (byte[])SkipProbabilities.Clone(),
+            (byte[])CoefficientProbabilities.Clone());
+    }
+
     public int GetCoefficientProbabilityIndex(
         int transformSize,
         int planeType,
@@ -103,6 +111,14 @@ public sealed class Vp9TxProbabilities
                 { 100 },
                 { 66 }
             });
+    }
+
+    public Vp9TxProbabilities Clone()
+    {
+        return new Vp9TxProbabilities(
+            (byte[,])ThirtyTwoByThirtyTwo.Clone(),
+            (byte[,])SixteenBySixteen.Clone(),
+            (byte[,])EightByEight.Clone());
     }
 }
 
