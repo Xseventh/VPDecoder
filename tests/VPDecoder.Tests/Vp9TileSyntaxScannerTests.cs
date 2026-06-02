@@ -351,7 +351,7 @@ public sealed class Vp9TileSyntaxScannerTests
     }
 
     [Fact]
-    public void TryProbeFullFrameSyntax_ForExternalMainFrame_ReturnsConcreteAcCoefficientUnsupported()
+    public void TryProbeFullFrameSyntax_ForExternalMainFrame_ReadsCompleteSyntax()
     {
         var packet = ReadRequiredSample(
             "/tmp/vp9-main-frame-0.vp9",
@@ -359,20 +359,33 @@ public sealed class Vp9TileSyntaxScannerTests
             "4c57b8dda880711b174483a27e1691c6c9aa9a6721351d041425f8dafb23b7e9");
         var state = CreateState(packet);
 
-        Assert.False(Vp9TileSyntaxScanner.TryProbeFullFrameSyntax(packet, state, out var probes, out var diagnostic));
+        Assert.True(Vp9TileSyntaxScanner.TryProbeFullFrameSyntax(packet, state, out var probes, out var diagnostic), diagnostic?.Message);
 
-        Assert.NotNull(diagnostic);
-        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedFeature, diagnostic.Code);
-        Assert.Matches(
-            @"^VP9 full-frame residual probe does not yet support continuing past Block16X16 luma Tx4X4 transform grids at MI \(130,38\) with Y mode Vertical, UV mode Vertical, skip context \d, transform context \d; transform offsets are supported but full-frame context advancement is still gated\.$",
-            diagnostic.Message);
-        Assert.Equal(84, probes.Count);
-        Assert.Equal(192, probes.SelectMany(probe => probe.ModeInfos).Count());
-        Assert.Equal(576, probes.SelectMany(probe => probe.CoefficientGroups).Count());
+        Assert.Null(diagnostic);
+        Assert.Equal(924, probes.Count);
+        Assert.Equal(5320, probes.SelectMany(probe => probe.ModeInfos).Count());
+        Assert.Equal(15960, probes.SelectMany(probe => probe.CoefficientGroups).Count());
+        Assert.Equal(25326, probes.SelectMany(probe => probe.CoefficientGroups).SelectMany(group => group.Blocks).Count());
+        var lastProbe = probes[^1];
+        Assert.Equal(7, lastProbe.TileIndex);
+        Assert.Single(lastProbe.ModeInfos);
+        Assert.Equal(3, lastProbe.CoefficientGroups.Count);
+        var lastMode = lastProbe.ModeInfos[0];
+        Assert.Equal(168, lastMode.MiRow);
+        Assert.Equal(328, lastMode.MiColumn);
+        Assert.Equal(Vp9BlockSize.Block32X16, lastMode.BlockSize);
+        Assert.Equal(Vp9TransformSize.Tx16X16, lastMode.TransformSize);
+        Assert.Equal(Vp9PredictionMode.Dc, lastMode.YMode);
+        Assert.Equal(Vp9PredictionMode.Dc, lastMode.UvMode);
+        Assert.True(lastMode.Skip);
+        var lastGroup = lastProbe.CoefficientGroups[^1];
+        Assert.Equal(Vp9BlockSize.Block32X16, lastGroup.BlockSize);
+        Assert.Equal(Vp9TransformSize.Tx8X8, lastGroup.TransformSize);
+        Assert.Equal(2, lastGroup.Blocks.Count);
     }
 
     [Fact]
-    public void TryProbeFullFrameSyntax_ForExternalAlphaFrame_ReturnsConcreteAcCoefficientUnsupported()
+    public void TryProbeFullFrameSyntax_ForExternalAlphaFrame_ReadsCompleteSyntax()
     {
         var packet = ReadRequiredSample(
             "/tmp/vp9-alpha-frame-0.vp9",
@@ -380,94 +393,29 @@ public sealed class Vp9TileSyntaxScannerTests
             "94079f539a2165b10f5db2d9e9b5d54ca8df534ca3d36e4eaa1234b0b17a7329");
         var state = CreateState(packet);
 
-        Assert.False(Vp9TileSyntaxScanner.TryProbeFullFrameSyntax(packet, state, out var probes, out var diagnostic));
+        Assert.True(Vp9TileSyntaxScanner.TryProbeFullFrameSyntax(packet, state, out var probes, out var diagnostic), diagnostic?.Message);
 
-        Assert.NotNull(diagnostic);
-        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedFeature, diagnostic.Code);
-        Assert.Matches(
-            @"^VP9 full-frame residual probe does not yet support continuing past Block16X16 luma Tx4X4 transform grids at MI \(128,70\) with Y mode Dc, UV mode Dc, skip context \d, transform context \d; transform offsets are supported but full-frame context advancement is still gated\.$",
-            diagnostic.Message);
-        Assert.Equal(193, probes.Count);
-        Assert.Equal(298, probes.SelectMany(probe => probe.ModeInfos).Count());
-        Assert.Equal(894, probes.SelectMany(probe => probe.CoefficientGroups).Count());
-    }
-
-    [Fact]
-    public void TryProbeFullFrameSyntaxAllowingGatedTx4ForDiagnostics_ForExternalMainFrame_ReachesPostGateTruncationSnapshot()
-    {
-        var packet = ReadRequiredSample(
-            "/tmp/vp9-main-frame-0.vp9",
-            30398,
-            "4c57b8dda880711b174483a27e1691c6c9aa9a6721351d041425f8dafb23b7e9");
-        var state = CreateState(packet);
-
-        Assert.False(Vp9TileSyntaxScanner.TryProbeFullFrameSyntaxAllowingGatedTx4ForDiagnostics(packet, state, out var probes, out var diagnostic));
-
-        Assert.NotNull(diagnostic);
-        Assert.Equal(Vp9DecodeDiagnosticCode.TruncatedPacket, diagnostic.Code);
-        Assert.Equal(
-            "VP9 full-frame syntax probe ended unexpectedly at tile 1 MI (152,64); parsed 13 mode infos and 39 coefficient groups in this superblock; last mode MI (156,68) block Block32X32 transform Tx4X4 skip False Y Dc UV Dc; last coefficient group block Block32X32 transform Tx4X4 blocks 16.",
-            diagnostic.Message);
-
-        var superblock = Assert.Single(
-            probes,
-            probe => probe.TileIndex == 1 && probe.ModeInfos.Any(mode => mode.MiRow == 152 && mode.MiColumn == 64));
-        Assert.Equal(13, superblock.ModeInfos.Count);
-        Assert.Equal(39, superblock.CoefficientGroups.Count);
-        Assert.Equal([152, 152, 152, 152, 153, 153, 154, 154, 154, 155, 155, 156, 156], superblock.ModeInfos.Select(mode => mode.MiRow).ToArray());
-        Assert.Equal([64, 68, 70, 71, 70, 71, 68, 70, 71, 70, 71, 64, 68], superblock.ModeInfos.Select(mode => mode.MiColumn).ToArray());
-        Assert.Equal(
-            [
-                Vp9BlockSize.Block32X32,
-                Vp9BlockSize.Block16X16,
-                Vp9BlockSize.Block8X8,
-                Vp9BlockSize.Block8X8,
-                Vp9BlockSize.Block4X4,
-                Vp9BlockSize.Block4X4,
-                Vp9BlockSize.Block16X16,
-                Vp9BlockSize.Block4X8,
-                Vp9BlockSize.Block4X4,
-                Vp9BlockSize.Block4X4,
-                Vp9BlockSize.Block8X8,
-                Vp9BlockSize.Block32X32,
-                Vp9BlockSize.Block32X32
-            ],
-            superblock.ModeInfos.Select(mode => mode.BlockSize).ToArray());
-        Assert.Equal([true, false, true, true, false, true, false, false, true, false, false, false, false], superblock.ModeInfos.Select(mode => mode.Skip).ToArray());
-        Assert.Equal(
-            [
-                Vp9TransformSize.Tx32X32,
-                Vp9TransformSize.Tx16X16,
-                Vp9TransformSize.Tx8X8,
-                Vp9TransformSize.Tx8X8,
-                Vp9TransformSize.Tx4X4,
-                Vp9TransformSize.Tx4X4,
-                Vp9TransformSize.Tx16X16,
-                Vp9TransformSize.Tx4X4,
-                Vp9TransformSize.Tx4X4,
-                Vp9TransformSize.Tx4X4,
-                Vp9TransformSize.Tx4X4,
-                Vp9TransformSize.Tx4X4,
-                Vp9TransformSize.Tx4X4
-            ],
-            superblock.ModeInfos.Select(mode => mode.TransformSize).ToArray());
-        Assert.Equal(
-            [
-                Vp9PredictionMode.Vertical,
-                Vp9PredictionMode.Horizontal,
-                Vp9PredictionMode.Dc,
-                Vp9PredictionMode.D45,
-                Vp9PredictionMode.Horizontal,
-                Vp9PredictionMode.Horizontal,
-                Vp9PredictionMode.D135,
-                Vp9PredictionMode.D207,
-                Vp9PredictionMode.Horizontal,
-                Vp9PredictionMode.TrueMotion,
-                Vp9PredictionMode.Dc,
-                Vp9PredictionMode.Dc,
-                Vp9PredictionMode.Dc
-            ],
-            superblock.ModeInfos.Select(mode => mode.YMode).ToArray());
+        Assert.Null(diagnostic);
+        Assert.Equal(924, probes.Count);
+        Assert.Equal(2218, probes.SelectMany(probe => probe.ModeInfos).Count());
+        Assert.Equal(6654, probes.SelectMany(probe => probe.CoefficientGroups).Count());
+        Assert.Equal(10488, probes.SelectMany(probe => probe.CoefficientGroups).SelectMany(group => group.Blocks).Count());
+        var lastProbe = probes[^1];
+        Assert.Equal(7, lastProbe.TileIndex);
+        Assert.Equal(2, lastProbe.ModeInfos.Count);
+        Assert.Equal(6, lastProbe.CoefficientGroups.Count);
+        var lastMode = lastProbe.ModeInfos[^1];
+        Assert.Equal(168, lastMode.MiRow);
+        Assert.Equal(330, lastMode.MiColumn);
+        Assert.Equal(Vp9BlockSize.Block16X8, lastMode.BlockSize);
+        Assert.Equal(Vp9TransformSize.Tx8X8, lastMode.TransformSize);
+        Assert.Equal(Vp9PredictionMode.Dc, lastMode.YMode);
+        Assert.Equal(Vp9PredictionMode.Dc, lastMode.UvMode);
+        Assert.True(lastMode.Skip);
+        var lastGroup = lastProbe.CoefficientGroups[^1];
+        Assert.Equal(Vp9BlockSize.Block16X8, lastGroup.BlockSize);
+        Assert.Equal(Vp9TransformSize.Tx4X4, lastGroup.TransformSize);
+        Assert.Equal(2, lastGroup.Blocks.Count);
     }
 
     [Fact]

@@ -24,7 +24,7 @@ public sealed class Vp9ResidualSyntaxTests
     [InlineData(Vp9BlockSize.Block8X16, Vp9TransformSize.Tx16X16, Vp9TransformSize.Tx4X4)]
     [InlineData(Vp9BlockSize.Block8X16, Vp9TransformSize.Tx32X32, Vp9TransformSize.Tx4X4)]
     [InlineData(Vp9BlockSize.Block16X8, Vp9TransformSize.Tx4X4, Vp9TransformSize.Tx4X4)]
-    [InlineData(Vp9BlockSize.Block16X8, Vp9TransformSize.Tx8X8, Vp9TransformSize.Tx8X8)]
+    [InlineData(Vp9BlockSize.Block16X8, Vp9TransformSize.Tx8X8, Vp9TransformSize.Tx4X4)]
     [InlineData(Vp9BlockSize.Block16X8, Vp9TransformSize.Tx16X16, Vp9TransformSize.Tx8X8)]
     [InlineData(Vp9BlockSize.Block16X8, Vp9TransformSize.Tx32X32, Vp9TransformSize.Tx8X8)]
     [InlineData(Vp9BlockSize.Block16X16, Vp9TransformSize.Tx4X4, Vp9TransformSize.Tx4X4)]

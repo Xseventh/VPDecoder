@@ -57,7 +57,7 @@ internal static class Vp9ResidualSyntax
         [Vp9TransformSize.Tx4X4, Vp9TransformSize.Tx4X4, Vp9TransformSize.Tx4X4, Vp9TransformSize.Tx4X4],
         [Vp9TransformSize.Tx4X4, Vp9TransformSize.Tx4X4, Vp9TransformSize.Tx4X4, Vp9TransformSize.Tx4X4],
         [Vp9TransformSize.Tx4X4, Vp9TransformSize.Tx4X4, Vp9TransformSize.Tx4X4, Vp9TransformSize.Tx4X4],
-        [Vp9TransformSize.Tx4X4, Vp9TransformSize.Tx8X8, Vp9TransformSize.Tx8X8, Vp9TransformSize.Tx8X8],
+        [Vp9TransformSize.Tx4X4, Vp9TransformSize.Tx4X4, Vp9TransformSize.Tx8X8, Vp9TransformSize.Tx8X8],
         [Vp9TransformSize.Tx4X4, Vp9TransformSize.Tx8X8, Vp9TransformSize.Tx8X8, Vp9TransformSize.Tx8X8],
         [Vp9TransformSize.Tx4X4, Vp9TransformSize.Tx8X8, Vp9TransformSize.Tx8X8, Vp9TransformSize.Tx8X8],
         [Vp9TransformSize.Tx4X4, Vp9TransformSize.Tx8X8, Vp9TransformSize.Tx8X8, Vp9TransformSize.Tx8X8],
@@ -186,8 +186,7 @@ internal static class Vp9ResidualSyntax
         Vp9KeyFrameDecodeState state,
         Vp9ModeInfoProbe modeInfo,
         Vp9CoefficientEntropyContext entropyContext,
-        int plane,
-        bool allowFullFrameGridContinuationProbe = false)
+        int plane)
     {
         if (plane is < 0 or > 2)
         {
@@ -201,11 +200,6 @@ internal static class Vp9ResidualSyntax
         var height4 = GetVisiblePlaneHeightIn4x4Blocks(state.Header, modeInfo.BlockSize, modeInfo.MiRow, plane);
         var step = Vp9CoefficientEntropyContext.GetTransformSizeIn4x4Blocks(transformSize);
         var blocks = new List<Vp9CoefficientBlockProbe>();
-
-        if (!allowFullFrameGridContinuationProbe)
-        {
-            ThrowIfUnsupportedFullFrameGridContinuation(modeInfo, plane, transformSize);
-        }
 
         if (modeInfo.Skip)
         {
@@ -618,25 +612,6 @@ internal static class Vp9ResidualSyntax
 
         throw new NotSupportedException(
             $"VP9 full-frame residual probe currently supports only DC-only, TX4, TX8, TX16, or TX32 coefficient blocks; got MI ({modeInfo.MiRow},{modeInfo.MiColumn}) plane {plane} block {modeInfo.BlockSize} transform {block.TransformSize}/{block.TransformType} transform offset ({row4},{column4}) eob {block.Eob}.");
-    }
-
-    private static void ThrowIfUnsupportedFullFrameGridContinuation(
-        Vp9ModeInfoProbe modeInfo,
-        int plane,
-        Vp9TransformSize transformSize)
-    {
-        if (modeInfo.Skip)
-        {
-            return;
-        }
-
-        if (plane == 0 &&
-            modeInfo.BlockSize == Vp9BlockSize.Block16X16 &&
-            transformSize == Vp9TransformSize.Tx4X4)
-        {
-            throw new NotSupportedException(
-                $"VP9 full-frame residual probe does not yet support continuing past Block16X16 luma Tx4X4 transform grids at MI ({modeInfo.MiRow},{modeInfo.MiColumn}) with Y mode {modeInfo.YMode}, UV mode {modeInfo.UvMode}, skip context {modeInfo.SkipContext}, transform context {modeInfo.TransformSizeContext}; transform offsets are supported but full-frame context advancement is still gated.");
-        }
     }
 
     private static Vp9TransformSize GetUvTransformSize(Vp9BlockSize blockSize, Vp9TransformSize yTransformSize)

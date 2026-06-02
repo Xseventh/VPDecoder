@@ -145,7 +145,7 @@ public sealed class RawVp9DecoderTests
         Assert.NotNull(result.CompressedHeader);
         Assert.Equal(Vp9TransformMode.Select, result.CompressedHeader.TransformMode);
         Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedFeature, result.Diagnostic?.Code);
-        Assert.Contains("full-frame residual probe", result.Diagnostic?.Message);
+        Assert.Contains("pixel reconstruction", result.Diagnostic?.Message);
     }
 
     [Fact]
@@ -162,7 +162,7 @@ public sealed class RawVp9DecoderTests
         Assert.Equal(6233, result.Header.PacketLength);
         Assert.Equal(142, result.Header.FirstPartitionSize);
         Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedFeature, result.Diagnostic?.Code);
-        Assert.Contains("full-frame residual probe", result.Diagnostic?.Message);
+        Assert.Contains("pixel reconstruction", result.Diagnostic?.Message);
     }
 
     [Fact]
@@ -177,7 +177,7 @@ public sealed class RawVp9DecoderTests
         Assert.False(result.Succeeded);
         Assert.NotNull(result.Header);
         Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedFeature, result.Diagnostic?.Code);
-        Assert.Contains("full-frame residual probe", result.Diagnostic?.Message);
+        Assert.Contains("pixel reconstruction", result.Diagnostic?.Message);
     }
 
     [Fact]

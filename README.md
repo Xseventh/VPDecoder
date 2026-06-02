@@ -19,9 +19,11 @@ Current status:
 - Probes early tile syntax for the provided samples: first superblock
   partition, first key-frame mode-info fields, first Y coefficient token, and
   full first Y TX32 coefficient block.
-- Probes the first full-frame Block16X16 luma TX4 group that currently gates
-  the main and alpha samples, preserving deterministic block-order evidence for
-  the next residual synchronization slice.
+- Probes complete full-frame key-frame tile syntax for the provided main and
+  alpha samples, including deterministic mode-info and residual coefficient
+  group counts.
+- Preserves deterministic evidence for the first Block16X16 luma TX4 group
+  that previously exposed residual synchronization drift.
 - Converts decoded YUV420 frames to BGRA8888/RGBA8888 and composes alpha from
   either BGRA red or YUV luma once real frame pixels are available.
 - Provides a small raw VP9 CLI smoke workflow in `src/VPDecoder.Cli`.
@@ -31,11 +33,10 @@ Current status:
   2656x1352, 8 tile columns.
 - Fails explicitly for unsupported decode work instead of emitting pixels.
 
-Full-frame pixel reconstruction, residual integration past the current TX4
-gate, complete inverse-transform/intra-prediction coverage, loop filtering,
-inter frames, and real VP8 decoding remain follow-up slices. The decoder must
-continue to return explicit unsupported diagnostics until those pieces are
-complete.
+Full-frame pixel reconstruction, complete inverse-transform/intra-prediction
+coverage, loop filtering, inter frames, and real VP8 decoding remain follow-up
+slices. The decoder must continue to return explicit unsupported diagnostics
+until those pieces are complete.
 
 CLI smoke example:
 

@@ -94,7 +94,7 @@ public sealed class RawVp9Decoder
 
         return Vp9DecodeResult.Fail(
             Vp9DecodeDiagnostic.UnsupportedFeature(
-                "VP9 pixel reconstruction is not implemented yet. Header parsing, tile layout, and full-frame syntax gating succeeded."),
+                "VP9 pixel reconstruction is not implemented yet. Header parsing, tile layout, and full-frame syntax probing succeeded."),
             header,
             compressedHeader);
     }

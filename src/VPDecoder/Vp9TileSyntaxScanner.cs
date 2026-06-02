@@ -316,35 +316,6 @@ internal static class Vp9TileSyntaxScanner
         out IReadOnlyList<Vp9SuperblockSyntaxProbe> probes,
         out Vp9DecodeDiagnostic? diagnostic)
     {
-        return TryProbeFullFrameSyntax(
-            packet,
-            state,
-            allowFullFrameGridContinuationProbe: false,
-            out probes,
-            out diagnostic);
-    }
-
-    public static bool TryProbeFullFrameSyntaxAllowingGatedTx4ForDiagnostics(
-        ReadOnlyMemory<byte> packet,
-        Vp9KeyFrameDecodeState state,
-        out IReadOnlyList<Vp9SuperblockSyntaxProbe> probes,
-        out Vp9DecodeDiagnostic? diagnostic)
-    {
-        return TryProbeFullFrameSyntax(
-            packet,
-            state,
-            allowFullFrameGridContinuationProbe: true,
-            out probes,
-            out diagnostic);
-    }
-
-    private static bool TryProbeFullFrameSyntax(
-        ReadOnlyMemory<byte> packet,
-        Vp9KeyFrameDecodeState state,
-        bool allowFullFrameGridContinuationProbe,
-        out IReadOnlyList<Vp9SuperblockSyntaxProbe> probes,
-        out Vp9DecodeDiagnostic? diagnostic)
-    {
         var parsed = new List<Vp9SuperblockSyntaxProbe>();
         probes = parsed;
         diagnostic = null;
@@ -384,8 +355,7 @@ internal static class Vp9TileSyntaxScanner
                             Vp9BlockSize.Block64X64,
                             [],
                             modes,
-                            coefficientGroups,
-                            allowFullFrameGridContinuationProbe);
+                            coefficientGroups);
                         parsed.Add(new Vp9SuperblockSyntaxProbe(geometry.Buffer.Index, modes, coefficientGroups));
                         if (reader.HasError)
                         {
@@ -672,8 +642,7 @@ internal static class Vp9TileSyntaxScanner
         Vp9BlockSize blockSize,
         IReadOnlyList<Vp9PartitionType> partitionPath,
         List<Vp9ModeInfoProbe> modes,
-        List<Vp9CoefficientBlockGroupProbe> coefficientGroups,
-        bool allowFullFrameGridContinuationProbe = false)
+        List<Vp9CoefficientBlockGroupProbe> coefficientGroups)
     {
         if (miRow >= state.Header.TileInfo.MiRows || miColumn >= state.Header.TileInfo.MiColumns)
         {
@@ -703,8 +672,7 @@ internal static class Vp9TileSyntaxScanner
                 subsize,
                 childPath,
                 modes,
-                coefficientGroups,
-                allowFullFrameGridContinuationProbe);
+                coefficientGroups);
             syntaxContext.UpdatePartitionContext(miRow, miColumn, blockSize, subsize);
             return;
         }
@@ -723,8 +691,7 @@ internal static class Vp9TileSyntaxScanner
                     subsize,
                     childPath,
                     modes,
-                    coefficientGroups,
-                    allowFullFrameGridContinuationProbe);
+                    coefficientGroups);
                 break;
 
             case Vp9PartitionType.Horizontal:
@@ -739,8 +706,7 @@ internal static class Vp9TileSyntaxScanner
                     subsize,
                     childPath,
                     modes,
-                    coefficientGroups,
-                    allowFullFrameGridContinuationProbe);
+                    coefficientGroups);
                 if (hasRows)
                 {
                     ReadBlockSyntax(
@@ -754,8 +720,7 @@ internal static class Vp9TileSyntaxScanner
                         subsize,
                         childPath,
                         modes,
-                        coefficientGroups,
-                        allowFullFrameGridContinuationProbe);
+                        coefficientGroups);
                 }
 
                 break;
@@ -772,8 +737,7 @@ internal static class Vp9TileSyntaxScanner
                     subsize,
                     childPath,
                     modes,
-                    coefficientGroups,
-                    allowFullFrameGridContinuationProbe);
+                    coefficientGroups);
                 if (hasColumns)
                 {
                     ReadBlockSyntax(
@@ -787,8 +751,7 @@ internal static class Vp9TileSyntaxScanner
                         subsize,
                         childPath,
                         modes,
-                        coefficientGroups,
-                        allowFullFrameGridContinuationProbe);
+                        coefficientGroups);
                 }
 
                 break;
@@ -805,8 +768,7 @@ internal static class Vp9TileSyntaxScanner
                     subsize,
                     childPath,
                     modes,
-                    coefficientGroups,
-                    allowFullFrameGridContinuationProbe);
+                    coefficientGroups);
                 ReadPartitionSyntax(
                     ref reader,
                     state,
@@ -818,8 +780,7 @@ internal static class Vp9TileSyntaxScanner
                     subsize,
                     childPath,
                     modes,
-                    coefficientGroups,
-                    allowFullFrameGridContinuationProbe);
+                    coefficientGroups);
                 ReadPartitionSyntax(
                     ref reader,
                     state,
@@ -831,8 +792,7 @@ internal static class Vp9TileSyntaxScanner
                     subsize,
                     childPath,
                     modes,
-                    coefficientGroups,
-                    allowFullFrameGridContinuationProbe);
+                    coefficientGroups);
                 ReadPartitionSyntax(
                     ref reader,
                     state,
@@ -844,8 +804,7 @@ internal static class Vp9TileSyntaxScanner
                     subsize,
                     childPath,
                     modes,
-                    coefficientGroups,
-                    allowFullFrameGridContinuationProbe);
+                    coefficientGroups);
                 break;
 
             default:
@@ -870,8 +829,7 @@ internal static class Vp9TileSyntaxScanner
         Vp9BlockSize blockSize,
         IReadOnlyList<Vp9PartitionType> partitionPath,
         List<Vp9ModeInfoProbe> modes,
-        List<Vp9CoefficientBlockGroupProbe> coefficientGroups,
-        bool allowFullFrameGridContinuationProbe = false)
+        List<Vp9CoefficientBlockGroupProbe> coefficientGroups)
     {
         if (blockSize is not (
             Vp9BlockSize.Block4X4 or
@@ -910,8 +868,7 @@ internal static class Vp9TileSyntaxScanner
                 state,
                 modeInfo,
                 coefficientContext,
-                plane,
-                allowFullFrameGridContinuationProbe));
+                plane));
         }
     }
 
@@ -1184,8 +1141,7 @@ internal static class Vp9TileSyntaxScanner
                 state,
                 modeInfo,
                 coefficientContext,
-                plane: 0,
-                allowFullFrameGridContinuationProbe: true);
+                plane: 0);
             return true;
         }
 
