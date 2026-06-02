@@ -22,6 +22,9 @@ Current status:
 - Probes complete full-frame key-frame tile syntax for the provided main and
   alpha samples, including deterministic mode-info and residual coefficient
   group counts.
+- Reconstructs deterministic unfiltered YUV420 frames for the provided main and
+  alpha samples through intra prediction, inverse transform, and clipped
+  transform edge handling.
 - Preserves deterministic evidence for the first Block16X16 luma TX4 group
   that previously exposed residual synchronization drift.
 - Converts decoded YUV420 frames to BGRA8888/RGBA8888 and composes alpha from
@@ -33,10 +36,9 @@ Current status:
   2656x1352, 8 tile columns.
 - Fails explicitly for unsupported decode work instead of emitting pixels.
 
-Full-frame pixel reconstruction, complete inverse-transform/intra-prediction
-coverage, loop filtering, inter frames, and real VP8 decoding remain follow-up
-slices. The decoder must continue to return explicit unsupported diagnostics
-until those pieces are complete.
+Loop filtering, public final-frame output, inter frames, and real VP8 decoding
+remain follow-up slices. The decoder must continue to return explicit
+unsupported diagnostics until those pieces are complete.
 
 CLI smoke example:
 

@@ -577,24 +577,59 @@ public sealed class Vp9TileSyntaxScannerTests
     }
 
     [Theory]
-    [InlineData("/tmp/vp9-main-frame-0.vp9", 30398, "4c57b8dda880711b174483a27e1691c6c9aa9a6721351d041425f8dafb23b7e9")]
-    [InlineData("/tmp/vp9-alpha-frame-0.vp9", 6233, "94079f539a2165b10f5db2d9e9b5d54ca8df534ca3d36e4eaa1234b0b17a7329")]
-    public void TryReconstructFullFrame_ForExternalSamples_ReachesConcreteClippedTransformGate(
+    [InlineData(
+        "/tmp/vp9-main-frame-0.vp9",
+        30398,
+        "4c57b8dda880711b174483a27e1691c6c9aa9a6721351d041425f8dafb23b7e9",
+        3_128_047,
+        "c8134844215286d7716b26e190df1add2ba69336bca055859b1d44e055db13b0",
+        1_332_592,
+        "2ee2e98171d4c15074812c3afe61eddd602368352e1848d5ec545c7e1740da06",
+        897_727,
+        "f668c4f40fa59027caa47a6503849d7043f475961dade9eba635a134940564e6",
+        897_728,
+        "d561a7b36054a0fee55ef6e0272f11189f61d58800a8204db25d8af352b2827e")]
+    [InlineData(
+        "/tmp/vp9-alpha-frame-0.vp9",
+        6233,
+        "94079f539a2165b10f5db2d9e9b5d54ca8df534ca3d36e4eaa1234b0b17a7329",
+        2_752_618,
+        "93e06f2267476282f4c1a2565ed67255ca14e1784350e4ceb13ba5f9292be0ff",
+        957_162,
+        "5d50988525d0d0b0b864c65ee1272492d9b91547c9fd75fbd68154d8b959638d",
+        897_728,
+        "00e7569e2bc6b0d8d8bc2464a82456bf8a6e12ab19b041330d8ec119adfd3476",
+        897_728,
+        "00e7569e2bc6b0d8d8bc2464a82456bf8a6e12ab19b041330d8ec119adfd3476")]
+    public void TryReconstructFullFrame_ForExternalSamples_WritesDeterministicUnfilteredYuv(
         string path,
         int expectedLength,
-        string expectedSha256)
+        string expectedSha256,
+        int expectedNonZero,
+        string expectedHash,
+        int expectedYNonZero,
+        string expectedYHash,
+        int expectedUNonZero,
+        string expectedUHash,
+        int expectedVNonZero,
+        string expectedVHash)
     {
         var packet = ReadRequiredSample(path, expectedLength, expectedSha256);
         var state = CreateState(packet);
 
-        Assert.False(Vp9TileSyntaxScanner.TryReconstructFullFrame(packet, state, out var frame, out var diagnostic));
+        Assert.True(Vp9TileSyntaxScanner.TryReconstructFullFrame(packet, state, out var frame, out var diagnostic), diagnostic?.Message);
 
-        Assert.Null(frame);
-        Assert.NotNull(diagnostic);
-        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedFeature, diagnostic.Code);
-        Assert.Equal(
-            "VP9 reconstruction does not yet support clipped transform blocks at frame edges; got MI (168,0) plane 0 block Block64X32 transform Tx32X32 transform offset (0,0) pixel origin (0,1344) in plane 2656x1352.",
-            diagnostic.Message);
+        Assert.NotNull(frame);
+        Assert.Null(diagnostic);
+        Assert.Equal(2656, frame.Width);
+        Assert.Equal(1352, frame.Height);
+        Assert.Equal(Vp9OutputPixelFormat.Yuv420, frame.PixelFormat);
+        Assert.Equal(5_386_368, frame.Pixels.Length);
+        Assert.Equal(expectedNonZero, frame.Pixels.Count(value => value != 0));
+        Assert.Equal(expectedHash, Hash(frame.Pixels));
+        AssertPlaneHash(frame, planeIndex: 0, expectedYNonZero, expectedYHash);
+        AssertPlaneHash(frame, planeIndex: 1, expectedUNonZero, expectedUHash);
+        AssertPlaneHash(frame, planeIndex: 2, expectedVNonZero, expectedVHash);
     }
 
     [Fact]

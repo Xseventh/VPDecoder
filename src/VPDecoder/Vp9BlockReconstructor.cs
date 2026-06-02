@@ -69,14 +69,6 @@ internal static class Vp9BlockReconstructor
             seenBlocks[blockIndex] = true;
             var x = originX + (coefficients.Column4 * 4);
             var y = originY + (coefficients.Row4 * 4);
-            if (x + transformSize > planeInfo.Metadata.Width || y + transformSize > planeInfo.Metadata.Height)
-            {
-                throw new NotSupportedException(
-                    $"VP9 reconstruction does not yet support clipped transform blocks at frame edges; got MI ({modeInfo.MiRow},{modeInfo.MiColumn}) plane {plane} block {modeInfo.BlockSize} transform {group.TransformSize} transform offset ({coefficients.Row4},{coefficients.Column4}) pixel origin ({x},{y}) in plane {planeInfo.Metadata.Width}x{planeInfo.Metadata.Height}.");
-            }
-
-            var destinationOffset = planeInfo.Metadata.Offset + (y * planeInfo.Stride) + x;
-            var destination = frameBuffer.Pixels.AsSpan(destinationOffset);
             var predictionMode = GetPredictionMode(modeInfo, coefficients, plane);
             var above = y > 0
                 ? ReadAboveEdge(
@@ -87,47 +79,59 @@ internal static class Vp9BlockReconstructor
                     y,
                     GetRequiredAboveEdgeLength(predictionMode, transformSize))
                 : [];
-            var left = x > tileStartX ? ReadLeftEdge(planePixels, planeInfo.Stride, x, y, transformSize) : [];
-            var aboveLeft = above.Length != 0 && left.Length != 0
-                ? planePixels[((y - 1) * planeInfo.Stride) + x - 1]
-                : (byte?)null;
-            Vp9IntraPredictor.Predict(
-                predictionMode,
-                destination,
-                planeInfo.Stride,
-                transformSize,
-                above,
-                left,
-                aboveLeft);
+            var left = x > tileStartX
+                ? ReadLeftEdge(planePixels, planeInfo.Stride, planeInfo.Metadata.Height, x, y, transformSize)
+                : [];
+            var aboveLeft = GetAboveLeft(planePixels, planeInfo.Stride, x, y, above, left);
+            NormalizeEdges(predictionMode, transformSize, ref above, ref left, ref aboveLeft);
 
-            if (coefficients.Eob == 0)
+            var visibleWidth = Math.Min(transformSize, planeInfo.Metadata.Width - x);
+            var visibleHeight = Math.Min(transformSize, planeInfo.Metadata.Height - y);
+            if (visibleWidth <= 0 || visibleHeight <= 0)
             {
                 continue;
             }
 
-            if (IsDcOnlyOrEmpty(coefficients) &&
-                (group.TransformSize == Vp9TransformSize.Tx32X32 ||
-                    coefficients.TransformType == Vp9TransformType.DctDct))
+            var isClipped = visibleWidth != transformSize || visibleHeight != transformSize;
+            if (isClipped)
             {
-                Vp9DcOnlyReconstructor.AddDcOnly(
+                var temp = new byte[checked(transformSize * transformSize)];
+                PredictAndAddResidual(
+                    temp,
+                    transformSize,
+                    x: 0,
+                    y: 0,
+                    transformSize,
+                    group.TransformSize,
+                    coefficients,
+                    predictionMode,
+                    above,
+                    left,
+                    aboveLeft);
+                CopyVisibleBlock(
+                    temp,
+                    transformSize,
                     planePixels,
                     planeInfo.Stride,
                     x,
                     y,
-                    transformSize,
-                    coefficients.DequantizedCoefficients[0]);
+                    visibleWidth,
+                    visibleHeight);
                 continue;
             }
 
-            Vp9InverseTransform.AddBlock(
+            PredictAndAddResidual(
                 planePixels,
                 planeInfo.Stride,
                 x,
                 y,
+                transformSize,
                 group.TransformSize,
-                coefficients.TransformType,
-                coefficients.DequantizedCoefficients,
-                coefficients.Eob);
+                coefficients,
+                predictionMode,
+                above,
+                left,
+                aboveLeft);
         }
     }
 
@@ -223,6 +227,74 @@ internal static class Vp9BlockReconstructor
                 : transformSize;
     }
 
+    private static byte? GetAboveLeft(
+        ReadOnlySpan<byte> plane,
+        int stride,
+        int x,
+        int y,
+        ReadOnlySpan<byte> above,
+        ReadOnlySpan<byte> left)
+    {
+        if (above.Length == 0)
+        {
+            return null;
+        }
+
+        return left.Length == 0
+            ? (byte)129
+            : plane[((y - 1) * stride) + x - 1];
+    }
+
+    private static void NormalizeEdges(
+        Vp9PredictionMode mode,
+        int transformSize,
+        ref byte[] above,
+        ref byte[] left,
+        ref byte? aboveLeft)
+    {
+        if (mode == Vp9PredictionMode.Dc)
+        {
+            return;
+        }
+
+        if (NeedsAbove(mode) && above.Length == 0)
+        {
+            above = new byte[GetRequiredAboveEdgeLength(mode, transformSize)];
+            Array.Fill(above, (byte)127);
+            aboveLeft = 127;
+        }
+
+        if (NeedsLeft(mode) && left.Length == 0)
+        {
+            left = new byte[transformSize];
+            Array.Fill(left, (byte)129);
+            aboveLeft ??= 129;
+        }
+    }
+
+    private static bool NeedsAbove(Vp9PredictionMode mode)
+    {
+        return mode is
+            Vp9PredictionMode.Vertical or
+            Vp9PredictionMode.D45 or
+            Vp9PredictionMode.D63 or
+            Vp9PredictionMode.D117 or
+            Vp9PredictionMode.D135 or
+            Vp9PredictionMode.D153 or
+            Vp9PredictionMode.TrueMotion;
+    }
+
+    private static bool NeedsLeft(Vp9PredictionMode mode)
+    {
+        return mode is
+            Vp9PredictionMode.Horizontal or
+            Vp9PredictionMode.D117 or
+            Vp9PredictionMode.D135 or
+            Vp9PredictionMode.D153 or
+            Vp9PredictionMode.D207 or
+            Vp9PredictionMode.TrueMotion;
+    }
+
     private static byte[] ReadAboveEdge(ReadOnlySpan<byte> plane, int stride, int planeWidth, int x, int y, int length)
     {
         var above = new byte[length];
@@ -236,15 +308,91 @@ internal static class Vp9BlockReconstructor
         return above;
     }
 
-    private static byte[] ReadLeftEdge(ReadOnlySpan<byte> plane, int stride, int x, int y, int size)
+    private static byte[] ReadLeftEdge(ReadOnlySpan<byte> plane, int stride, int planeHeight, int x, int y, int size)
     {
         var left = new byte[size];
-        for (var row = 0; row < size; row++)
+        var available = Math.Min(size, planeHeight - y);
+        for (var row = 0; row < available; row++)
         {
             left[row] = plane[((y + row) * stride) + x - 1];
         }
 
+        if (available < size)
+        {
+            Array.Fill(left, left[available - 1], available, size - available);
+        }
+
         return left;
+    }
+
+    private static void PredictAndAddResidual(
+        Span<byte> destination,
+        int stride,
+        int x,
+        int y,
+        int transformSizeInPixels,
+        Vp9TransformSize transformSize,
+        Vp9CoefficientBlockProbe coefficients,
+        Vp9PredictionMode predictionMode,
+        ReadOnlySpan<byte> above,
+        ReadOnlySpan<byte> left,
+        byte? aboveLeft)
+    {
+        var predictionDestination = destination.Slice((y * stride) + x);
+        Vp9IntraPredictor.Predict(
+            predictionMode,
+            predictionDestination,
+            stride,
+            transformSizeInPixels,
+            above,
+            left,
+            aboveLeft);
+
+        if (coefficients.Eob == 0)
+        {
+            return;
+        }
+
+        if (IsDcOnlyOrEmpty(coefficients) &&
+            (transformSize == Vp9TransformSize.Tx32X32 ||
+                coefficients.TransformType == Vp9TransformType.DctDct))
+        {
+            Vp9DcOnlyReconstructor.AddDcOnly(
+                destination,
+                stride,
+                x,
+                y,
+                transformSizeInPixels,
+                coefficients.DequantizedCoefficients[0]);
+            return;
+        }
+
+        Vp9InverseTransform.AddBlock(
+            destination,
+            stride,
+            x,
+            y,
+            transformSize,
+            coefficients.TransformType,
+            coefficients.DequantizedCoefficients,
+            coefficients.Eob);
+    }
+
+    private static void CopyVisibleBlock(
+        ReadOnlySpan<byte> source,
+        int sourceStride,
+        Span<byte> destination,
+        int destinationStride,
+        int x,
+        int y,
+        int width,
+        int height)
+    {
+        for (var row = 0; row < height; row++)
+        {
+            source.Slice(row * sourceStride, width).CopyTo(
+                destination.Slice(((y + row) * destinationStride) + x, width));
+        }
     }
 
     private sealed record Vp9PlaneInfo(Vp9DecodedPlane Metadata, int Stride);
