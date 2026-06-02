@@ -29,6 +29,9 @@ public sealed record Vp9CoefficientTokenProbe(
 public sealed record Vp9CoefficientBlockProbe(
     int TileIndex,
     Vp9TransformSize TransformSize,
+    Vp9TransformType TransformType,
+    int Row4,
+    int Column4,
     int PlaneType,
     int ReferenceType,
     int InitialCoefficientContext,
@@ -127,7 +130,9 @@ internal static class Vp9ResidualSyntax
         ref Vp9BoolReader reader,
         Vp9KeyFrameDecodeState state,
         Vp9ModeInfoProbe modeInfo,
-        int initialCoefficientContext = 0)
+        int initialCoefficientContext = 0,
+        int row4 = 0,
+        int column4 = 0)
     {
         const int planeType = 0;
         const int referenceType = 0;
@@ -149,7 +154,9 @@ internal static class Vp9ResidualSyntax
             state,
             modeInfo,
             modeInfo.TransformSize,
-            GetTransformType(modeInfo, plane: 0, modeInfo.TransformSize, row4: 0, column4: 0),
+            GetTransformType(modeInfo, plane: 0, modeInfo.TransformSize, row4, column4),
+            row4,
+            column4,
             planeType,
             referenceType,
             state.DequantTables.YDc,
@@ -189,9 +196,13 @@ internal static class Vp9ResidualSyntax
             {
                 for (var column = 0; column < width4; column += step)
                 {
+                    var transformType = GetTransformType(modeInfo, plane, transformSize, row, column);
                     blocks.Add(CreateBlockProbe(
                         modeInfo,
                         transformSize,
+                        transformType,
+                        row,
+                        column,
                         plane == 0 ? 0 : 1,
                         referenceType: 0,
                         initialCoefficientContext: 0,
@@ -222,6 +233,8 @@ internal static class Vp9ResidualSyntax
                     modeInfo,
                     transformSize,
                     transformType,
+                    row,
+                    column,
                     planeType,
                     referenceType: 0,
                     dc,
@@ -242,6 +255,8 @@ internal static class Vp9ResidualSyntax
         Vp9ModeInfoProbe modeInfo,
         Vp9TransformSize transformSize,
         Vp9TransformType transformType,
+        int row4,
+        int column4,
         int planeType,
         int referenceType,
         int dcDequant,
@@ -255,6 +270,9 @@ internal static class Vp9ResidualSyntax
             return CreateBlockProbe(
                 modeInfo,
                 transformSize,
+                transformType,
+                row4,
+                column4,
                 planeType,
                 referenceType,
                 initialCoefficientContext,
@@ -295,6 +313,9 @@ internal static class Vp9ResidualSyntax
                     return CreateBlockProbe(
                         modeInfo,
                         transformSize,
+                        transformType,
+                        row4,
+                        column4,
                         planeType,
                         referenceType,
                         initialCoefficientContext,
@@ -335,6 +356,9 @@ internal static class Vp9ResidualSyntax
         return CreateBlockProbe(
             modeInfo,
             transformSize,
+            transformType,
+            row4,
+            column4,
             planeType,
             referenceType,
             initialCoefficientContext,
@@ -355,16 +379,23 @@ internal static class Vp9ResidualSyntax
         var gridSize = GetFirstLeafTx32GridSize(modeInfo.BlockSize);
         var blocks = new Vp9CoefficientBlockProbe[gridSize * gridSize];
         var nonZeroContexts = new bool[gridSize, gridSize];
+        var step = Vp9CoefficientEntropyContext.GetTransformSizeIn4x4Blocks(modeInfo.TransformSize);
         for (var row = 0; row < gridSize; row++)
         {
             for (var column = 0; column < gridSize; column++)
             {
                 var blockIndex = (row * gridSize) + column;
+                var row4 = row * step;
+                var column4 = column * step;
+                var transformType = GetTransformType(modeInfo, plane: 0, modeInfo.TransformSize, row4, column4);
                 if (modeInfo.Skip)
                 {
                     blocks[blockIndex] = CreateBlockProbe(
                         modeInfo,
                         modeInfo.TransformSize,
+                        transformType,
+                        row4,
+                        column4,
                         planeType: 0,
                         referenceType: 0,
                         initialCoefficientContext: 0,
@@ -375,7 +406,7 @@ internal static class Vp9ResidualSyntax
 
                 var context = (row > 0 && nonZeroContexts[row - 1, column] ? 1 : 0) +
                     (column > 0 && nonZeroContexts[row, column - 1] ? 1 : 0);
-                var block = ReadFirstYCoefficientBlock(ref reader, state, modeInfo, context);
+                var block = ReadFirstYCoefficientBlock(ref reader, state, modeInfo, context, row4, column4);
                 blocks[blockIndex] = block;
                 nonZeroContexts[row, column] = block.Eob > 0;
             }
@@ -615,6 +646,9 @@ internal static class Vp9ResidualSyntax
     private static Vp9CoefficientBlockProbe CreateBlockProbe(
         Vp9ModeInfoProbe modeInfo,
         Vp9TransformSize transformSize,
+        Vp9TransformType transformType,
+        int row4,
+        int column4,
         int planeType,
         int referenceType,
         int initialCoefficientContext,
@@ -643,6 +677,9 @@ internal static class Vp9ResidualSyntax
         return new Vp9CoefficientBlockProbe(
             modeInfo.TileIndex,
             transformSize,
+            transformType,
+            row4,
+            column4,
             planeType,
             referenceType,
             initialCoefficientContext,

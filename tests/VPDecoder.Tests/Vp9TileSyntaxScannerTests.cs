@@ -164,6 +164,9 @@ public sealed class Vp9TileSyntaxScannerTests
             Assert.Equal(Vp9TransformSize.Tx32X32, probe.TransformSize);
             Assert.Equal(0, probe.PlaneType);
             Assert.Equal(0, probe.ReferenceType);
+            Assert.Equal(Vp9TransformType.DctDct, probe.TransformType);
+            Assert.Equal(0, probe.Row4);
+            Assert.Equal(0, probe.Column4);
             Assert.Equal(0, probe.InitialCoefficientContext);
             Assert.Equal(1, probe.Eob);
             Assert.Equal(1, probe.NonZeroCount);
@@ -196,6 +199,9 @@ public sealed class Vp9TileSyntaxScannerTests
             Assert.Equal(Vp9TransformSize.Tx32X32, probe.TransformSize);
             Assert.Equal(0, probe.PlaneType);
             Assert.Equal(0, probe.ReferenceType);
+            Assert.Equal(Vp9TransformType.DctDct, probe.TransformType);
+            Assert.Equal(0, probe.Row4);
+            Assert.Equal(0, probe.Column4);
             Assert.Equal(0, probe.InitialCoefficientContext);
             Assert.Equal(1, probe.Eob);
             Assert.Equal(1, probe.NonZeroCount);
@@ -230,10 +236,13 @@ public sealed class Vp9TileSyntaxScannerTests
             Assert.Equal(Vp9BlockSize.Block64X64, group.BlockSize);
             Assert.Equal(Vp9TransformSize.Tx32X32, group.TransformSize);
             Assert.Equal(4, group.Blocks.Count);
-            AssertCoefficientBlock(group.Blocks[0], initialContext: 0, eob: 1, nonZeroCount: 1, dc: 16625, firstNonZero: 0, lastNonZero: 0, hash: "3878815e7c5359a006b9706f73c0c80f445f8dc8e063739dd09adf63bb4df1fd");
-            AssertCoefficientBlock(group.Blocks[1], initialContext: 1, eob: 0, nonZeroCount: 0, dc: 0, firstNonZero: -1, lastNonZero: -1, hash: "ad7facb2586fc6e966c004d7d1d16b024f5805ff7cb47c7a85dabd8b48892ca7");
-            AssertCoefficientBlock(group.Blocks[2], initialContext: 1, eob: 1, nonZeroCount: 1, dc: 200, firstNonZero: 0, lastNonZero: 0, hash: "3dc873eebf42181783041b82c11f23cd10404d6ae0a36e5b48463a6deee1e21e");
-            AssertCoefficientBlock(group.Blocks[3], initialContext: 1, eob: 0, nonZeroCount: 0, dc: 0, firstNonZero: -1, lastNonZero: -1, hash: "ad7facb2586fc6e966c004d7d1d16b024f5805ff7cb47c7a85dabd8b48892ca7");
+            Assert.Equal([0, 0, 8, 8], group.Blocks.Select(block => block.Row4).ToArray());
+            Assert.Equal([0, 8, 0, 8], group.Blocks.Select(block => block.Column4).ToArray());
+            Assert.All(group.Blocks, block => Assert.Equal(Vp9TransformType.DctDct, block.TransformType));
+            AssertCoefficientBlock(group.Blocks[0], initialContext: 0, eob: 1, nonZeroCount: 1, dc: 16625, firstNonZero: 0, lastNonZero: 0, hash: "3878815e7c5359a006b9706f73c0c80f445f8dc8e063739dd09adf63bb4df1fd", row4: 0, column4: 0);
+            AssertCoefficientBlock(group.Blocks[1], initialContext: 1, eob: 0, nonZeroCount: 0, dc: 0, firstNonZero: -1, lastNonZero: -1, hash: "ad7facb2586fc6e966c004d7d1d16b024f5805ff7cb47c7a85dabd8b48892ca7", row4: 0, column4: 8);
+            AssertCoefficientBlock(group.Blocks[2], initialContext: 1, eob: 1, nonZeroCount: 1, dc: 200, firstNonZero: 0, lastNonZero: 0, hash: "3dc873eebf42181783041b82c11f23cd10404d6ae0a36e5b48463a6deee1e21e", row4: 8, column4: 0);
+            AssertCoefficientBlock(group.Blocks[3], initialContext: 1, eob: 0, nonZeroCount: 0, dc: 0, firstNonZero: -1, lastNonZero: -1, hash: "ad7facb2586fc6e966c004d7d1d16b024f5805ff7cb47c7a85dabd8b48892ca7", row4: 8, column4: 8);
         });
     }
 
@@ -260,7 +269,7 @@ public sealed class Vp9TileSyntaxScannerTests
             Assert.Equal(Vp9BlockSize.Block32X32, group.BlockSize);
             Assert.Equal(Vp9TransformSize.Tx32X32, group.TransformSize);
             Assert.Single(group.Blocks);
-            AssertCoefficientBlock(group.Blocks[0], initialContext: 0, eob: 1, nonZeroCount: 1, dc: -16380, firstNonZero: 0, lastNonZero: 0, hash: "11c1b2812be2ade82d7d2f30c5e2fd5f312cff471fd9294ed134e59f004335fc");
+            AssertCoefficientBlock(group.Blocks[0], initialContext: 0, eob: 1, nonZeroCount: 1, dc: -16380, firstNonZero: 0, lastNonZero: 0, hash: "11c1b2812be2ade82d7d2f30c5e2fd5f312cff471fd9294ed134e59f004335fc", row4: 0, column4: 0);
         });
     }
 
@@ -500,10 +509,28 @@ public sealed class Vp9TileSyntaxScannerTests
         int lastNonZero,
         string hash,
         int coefficientLength = 1024,
-        int planeType = 0)
+        int planeType = 0,
+        Vp9TransformType? transformType = Vp9TransformType.DctDct,
+        int? row4 = null,
+        int? column4 = null)
     {
         Assert.Equal(planeType, block.PlaneType);
         Assert.Equal(0, block.ReferenceType);
+        if (transformType is { } expectedTransformType)
+        {
+            Assert.Equal(expectedTransformType, block.TransformType);
+        }
+
+        if (row4 is { } expectedRow4)
+        {
+            Assert.Equal(expectedRow4, block.Row4);
+        }
+
+        if (column4 is { } expectedColumn4)
+        {
+            Assert.Equal(expectedColumn4, block.Column4);
+        }
+
         Assert.Equal(initialContext, block.InitialCoefficientContext);
         Assert.Equal(eob, block.Eob);
         Assert.Equal(nonZeroCount, block.NonZeroCount);

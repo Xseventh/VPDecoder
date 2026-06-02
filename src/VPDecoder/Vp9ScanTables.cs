@@ -1,6 +1,6 @@
 namespace VPDecoder;
 
-internal enum Vp9TransformType
+public enum Vp9TransformType
 {
     DctDct = 0,
     AdstDct = 1,
