@@ -52,10 +52,10 @@ internal static class Vp9InverseTransform
                 $"VP9 inverse transform currently supports only TX32 blocks, not {transformSize}.");
         }
 
-        if (transformType != Vp9TransformType.DctDct)
+        if (!IsSupportedTx32TransformType(transformType))
         {
             throw new NotSupportedException(
-                $"VP9 inverse transform currently supports only TX32 DCT_DCT blocks, not {transformType}.");
+                $"VP9 inverse transform does not recognize TX32 transform type {transformType}.");
         }
 
         if (eob < 0)
@@ -516,6 +516,15 @@ internal static class Vp9InverseTransform
                 }
             }
         }
+    }
+
+    private static bool IsSupportedTx32TransformType(Vp9TransformType transformType)
+    {
+        return transformType is
+            Vp9TransformType.DctDct or
+            Vp9TransformType.AdstDct or
+            Vp9TransformType.DctAdst or
+            Vp9TransformType.AdstAdst;
     }
 
     private static int ToTranLow(int value)

@@ -363,10 +363,10 @@ public sealed class Vp9TileSyntaxScannerTests
 
         Assert.NotNull(diagnostic);
         Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedFeature, diagnostic.Code);
-        Assert.Equal("VP9 full-frame residual probe does not support AC coefficient blocks yet at MI (0,8) plane 0 block Block64X64 transform Tx32X32 transform offset (8,8) eob 2.", diagnostic.Message);
-        Assert.Single(probes);
-        Assert.Single(probes.SelectMany(probe => probe.ModeInfos));
-        Assert.Equal(3, probes.SelectMany(probe => probe.CoefficientGroups).Count());
+        Assert.Equal("VP9 full-frame residual probe currently supports only DC-only or TX32 eob <= 34 coefficient blocks; got MI (0,24) plane 0 block Block64X64 transform Tx32X32/DctDct transform offset (8,8) eob 268.", diagnostic.Message);
+        Assert.Equal(3, probes.Count);
+        Assert.Equal(3, probes.SelectMany(probe => probe.ModeInfos).Count());
+        Assert.Equal(9, probes.SelectMany(probe => probe.CoefficientGroups).Count());
     }
 
     [Fact]
@@ -382,7 +382,7 @@ public sealed class Vp9TileSyntaxScannerTests
 
         Assert.NotNull(diagnostic);
         Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedFeature, diagnostic.Code);
-        Assert.Equal("VP9 full-frame residual probe does not support AC coefficient blocks yet at MI (0,32) plane 0 block Block64X64 transform Tx32X32 transform offset (0,0) eob 3.", diagnostic.Message);
+        Assert.Equal("VP9 full-frame residual probe currently supports only DC-only or TX32 eob <= 34 coefficient blocks; got MI (0,32) plane 0 block Block64X64 transform Tx32X32/DctAdst transform offset (8,8) eob 88.", diagnostic.Message);
         Assert.Equal(4, probes.Count);
         Assert.Equal(7, probes.SelectMany(probe => probe.ModeInfos).Count());
         Assert.Equal(21, probes.SelectMany(probe => probe.CoefficientGroups).Count());

@@ -240,7 +240,7 @@ internal static class Vp9ResidualSyntax
                     dc,
                     ac,
                     context);
-                ThrowIfUnsupportedAcBlock(modeInfo, plane, row, column, block);
+                ThrowIfUnsupportedResidualBlock(modeInfo, plane, row, column, block);
                 blocks.Add(block);
                 entropyContext.SetTransformContext(plane, x4, y4, transformSize, block.Eob > 0);
             }
@@ -549,22 +549,6 @@ internal static class Vp9ResidualSyntax
         return modeInfo.YSubModes[(row4 * 2) + column4];
     }
 
-    private static void ThrowIfUnsupportedAcBlock(
-        Vp9ModeInfoProbe modeInfo,
-        int plane,
-        int row4,
-        int column4,
-        Vp9CoefficientBlockProbe block)
-    {
-        if (block.Eob <= 1 && block.FirstNonZeroRasterIndex <= 0 && block.LastNonZeroRasterIndex <= 0)
-        {
-            return;
-        }
-
-        throw new NotSupportedException(
-            $"VP9 full-frame residual probe does not support AC coefficient blocks yet at MI ({modeInfo.MiRow},{modeInfo.MiColumn}) plane {plane} block {modeInfo.BlockSize} transform {block.TransformSize} transform offset ({row4},{column4}) eob {block.Eob}.");
-    }
-
     private static Vp9CoefficientToken GetToken(int tokenValue)
     {
         return tokenValue switch
@@ -580,6 +564,50 @@ internal static class Vp9ResidualSyntax
             >= 35 and <= 66 => Vp9CoefficientToken.Category5,
             _ => Vp9CoefficientToken.Category6
         };
+    }
+
+    private static void ThrowIfUnsupportedResidualBlock(
+        Vp9ModeInfoProbe modeInfo,
+        int plane,
+        int row4,
+        int column4,
+        Vp9CoefficientBlockProbe block)
+    {
+        if (Vp9BlockReconstructor.IsDcOnlyOrEmpty(block))
+        {
+            return;
+        }
+
+        if (block.TransformSize == Vp9TransformSize.Tx32X32 &&
+            block.Eob <= 34 &&
+            HasNonZeroCoefficientsOnlyInUpperLeft8x8(block.DequantizedCoefficients))
+        {
+            return;
+        }
+
+        throw new NotSupportedException(
+            $"VP9 full-frame residual probe currently supports only DC-only or TX32 eob <= 34 coefficient blocks; got MI ({modeInfo.MiRow},{modeInfo.MiColumn}) plane {plane} block {modeInfo.BlockSize} transform {block.TransformSize}/{block.TransformType} transform offset ({row4},{column4}) eob {block.Eob}.");
+    }
+
+    private static bool HasNonZeroCoefficientsOnlyInUpperLeft8x8(ReadOnlySpan<int> coefficients)
+    {
+        var limit = Math.Min(coefficients.Length, 32 * 32);
+        for (var i = 0; i < limit; i++)
+        {
+            if (coefficients[i] == 0)
+            {
+                continue;
+            }
+
+            var row = i / 32;
+            var column = i % 32;
+            if (row >= 8 || column >= 8)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static Vp9TransformSize GetUvTransformSize(Vp9BlockSize blockSize, Vp9TransformSize yTransformSize)

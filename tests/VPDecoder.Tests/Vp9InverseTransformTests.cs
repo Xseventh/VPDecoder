@@ -62,6 +62,42 @@ public sealed class Vp9InverseTransformTests
         Assert.True(transformedPixels.Distinct().Count() > 1);
     }
 
+    [Theory]
+    [InlineData(Vp9TransformType.AdstDct)]
+    [InlineData(Vp9TransformType.DctAdst)]
+    [InlineData(Vp9TransformType.AdstAdst)]
+    public void AddBlock_ForTx32NonDctTransformTypes_MatchesDctDct(Vp9TransformType transformType)
+    {
+        var coefficients = new int[1024];
+        coefficients[0] = 16625;
+        coefficients[1] = 420;
+        coefficients[32] = -315;
+        coefficients[33] = 210;
+        var baseline = Enumerable.Repeat((byte)128, 32 * 32).ToArray();
+        var variant = baseline.ToArray();
+
+        Vp9InverseTransform.AddBlock(
+            baseline,
+            stride: 32,
+            x: 0,
+            y: 0,
+            Vp9TransformSize.Tx32X32,
+            Vp9TransformType.DctDct,
+            coefficients,
+            eob: 4);
+        Vp9InverseTransform.AddBlock(
+            variant,
+            stride: 32,
+            x: 0,
+            y: 0,
+            Vp9TransformSize.Tx32X32,
+            transformType,
+            coefficients,
+            eob: 4);
+
+        Assert.Equal(Hash(baseline), Hash(variant));
+    }
+
     [Fact]
     public void AddBlock_ForUnsupportedPaths_ReturnsSpecificExceptions()
     {
@@ -85,10 +121,10 @@ public sealed class Vp9InverseTransformTests
             x: 0,
             y: 0,
             Vp9TransformSize.Tx32X32,
-            Vp9TransformType.AdstDct,
+            (Vp9TransformType)99,
             coefficients,
             eob: 1));
-        Assert.Contains("supports only TX32 DCT_DCT", type.Message);
+        Assert.Contains("does not recognize TX32 transform type", type.Message);
 
         var eob = Assert.Throws<NotSupportedException>(() => Vp9InverseTransform.AddBlock(
             plane,
