@@ -14,7 +14,7 @@ internal ref struct Vp9BoolReader
         1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
         1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
         1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-        1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0,
+        1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -83,11 +83,21 @@ internal ref struct Vp9BoolReader
             bit = true;
         }
 
-        var shift = NormTable[(int)range];
+        var shift = GetNormalizationShift((int)range);
         _range = range << shift;
         _value = value << shift;
         _count -= shift;
         return bit;
+    }
+
+    internal static int GetNormalizationShift(int range)
+    {
+        if (range is < 0 or > 255)
+        {
+            throw new ArgumentOutOfRangeException(nameof(range), "VP9 bool reader range must be between 0 and 255.");
+        }
+
+        return NormTable[range];
     }
 
     public int ReadLiteral(int bits)

@@ -23,6 +23,20 @@ public sealed class Vp9BoolReaderTests
         Assert.True(reader.HasError);
     }
 
+    [Theory]
+    [InlineData(1, 7)]
+    [InlineData(2, 6)]
+    [InlineData(32, 2)]
+    [InlineData(64, 1)]
+    [InlineData(120, 1)]
+    [InlineData(127, 1)]
+    [InlineData(128, 0)]
+    [InlineData(255, 0)]
+    public void GetNormalizationShift_MatchesLibvpxNormTable(int range, int expected)
+    {
+        Assert.Equal(expected, Vp9BoolReader.GetNormalizationShift(range));
+    }
+
     [Fact]
     public void Constructor_ExternalMainFrameCompressedHeader_ConsumesMarkerWhenPresent()
     {

@@ -115,7 +115,7 @@ public sealed class Vp9TileSyntaxScannerTests
             Assert.Equal(0, probe.CoefficientBand);
             Assert.Equal(0, probe.CoefficientContext);
             Assert.Equal(Vp9CoefficientToken.Category6, probe.Token);
-            Assert.Equal(16625, probe.DequantizedValue);
+            Assert.Equal(-16375, probe.DequantizedValue);
         });
     }
 
@@ -171,10 +171,10 @@ public sealed class Vp9TileSyntaxScannerTests
             Assert.Equal(1, probe.Eob);
             Assert.Equal(1, probe.NonZeroCount);
             Assert.Equal(1024, probe.DequantizedCoefficients.Length);
-            Assert.Equal(16625, probe.DequantizedCoefficients[0]);
+            Assert.Equal(-16375, probe.DequantizedCoefficients[0]);
             Assert.Equal(0, probe.FirstNonZeroRasterIndex);
             Assert.Equal(0, probe.LastNonZeroRasterIndex);
-            Assert.Equal("3878815e7c5359a006b9706f73c0c80f445f8dc8e063739dd09adf63bb4df1fd", probe.CoefficientsSha256);
+            Assert.Equal("aef78701b7e01c244066b053118a778f174f3268be36c4f49d40cfd4c03779a0", probe.CoefficientsSha256);
         });
     }
 
@@ -239,10 +239,10 @@ public sealed class Vp9TileSyntaxScannerTests
             Assert.Equal([0, 0, 8, 8], group.Blocks.Select(block => block.Row4).ToArray());
             Assert.Equal([0, 8, 0, 8], group.Blocks.Select(block => block.Column4).ToArray());
             Assert.All(group.Blocks, block => Assert.Equal(Vp9TransformType.DctDct, block.TransformType));
-            AssertCoefficientBlock(group.Blocks[0], initialContext: 0, eob: 1, nonZeroCount: 1, dc: 16625, firstNonZero: 0, lastNonZero: 0, hash: "3878815e7c5359a006b9706f73c0c80f445f8dc8e063739dd09adf63bb4df1fd", row4: 0, column4: 0);
+            AssertCoefficientBlock(group.Blocks[0], initialContext: 0, eob: 1, nonZeroCount: 1, dc: -16375, firstNonZero: 0, lastNonZero: 0, hash: "aef78701b7e01c244066b053118a778f174f3268be36c4f49d40cfd4c03779a0", row4: 0, column4: 0);
             AssertCoefficientBlock(group.Blocks[1], initialContext: 1, eob: 0, nonZeroCount: 0, dc: 0, firstNonZero: -1, lastNonZero: -1, hash: "ad7facb2586fc6e966c004d7d1d16b024f5805ff7cb47c7a85dabd8b48892ca7", row4: 0, column4: 8);
-            AssertCoefficientBlock(group.Blocks[2], initialContext: 1, eob: 1, nonZeroCount: 1, dc: 200, firstNonZero: 0, lastNonZero: 0, hash: "3dc873eebf42181783041b82c11f23cd10404d6ae0a36e5b48463a6deee1e21e", row4: 8, column4: 0);
-            AssertCoefficientBlock(group.Blocks[3], initialContext: 1, eob: 0, nonZeroCount: 0, dc: 0, firstNonZero: -1, lastNonZero: -1, hash: "ad7facb2586fc6e966c004d7d1d16b024f5805ff7cb47c7a85dabd8b48892ca7", row4: 8, column4: 8);
+            AssertCoefficientBlock(group.Blocks[2], initialContext: 1, eob: 0, nonZeroCount: 0, dc: 0, firstNonZero: -1, lastNonZero: -1, hash: "ad7facb2586fc6e966c004d7d1d16b024f5805ff7cb47c7a85dabd8b48892ca7", row4: 8, column4: 0);
+            AssertCoefficientBlock(group.Blocks[3], initialContext: 0, eob: 0, nonZeroCount: 0, dc: 0, firstNonZero: -1, lastNonZero: -1, hash: "ad7facb2586fc6e966c004d7d1d16b024f5805ff7cb47c7a85dabd8b48892ca7", row4: 8, column4: 8);
         });
     }
 
@@ -299,11 +299,11 @@ public sealed class Vp9TileSyntaxScannerTests
             Assert.Equal(Vp9PredictionMode.Dc, mode.UvMode);
 
             Assert.Equal(Vp9TransformSize.Tx32X32, probe.CoefficientGroups[0].TransformSize);
-            Assert.Equal([1, 0, 1, 0], probe.CoefficientGroups[0].Blocks.Select(block => block.Eob).ToArray());
-            Assert.Equal([16625, 0, 200, 0], probe.CoefficientGroups[0].Blocks.Select(block => block.DequantizedCoefficients[0]).ToArray());
-            Assert.Equal([0, 1, 1, 1], probe.CoefficientGroups[0].Blocks.Select(block => block.InitialCoefficientContext).ToArray());
+            Assert.Equal([1, 0, 0, 0], probe.CoefficientGroups[0].Blocks.Select(block => block.Eob).ToArray());
+            Assert.Equal([-16375, 0, 0, 0], probe.CoefficientGroups[0].Blocks.Select(block => block.DequantizedCoefficients[0]).ToArray());
+            Assert.Equal([0, 1, 1, 0], probe.CoefficientGroups[0].Blocks.Select(block => block.InitialCoefficientContext).ToArray());
             AssertCoefficientBlock(probe.CoefficientGroups[1].Blocks[0], initialContext: 0, eob: 0, nonZeroCount: 0, dc: 0, firstNonZero: -1, lastNonZero: -1, hash: "ad7facb2586fc6e966c004d7d1d16b024f5805ff7cb47c7a85dabd8b48892ca7", planeType: 1);
-            AssertCoefficientBlock(probe.CoefficientGroups[2].Blocks[0], initialContext: 0, eob: 1, nonZeroCount: 1, dc: 25, firstNonZero: 0, lastNonZero: 0, hash: "08facbceb1744917b5a2b39ff4509b223010125c9992bca76b7dec06871a283d", planeType: 1);
+            AssertCoefficientBlock(probe.CoefficientGroups[2].Blocks[0], initialContext: 0, eob: 0, nonZeroCount: 0, dc: 0, firstNonZero: -1, lastNonZero: -1, hash: "ad7facb2586fc6e966c004d7d1d16b024f5805ff7cb47c7a85dabd8b48892ca7", planeType: 1);
         });
     }
 
@@ -364,11 +364,11 @@ public sealed class Vp9TileSyntaxScannerTests
         Assert.NotNull(diagnostic);
         Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedFeature, diagnostic.Code);
         Assert.Matches(
-            @"^VP9 full-frame residual probe does not yet support continuing past Block16X16 luma Tx4X4 transform grids at MI \(18,26\) with Y mode Dc, UV mode Dc, skip context \d, transform context \d; transform offsets are supported but full-frame context advancement is still gated\.$",
+            @"^VP9 full-frame residual probe does not yet support continuing past Block16X16 luma Tx4X4 transform grids at MI \(130,38\) with Y mode Vertical, UV mode Vertical, skip context \d, transform context \d; transform offsets are supported but full-frame context advancement is still gated\.$",
             diagnostic.Message);
-        Assert.Equal(13, probes.Count);
-        Assert.Equal(155, probes.SelectMany(probe => probe.ModeInfos).Count());
-        Assert.Equal(465, probes.SelectMany(probe => probe.CoefficientGroups).Count());
+        Assert.Equal(84, probes.Count);
+        Assert.Equal(192, probes.SelectMany(probe => probe.ModeInfos).Count());
+        Assert.Equal(576, probes.SelectMany(probe => probe.CoefficientGroups).Count());
     }
 
     [Fact]
@@ -385,11 +385,11 @@ public sealed class Vp9TileSyntaxScannerTests
         Assert.NotNull(diagnostic);
         Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedFeature, diagnostic.Code);
         Assert.Matches(
-            @"^VP9 full-frame residual probe does not yet support continuing past Block16X16 luma Tx4X4 transform grids at MI \(10,6\) with Y mode Dc, UV mode Dc, skip context \d, transform context \d; transform offsets are supported but full-frame context advancement is still gated\.$",
+            @"^VP9 full-frame residual probe does not yet support continuing past Block16X16 luma Tx4X4 transform grids at MI \(128,70\) with Y mode Dc, UV mode Dc, skip context \d, transform context \d; transform offsets are supported but full-frame context advancement is still gated\.$",
             diagnostic.Message);
-        Assert.Equal(5, probes.Count);
-        Assert.Equal(8, probes.SelectMany(probe => probe.ModeInfos).Count());
-        Assert.Equal(24, probes.SelectMany(probe => probe.CoefficientGroups).Count());
+        Assert.Equal(193, probes.Count);
+        Assert.Equal(298, probes.SelectMany(probe => probe.ModeInfos).Count());
+        Assert.Equal(894, probes.SelectMany(probe => probe.CoefficientGroups).Count());
     }
 
     [Fact]
@@ -406,10 +406,10 @@ public sealed class Vp9TileSyntaxScannerTests
         Assert.NotNull(frame);
         Assert.Equal(Vp9OutputPixelFormat.Yuv420, frame.PixelFormat);
         Assert.Equal(5_386_368, frame.Pixels.Length);
-        Assert.Equal(32768, frame.Pixels.Count(value => value != 0));
+        Assert.Equal(0, frame.Pixels.Count(value => value != 0));
         foreach (var x in new[] { 0, 320, 640, 960, 1344, 1664, 1984, 2304 })
         {
-            AssertYBlock(frame, x, y: 0, size: 64, expected: 255);
+            AssertYBlock(frame, x, y: 0, size: 64, expected: 0);
         }
     }
 
@@ -448,15 +448,15 @@ public sealed class Vp9TileSyntaxScannerTests
         Assert.NotNull(secondFrame);
         Assert.Equal(Vp9OutputPixelFormat.Yuv420, frame.PixelFormat);
         Assert.Equal(5_386_368, frame.Pixels.Length);
-        Assert.Equal(49_152, frame.Pixels.Count(value => value != 0));
-        Assert.Equal("05f0ab1f0ba4dca0c58a6e12d24999eed02bcaca0a1a52af8d66bcfc38cd4f3b", Hash(frame.Pixels));
+        Assert.Equal(16_384, frame.Pixels.Count(value => value != 0));
+        Assert.Equal("5580ae7be668d41b95e4e82b0578998e2bd67f2ae62f1b771d64091a8fe2dbee", Hash(frame.Pixels));
         Assert.Equal(Hash(frame.Pixels), Hash(secondFrame.Pixels));
-        AssertPlaneHash(frame, planeIndex: 0, expectedNonZero: 32_768, expectedHash: "e888c7428609dd5f7974db8379eba2fd70b2ff631e87d367ee05d3747b4dc696");
+        AssertPlaneHash(frame, planeIndex: 0, expectedNonZero: 0, expectedHash: "c67cc10105aa9f7de24a1a7ef211f10d682dd62291f292f4a95b09f54f234e34");
         AssertPlaneHash(frame, planeIndex: 1, expectedNonZero: 8_192, expectedHash: "584433f86bd2b8b03a00dfa9b0e2af08b2ba01fbceee5c745619efcfc87204f1");
         AssertPlaneHash(frame, planeIndex: 2, expectedNonZero: 8_192, expectedHash: "584433f86bd2b8b03a00dfa9b0e2af08b2ba01fbceee5c745619efcfc87204f1");
         foreach (var x in new[] { 0, 320, 640, 960, 1344, 1664, 1984, 2304 })
         {
-            AssertPlaneBlock(frame, planeIndex: 0, x, y: 0, size: 64, expected: 255);
+            AssertPlaneBlock(frame, planeIndex: 0, x, y: 0, size: 64, expected: 0);
             AssertPlaneBlock(frame, planeIndex: 1, x / 2, y: 0, size: 32, expected: 128);
             AssertPlaneBlock(frame, planeIndex: 2, x / 2, y: 0, size: 32, expected: 128);
         }
