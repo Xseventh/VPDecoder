@@ -134,11 +134,13 @@ public sealed class RawVp9DecoderTests
     {
         var decoder = new RawVp9Decoder();
 
-        var result = decoder.DecodeFrame([0x86]);
+        var result = decoder.DecodeFrame(Vp9TestPackets.CreateOrdinaryInterFramePacket(), new Vp9DecodeOptions(16, 8));
 
         Assert.False(result.Succeeded);
         Assert.Null(result.Frame);
-        Assert.Null(result.Header);
+        Assert.NotNull(result.Header);
+        Assert.Equal(Vp9FrameType.InterFrame, result.Header.FrameType);
+        Assert.Equal(0x05, result.Header.RefreshFrameFlags);
         Assert.Null(result.CompressedHeader);
         Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedInterFrameFeature, result.Diagnostic?.Code);
     }

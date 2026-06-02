@@ -28,7 +28,16 @@ public sealed record Vp9FrameHeader(
     Vp9QuantizationHeader Quantization,
     Vp9SegmentationHeader Segmentation,
     Vp9TileInfo TileInfo,
-    int FirstPartitionSize);
+    int FirstPartitionSize,
+    bool IntraOnly,
+    int ResetFrameContextMode,
+    IReadOnlyList<int> ReferenceFrameIndices,
+    IReadOnlyList<bool> ReferenceFrameSignBiases,
+    IReadOnlyList<bool> FrameSizeReferenceFlags,
+    int? FrameSizeReferenceIndex,
+    bool RenderSizeDifferent,
+    bool AllowHighPrecisionMv,
+    Vp9InterpolationFilter InterpolationFilter);
 
 public enum Vp9FrameType
 {
@@ -52,6 +61,16 @@ public enum Vp9ColorRange
 {
     Studio = 0,
     Full = 1
+}
+
+public enum Vp9InterpolationFilter
+{
+    None = -1,
+    EightTapSmooth = 0,
+    EightTap = 1,
+    EightTapSharp = 2,
+    Bilinear = 3,
+    Switchable = 4
 }
 
 public sealed record Vp9LoopFilterHeader(

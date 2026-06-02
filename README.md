@@ -34,6 +34,10 @@ Current status:
 - Maintains decoder-owned VP9 reference slots for decoded key frames, supports
   `show_existing_frame` replay with copied output, and clears those slots on
   `Reset()`.
+- Parses VP9 ordinary inter-frame and hidden intra-only uncompressed headers
+  far enough to expose reference, refresh, size, motion, loop-filter,
+  quantization, segmentation, and tile metadata before returning strict
+  unsupported diagnostics for inter prediction.
 - Preserves deterministic evidence for the first Block16X16 luma TX4 group
   that previously exposed residual synchronization drift.
 - Converts decoded YUV420 frames to BGRA8888/RGBA8888 and composes alpha from
@@ -45,9 +49,9 @@ Current status:
   2656x1352, 8 tile columns.
 - Fails explicitly for unsupported decode work instead of emitting pixels.
 
-Ordinary inter-frame prediction and real VP8 decoding remain follow-up slices.
-The decoder must continue to return explicit unsupported diagnostics until those
-pieces are complete.
+Ordinary inter-frame prediction and VP8 pixel reconstruction remain follow-up
+slices. The decoder must continue to return explicit unsupported diagnostics
+until those pieces are complete.
 
 CLI smoke example:
 

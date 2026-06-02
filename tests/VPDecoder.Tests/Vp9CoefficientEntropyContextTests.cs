@@ -93,6 +93,15 @@ public sealed class Vp9CoefficientEntropyContextTests
             Quantization: new Vp9QuantizationHeader(0, 0, 0, 0),
             Segmentation: new Vp9SegmentationHeader(false, false, false, false, false, [], []),
             TileInfo: new Vp9TileInfo(miColumns, miRows, 2, 0, 0, 0, 0),
-            FirstPartitionSize: 0);
+            FirstPartitionSize: 0,
+            IntraOnly: false,
+            ResetFrameContextMode: 0,
+            ReferenceFrameIndices: [],
+            ReferenceFrameSignBiases: [],
+            FrameSizeReferenceFlags: [],
+            FrameSizeReferenceIndex: null,
+            RenderSizeDifferent: false,
+            AllowHighPrecisionMv: false,
+            InterpolationFilter: Vp9InterpolationFilter.None);
     }
 }
