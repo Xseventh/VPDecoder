@@ -144,8 +144,9 @@ public sealed class RawVp9DecoderTests
         Assert.Equal(8, result.Header.TileInfo.TileColumns);
         Assert.NotNull(result.CompressedHeader);
         Assert.Equal(Vp9TransformMode.Select, result.CompressedHeader.TransformMode);
-        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedFeature, result.Diagnostic?.Code);
-        Assert.Contains("pixel reconstruction", result.Diagnostic?.Message);
+        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedLoopFilter, result.Diagnostic?.Code);
+        Assert.Contains("loop filter level 2", result.Diagnostic?.Message);
+        Assert.Contains("unfiltered YUV reconstruction succeeded", result.Diagnostic?.Message);
     }
 
     [Fact]
@@ -161,8 +162,9 @@ public sealed class RawVp9DecoderTests
         Assert.Equal(Vp9ColorRange.Studio, result.Header.ColorRange);
         Assert.Equal(6233, result.Header.PacketLength);
         Assert.Equal(142, result.Header.FirstPartitionSize);
-        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedFeature, result.Diagnostic?.Code);
-        Assert.Contains("pixel reconstruction", result.Diagnostic?.Message);
+        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedLoopFilter, result.Diagnostic?.Code);
+        Assert.Contains("loop filter level 9", result.Diagnostic?.Message);
+        Assert.Contains("unfiltered YUV reconstruction succeeded", result.Diagnostic?.Message);
     }
 
     [Fact]
@@ -176,8 +178,8 @@ public sealed class RawVp9DecoderTests
 
         Assert.False(result.Succeeded);
         Assert.NotNull(result.Header);
-        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedFeature, result.Diagnostic?.Code);
-        Assert.Contains("pixel reconstruction", result.Diagnostic?.Message);
+        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedLoopFilter, result.Diagnostic?.Code);
+        Assert.Contains("loop filter level 2", result.Diagnostic?.Message);
     }
 
     [Fact]
@@ -194,9 +196,9 @@ public sealed class RawVp9DecoderTests
         stopwatch.Stop();
         Assert.False(colorResult.Succeeded);
         Assert.False(alphaResult.Succeeded);
-        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedFeature, colorResult.Diagnostic?.Code);
-        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedFeature, alphaResult.Diagnostic?.Code);
-        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(1), $"VP9 sample parse took {stopwatch.Elapsed}.");
+        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedLoopFilter, colorResult.Diagnostic?.Code);
+        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedLoopFilter, alphaResult.Diagnostic?.Code);
+        Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(3), $"VP9 sample parse took {stopwatch.Elapsed}.");
     }
 
     private static byte[] CreatePaddedMainFramePacket()

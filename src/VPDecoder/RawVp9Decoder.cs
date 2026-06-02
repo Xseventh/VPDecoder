@@ -84,19 +84,35 @@ public sealed class RawVp9Decoder
                 compressedHeader);
         }
 
-        if (!Vp9TileSyntaxScanner.TryProbeFullFrameSyntax(packet.ToArray(), state, out _, out diagnostic))
+        if (!Vp9TileSyntaxScanner.TryReconstructFullFrame(packet.ToArray(), state, out var yuvFrame, out diagnostic))
         {
             return Vp9DecodeResult.Fail(
-                diagnostic ?? Vp9DecodeDiagnostic.InternalDecodeFailure("VP9 full-frame syntax probe failed without a diagnostic."),
+                diagnostic ?? Vp9DecodeDiagnostic.InternalDecodeFailure("VP9 full-frame reconstruction failed without a diagnostic."),
                 header,
                 compressedHeader);
         }
 
-        return Vp9DecodeResult.Fail(
-            Vp9DecodeDiagnostic.UnsupportedFeature(
-                "VP9 pixel reconstruction is not implemented yet. Header parsing, tile layout, and full-frame syntax probing succeeded."),
-            header,
-            compressedHeader);
+        if (yuvFrame is null)
+        {
+            return Vp9DecodeResult.Fail(
+                Vp9DecodeDiagnostic.InternalDecodeFailure("VP9 full-frame reconstruction succeeded without returning a frame."),
+                header,
+                compressedHeader);
+        }
+
+        if (header.LoopFilter.FilterLevel != 0)
+        {
+            return Vp9DecodeResult.Fail(
+                Vp9DecodeDiagnostic.UnsupportedLoopFilter(
+                    $"VP9 loop filter level {header.LoopFilter.FilterLevel} is not implemented yet; full-frame unfiltered YUV reconstruction succeeded but final output is gated."),
+                header,
+                compressedHeader);
+        }
+
+        var outputFrame = options.OutputFormat == Vp9OutputPixelFormat.Yuv420
+            ? yuvFrame
+            : Vp9ColorConverter.ConvertYuv420ToPacked(yuvFrame, header.ColorRange, options.OutputFormat);
+        return Vp9DecodeResult.Success(outputFrame, header, compressedHeader);
     }
 
     public Vp9DecodeResult DecodeFrameWithAlpha(

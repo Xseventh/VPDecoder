@@ -25,6 +25,8 @@ Current status:
 - Reconstructs deterministic unfiltered YUV420 frames for the provided main and
   alpha samples through intra prediction, inverse transform, and clipped
   transform edge handling.
+- Runs public raw VP9 decode through reconstruction and returns a concrete
+  `UnsupportedLoopFilter` diagnostic when the frame requires loop filtering.
 - Preserves deterministic evidence for the first Block16X16 luma TX4 group
   that previously exposed residual synchronization drift.
 - Converts decoded YUV420 frames to BGRA8888/RGBA8888 and composes alpha from
@@ -49,5 +51,6 @@ dotnet run --project src/VPDecoder.Cli/VPDecoder.Cli.csproj -- \
   --height 1352
 ```
 
-Until pixel reconstruction lands, this command is expected to parse the header
-and return an unsupported-feature diagnostic.
+Until loop filtering lands, this command is expected to parse and reconstruct
+the unfiltered frame, then return an `UnsupportedLoopFilter` diagnostic for the
+current samples.
