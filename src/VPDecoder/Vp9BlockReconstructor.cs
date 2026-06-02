@@ -43,12 +43,6 @@ internal static class Vp9BlockReconstructor
             {
                 var blockIndex = (blockRow * blocksWide) + blockColumn;
                 var coefficients = group.Blocks[blockIndex];
-                if (!IsDcOnlyOrEmpty(coefficients))
-                {
-                    throw new NotSupportedException(
-                        "VP9 DC-only reconstruction supports only empty or DC-only coefficient blocks.");
-                }
-
                 var x = originX + (blockColumn * transformSize);
                 var y = originY + (blockRow * transformSize);
                 if (x + transformSize > planeInfo.Metadata.Width || y + transformSize > planeInfo.Metadata.Height)
@@ -62,7 +56,13 @@ internal static class Vp9BlockReconstructor
                 var above = y > 0 ? ReadAboveEdge(planePixels, planeInfo.Stride, x, y, transformSize) : [];
                 var left = x > tileStartX ? ReadLeftEdge(planePixels, planeInfo.Stride, x, y, transformSize) : [];
                 Vp9IntraPredictor.PredictDc(destination, planeInfo.Stride, transformSize, above, left);
-                if (coefficients.DequantizedCoefficients[0] != 0)
+
+                if (coefficients.Eob == 0)
+                {
+                    continue;
+                }
+
+                if (IsDcOnlyOrEmpty(coefficients))
                 {
                     Vp9DcOnlyReconstructor.AddDcOnly(
                         planePixels,
@@ -71,7 +71,18 @@ internal static class Vp9BlockReconstructor
                         y,
                         transformSize,
                         coefficients.DequantizedCoefficients[0]);
+                    continue;
                 }
+
+                Vp9InverseTransform.AddBlock(
+                    planePixels,
+                    planeInfo.Stride,
+                    x,
+                    y,
+                    group.TransformSize,
+                    coefficients.TransformType,
+                    coefficients.DequantizedCoefficients,
+                    coefficients.Eob);
             }
         }
     }
