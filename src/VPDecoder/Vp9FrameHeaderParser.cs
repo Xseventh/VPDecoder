@@ -14,12 +14,21 @@ public static class Vp9FrameHeaderParser
         out Vp9FrameHeader? header,
         out Vp9DecodeDiagnostic? diagnostic)
     {
+        return TryParse(packet, referenceFrames: null, out header, out diagnostic);
+    }
+
+    public static bool TryParse(
+        ReadOnlySpan<byte> packet,
+        IReadOnlyList<Vp9ReferenceFrameInfo?>? referenceFrames,
+        out Vp9FrameHeader? header,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
         header = null;
         diagnostic = null;
 
         try
         {
-            header = Parse(packet);
+            header = Parse(packet, referenceFrames);
             return true;
         }
         catch (Vp9HeaderParseException ex)
@@ -29,7 +38,9 @@ public static class Vp9FrameHeaderParser
         }
     }
 
-    public static Vp9FrameHeader Parse(ReadOnlySpan<byte> packet)
+    public static Vp9FrameHeader Parse(
+        ReadOnlySpan<byte> packet,
+        IReadOnlyList<Vp9ReferenceFrameInfo?>? referenceFrames = null)
     {
         if (packet.IsEmpty)
         {
@@ -95,7 +106,7 @@ public static class Vp9FrameHeaderParser
 
         if (frameType != Vp9FrameType.KeyFrame)
         {
-            return ReadInterFrameHeader(packet, ref reader, frameMarker, profile, showFrame, errorResilientMode);
+            return ReadInterFrameHeader(packet, referenceFrames, ref reader, frameMarker, profile, showFrame, errorResilientMode);
         }
 
         var syncCodeValid =
@@ -186,6 +197,7 @@ public static class Vp9FrameHeaderParser
 
     private static Vp9FrameHeader ReadInterFrameHeader(
         ReadOnlySpan<byte> packet,
+        IReadOnlyList<Vp9ReferenceFrameInfo?>? referenceFrames,
         ref Vp9BitReader reader,
         int frameMarker,
         int profile,
@@ -240,6 +252,8 @@ public static class Vp9FrameHeaderParser
         }
         else
         {
+            width = 0;
+            height = 0;
             refreshFrameFlags = reader.ReadLiteral(ReferenceFrameCount);
             var refIndices = new int[ReferencesPerFrame];
             var signBiases = new bool[ReferencesPerFrame];
@@ -253,19 +267,35 @@ public static class Vp9FrameHeaderParser
             referenceFrameSignBiases = signBiases;
 
             var sizeReferenceFlags = new bool[ReferencesPerFrame];
+            var foundFrameSizeReference = false;
             for (var i = 0; i < ReferencesPerFrame; i++)
             {
                 sizeReferenceFlags[i] = reader.ReadBit();
                 if (sizeReferenceFlags[i])
                 {
-                    throw new Vp9HeaderParseException(
-                        Vp9DecodeDiagnostic.MissingReferenceFrame(
-                            $"VP9 inter-frame size references frame slot {i}, but reference dimensions are not available to the header parser."));
+                    frameSizeReferenceIndex = i;
+                    var referenceFrameSlot = refIndices[i];
+                    var referenceInfo = GetReferenceFrameInfo(referenceFrames, referenceFrameSlot);
+                    if (referenceInfo is null)
+                    {
+                        throw new Vp9HeaderParseException(
+                            Vp9DecodeDiagnostic.MissingReferenceFrame(
+                                $"VP9 inter-frame size references empty reference frame slot {referenceFrameSlot}."));
+                    }
+
+                    width = referenceInfo.Width;
+                    height = referenceInfo.Height;
+                    foundFrameSizeReference = true;
+                    break;
                 }
             }
 
             frameSizeReferenceFlags = sizeReferenceFlags;
-            ReadFrameSize(ref reader, out width, out height);
+            if (!foundFrameSizeReference)
+            {
+                ReadFrameSize(ref reader, out width, out height);
+            }
+
             renderSizeDifferent = ReadRenderSize(ref reader, width, height, out renderWidth, out renderHeight);
             allowHighPrecisionMv = reader.ReadBit();
             interpolationFilter = ReadInterpolationFilter(ref reader);
@@ -604,6 +634,30 @@ public static class Vp9FrameHeaderParser
             3 => Vp9InterpolationFilter.Bilinear,
             _ => throw new InvalidOperationException("Unexpected VP9 interpolation filter literal.")
         };
+    }
+
+    private static Vp9ReferenceFrameInfo? GetReferenceFrameInfo(
+        IReadOnlyList<Vp9ReferenceFrameInfo?>? referenceFrames,
+        int slot)
+    {
+        if (referenceFrames is null || slot < 0 || slot >= referenceFrames.Count)
+        {
+            return null;
+        }
+
+        var referenceInfo = referenceFrames[slot];
+        if (referenceInfo is null)
+        {
+            return null;
+        }
+
+        if (referenceInfo.Width <= 0 || referenceInfo.Height <= 0)
+        {
+            throw new Vp9HeaderParseException(
+                Vp9DecodeDiagnostic.InvalidPacket("VP9 reference frame metadata has invalid dimensions."));
+        }
+
+        return referenceInfo;
     }
 
     private static int DecodeUnsignedMax(ref Vp9BitReader reader, int max)

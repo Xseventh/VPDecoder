@@ -73,6 +73,10 @@ public enum Vp9InterpolationFilter
     Switchable = 4
 }
 
+public sealed record Vp9ReferenceFrameInfo(
+    int Width,
+    int Height);
+
 public sealed record Vp9LoopFilterHeader(
     int FilterLevel,
     int SharpnessLevel,

@@ -117,6 +117,25 @@ public sealed class Vp9FrameHeaderParserTests
     }
 
     [Fact]
+    public void Parse_OrdinaryInterFrameSizeFromReference_UsesReferenceDimensions()
+    {
+        Vp9ReferenceFrameInfo?[] references = [new Vp9ReferenceFrameInfo(32, 24), null, null, null, null, null, null, null];
+        var packet = Vp9TestPackets.CreateOrdinaryInterFramePacket(
+            sizeFromReference: true,
+            stopAfterSizeReference: false,
+            tileInfoWidth: 32);
+
+        var header = Vp9FrameHeaderParser.Parse(packet, references);
+
+        Assert.Equal([true, false, false], header.FrameSizeReferenceFlags);
+        Assert.Equal(0, header.FrameSizeReferenceIndex);
+        Assert.Equal(32, header.Width);
+        Assert.Equal(24, header.Height);
+        Assert.Equal(10, header.RenderWidth);
+        Assert.Equal(6, header.RenderHeight);
+    }
+
+    [Fact]
     public void Parse_HiddenProfile0IntraOnlyFrame_ReturnsDefaultColorAndRefreshFlags()
     {
         var header = Vp9FrameHeaderParser.Parse(Vp9TestPackets.CreateHiddenProfile0IntraOnlyFramePacket());

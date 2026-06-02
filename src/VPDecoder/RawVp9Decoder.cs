@@ -24,7 +24,7 @@ public sealed class RawVp9Decoder
             return Vp9DecodeResult.Fail(Vp9DecodeDiagnostic.InvalidPacket("VP9 packet is empty."));
         }
 
-        if (!Vp9FrameHeaderParser.TryParse(packet, out var header, out diagnostic))
+        if (!Vp9FrameHeaderParser.TryParse(packet, CreateReferenceFrameInfos(), out var header, out diagnostic))
         {
             return Vp9DecodeResult.Fail(
                 diagnostic ?? Vp9DecodeDiagnostic.InternalDecodeFailure("VP9 header parser failed without a diagnostic."));
@@ -39,6 +39,12 @@ public sealed class RawVp9Decoder
         if (header.ShowExistingFrame)
         {
             return DecodeShowExistingFrame(header, options, packet.Length);
+        }
+
+        diagnostic = ValidateInterFrameReferences(header);
+        if (diagnostic is not null)
+        {
+            return Vp9DecodeResult.Fail(diagnostic, header);
         }
 
         diagnostic = ValidateHeader(header, options);
@@ -275,6 +281,21 @@ public sealed class RawVp9Decoder
         }
     }
 
+    private Vp9ReferenceFrameInfo?[] CreateReferenceFrameInfos()
+    {
+        var referenceFrameInfos = new Vp9ReferenceFrameInfo?[_referenceFrames.Length];
+        for (var i = 0; i < _referenceFrames.Length; i++)
+        {
+            var referenceFrame = _referenceFrames[i]?.Frame;
+            if (referenceFrame is not null)
+            {
+                referenceFrameInfos[i] = new Vp9ReferenceFrameInfo(referenceFrame.Width, referenceFrame.Height);
+            }
+        }
+
+        return referenceFrameInfos;
+    }
+
     private static Vp9DecodedFrame ConvertReferenceFrame(Vp9ReferenceFrame referenceFrame, Vp9OutputPixelFormat outputFormat)
     {
         return outputFormat == Vp9OutputPixelFormat.Yuv420
@@ -369,6 +390,30 @@ public sealed class RawVp9Decoder
         {
             return Vp9DecodeDiagnostic.AllocationLimitExceeded(
                 $"VP9 reference frame has {pixelCount} pixels, exceeding configured maximum {options.MaxPixelCount}.");
+        }
+
+        return null;
+    }
+
+    private Vp9DecodeDiagnostic? ValidateInterFrameReferences(Vp9FrameHeader header)
+    {
+        if (header.ShowExistingFrame || header.FrameType != Vp9FrameType.InterFrame || header.IntraOnly)
+        {
+            return null;
+        }
+
+        if (header.Profile != 0 || header.BitDepth != 8 || header.SubsamplingX != 1 || header.SubsamplingY != 1)
+        {
+            return null;
+        }
+
+        foreach (var slot in header.ReferenceFrameIndices)
+        {
+            if (slot < 0 || slot >= _referenceFrames.Length || _referenceFrames[slot]?.Frame is null)
+            {
+                return Vp9DecodeDiagnostic.MissingReferenceFrame(
+                    $"VP9 inter frame references empty reference frame slot {slot}.");
+            }
         }
 
         return null;

@@ -130,7 +130,7 @@ public sealed class RawVp9DecoderTests
     }
 
     [Fact]
-    public void DecodeFrame_WhenOrdinaryInterFrameIsParsed_ReturnsUnsupportedInterFrameFeature()
+    public void DecodeFrame_WhenOrdinaryInterFrameReferencesAreMissing_ReturnsMissingReferenceFrame()
     {
         var decoder = new RawVp9Decoder();
 
@@ -142,6 +142,46 @@ public sealed class RawVp9DecoderTests
         Assert.Equal(Vp9FrameType.InterFrame, result.Header.FrameType);
         Assert.Equal(0x05, result.Header.RefreshFrameFlags);
         Assert.Null(result.CompressedHeader);
+        Assert.Equal(Vp9DecodeDiagnosticCode.MissingReferenceFrame, result.Diagnostic?.Code);
+    }
+
+    [Fact]
+    public void DecodeFrame_WhenOrdinaryInterFrameHasReferences_ReturnsUnsupportedInterFrameFeature()
+    {
+        var packet = ReadRequiredSample(MainFrameSamplePath, 30398, MainFrameSampleSha256);
+        var decoder = new RawVp9Decoder();
+        var keyFrame = decoder.DecodeFrame(packet, new Vp9DecodeOptions(2656, 1352));
+
+        var result = decoder.DecodeFrame(Vp9TestPackets.CreateOrdinaryInterFramePacket(), new Vp9DecodeOptions(16, 8));
+
+        Assert.True(keyFrame.Succeeded, keyFrame.Diagnostic?.Message);
+        Assert.False(result.Succeeded);
+        Assert.Null(result.Frame);
+        Assert.NotNull(result.Header);
+        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedInterFrameFeature, result.Diagnostic?.Code);
+    }
+
+    [Fact]
+    public void DecodeFrame_WhenInterFrameUsesReferenceSize_ParsesReferenceDimensionsBeforeUnsupported()
+    {
+        var packet = ReadRequiredSample(MainFrameSamplePath, 30398, MainFrameSampleSha256);
+        var decoder = new RawVp9Decoder();
+        var keyFrame = decoder.DecodeFrame(packet, new Vp9DecodeOptions(2656, 1352));
+
+        var result = decoder.DecodeFrame(
+            Vp9TestPackets.CreateOrdinaryInterFramePacket(
+                sizeFromReference: true,
+                stopAfterSizeReference: false,
+                tileInfoWidth: 2656),
+            new Vp9DecodeOptions(2656, 1352));
+
+        Assert.True(keyFrame.Succeeded, keyFrame.Diagnostic?.Message);
+        Assert.False(result.Succeeded);
+        Assert.Null(result.Frame);
+        Assert.NotNull(result.Header);
+        Assert.Equal(0, result.Header.FrameSizeReferenceIndex);
+        Assert.Equal(2656, result.Header.Width);
+        Assert.Equal(1352, result.Header.Height);
         Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedInterFrameFeature, result.Diagnostic?.Code);
     }
 

@@ -37,7 +37,9 @@ Current status:
 - Parses VP9 ordinary inter-frame and hidden intra-only uncompressed headers
   far enough to expose reference, refresh, size, motion, loop-filter,
   quantization, segmentation, and tile metadata before returning strict
-  unsupported diagnostics for inter prediction.
+  unsupported diagnostics for inter prediction. Inter frame sizes that are
+  coded from reference frames use decoder-owned reference metadata when
+  available and otherwise return `MissingReferenceFrame`.
 - Preserves deterministic evidence for the first Block16X16 luma TX4 group
   that previously exposed residual synchronization drift.
 - Converts decoded YUV420 frames to BGRA8888/RGBA8888 and composes alpha from
