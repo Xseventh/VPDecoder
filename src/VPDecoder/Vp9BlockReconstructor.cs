@@ -62,7 +62,9 @@ internal static class Vp9BlockReconstructor
                     continue;
                 }
 
-                if (IsDcOnlyOrEmpty(coefficients))
+                if (IsDcOnlyOrEmpty(coefficients) &&
+                    (group.TransformSize == Vp9TransformSize.Tx32X32 ||
+                        coefficients.TransformType == Vp9TransformType.DctDct))
                 {
                     Vp9DcOnlyReconstructor.AddDcOnly(
                         planePixels,

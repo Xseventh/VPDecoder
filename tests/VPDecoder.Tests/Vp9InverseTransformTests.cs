@@ -133,6 +133,48 @@ public sealed class Vp9InverseTransformTests
         Assert.Equal(Hash(baseline), Hash(variant));
     }
 
+    [Theory]
+    [InlineData(Vp9TransformSize.Tx4X4, Vp9TransformType.AdstAdst, 14, "5a0c3297895f2039590942b1f4267e6caa5ca52881b92488da71da6912f548c6")]
+    [InlineData(Vp9TransformSize.Tx8X8, Vp9TransformType.AdstDct, 3, "2900f08f68992ae5c150a7951566383f06ac8e3ac10619d31d7f3b7277e6d5e3")]
+    public void AddBlock_ForSmallHybridTransforms_IsDeterministic(
+        Vp9TransformSize transformSize,
+        Vp9TransformType transformType,
+        int eob,
+        string expectedHash)
+    {
+        var side = transformSize == Vp9TransformSize.Tx4X4 ? 4 : 8;
+        var coefficients = new int[side * side];
+        coefficients[0] = 800;
+        coefficients[1] = -120;
+        coefficients[Math.Min(coefficients.Length - 1, 5)] = 95;
+        coefficients[^1] = -40;
+        var first = Enumerable.Repeat((byte)128, side * side).ToArray();
+        var second = first.ToArray();
+
+        Vp9InverseTransform.AddBlock(
+            first,
+            stride: side,
+            x: 0,
+            y: 0,
+            transformSize,
+            transformType,
+            coefficients,
+            eob);
+        Vp9InverseTransform.AddBlock(
+            second,
+            stride: side,
+            x: 0,
+            y: 0,
+            transformSize,
+            transformType,
+            coefficients,
+            eob);
+
+        Assert.Equal(Hash(first), Hash(second));
+        Assert.Equal(expectedHash, Hash(first));
+        Assert.True(first.Distinct().Count() > 1);
+    }
+
     [Fact]
     public void AddBlock_ForUnsupportedPaths_ReturnsSpecificExceptions()
     {
@@ -147,8 +189,8 @@ public sealed class Vp9InverseTransformTests
             Vp9TransformSize.Tx16X16,
             Vp9TransformType.DctDct,
             coefficients,
-            eob: 1));
-        Assert.Contains("supports only TX32", size.Message);
+            eob: 2));
+        Assert.Contains("currently supports TX4, TX8, and TX32", size.Message);
 
         var type = Assert.Throws<NotSupportedException>(() => Vp9InverseTransform.AddBlock(
             plane,
@@ -159,7 +201,7 @@ public sealed class Vp9InverseTransformTests
             (Vp9TransformType)99,
             coefficients,
             eob: 1));
-        Assert.Contains("does not recognize TX32 transform type", type.Message);
+        Assert.Contains("does not recognize transform type", type.Message);
 
         var eob = Assert.Throws<NotSupportedException>(() => Vp9InverseTransform.AddBlock(
             plane,

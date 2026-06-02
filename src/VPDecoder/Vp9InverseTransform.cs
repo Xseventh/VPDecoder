@@ -35,6 +35,10 @@ internal static class Vp9InverseTransform
     private const int CosPi29_64 = 2404;
     private const int CosPi30_64 = 1606;
     private const int CosPi31_64 = 804;
+    private const int SinPi1_9 = 5283;
+    private const int SinPi2_9 = 9929;
+    private const int SinPi3_9 = 13377;
+    private const int SinPi4_9 = 15212;
 
     public static void AddBlock(
         Span<byte> plane,
@@ -46,16 +50,10 @@ internal static class Vp9InverseTransform
         ReadOnlySpan<int> coefficients,
         int eob)
     {
-        if (transformSize != Vp9TransformSize.Tx32X32)
+        if (!IsSupportedTransformType(transformType))
         {
             throw new NotSupportedException(
-                $"VP9 inverse transform currently supports only TX32 blocks, not {transformSize}.");
-        }
-
-        if (!IsSupportedTx32TransformType(transformType))
-        {
-            throw new NotSupportedException(
-                $"VP9 inverse transform does not recognize TX32 transform type {transformType}.");
+                $"VP9 inverse transform does not recognize transform type {transformType}.");
         }
 
         if (eob < 0)
@@ -63,9 +61,10 @@ internal static class Vp9InverseTransform
             throw new ArgumentOutOfRangeException(nameof(eob), eob, "VP9 coefficient eob must be non-negative.");
         }
 
-        if (stride < Size32)
+        var side = GetSupportedTransformSide(transformSize);
+        if (stride < side)
         {
-            throw new ArgumentOutOfRangeException(nameof(stride), stride, "VP9 TX32 inverse transform stride must fit a 32-pixel block.");
+            throw new ArgumentOutOfRangeException(nameof(stride), stride, $"VP9 {transformSize} inverse transform stride must fit a {side}-pixel block.");
         }
 
         if (x < 0 || y < 0)
@@ -75,12 +74,13 @@ internal static class Vp9InverseTransform
                 "VP9 inverse transform block origin must be non-negative.");
         }
 
-        if (coefficients.Length < Size32 * Size32)
+        var maxEob = side * side;
+        if (coefficients.Length < maxEob)
         {
-            throw new ArgumentException("VP9 TX32 inverse transform requires 1024 coefficients.", nameof(coefficients));
+            throw new ArgumentException($"VP9 {transformSize} inverse transform requires {maxEob} coefficients.", nameof(coefficients));
         }
 
-        if (plane.Length < ((y + Size32 - 1) * stride) + x + Size32)
+        if (plane.Length < ((y + side - 1) * stride) + x + side)
         {
             throw new ArgumentException("VP9 inverse transform destination plane is too small.", nameof(plane));
         }
@@ -90,16 +90,28 @@ internal static class Vp9InverseTransform
             return;
         }
 
-        if (eob == 1)
+        if (eob == 1 && (transformSize == Vp9TransformSize.Tx32X32 || transformType == Vp9TransformType.DctDct))
         {
-            Vp9DcOnlyReconstructor.AddDcOnly(plane, stride, x, y, Size32, coefficients[0]);
+            Vp9DcOnlyReconstructor.AddDcOnly(plane, stride, x, y, side, coefficients[0]);
             return;
         }
 
-        if (eob > Size32 * Size32)
+        if (eob > maxEob)
         {
             throw new NotSupportedException(
-                $"VP9 TX32 inverse transform eob {eob} exceeds the 1024 coefficient block size.");
+                $"VP9 {transformSize} inverse transform eob {eob} exceeds the {maxEob} coefficient block size.");
+        }
+
+        if (transformSize is Vp9TransformSize.Tx4X4 or Vp9TransformSize.Tx8X8)
+        {
+            AddHybridTransform(plane, stride, x, y, transformSize, transformType, coefficients);
+            return;
+        }
+
+        if (transformSize != Vp9TransformSize.Tx32X32)
+        {
+            throw new NotSupportedException(
+                $"VP9 inverse transform currently supports TX4, TX8, and TX32 blocks, not {transformSize}.");
         }
 
         var rowsToTransform = Size32;
@@ -110,6 +122,247 @@ internal static class Vp9InverseTransform
         }
 
         AddIdct32x32(plane, stride, x, y, coefficients, rowsToTransform);
+    }
+
+    private static void AddHybridTransform(
+        Span<byte> plane,
+        int stride,
+        int x,
+        int y,
+        Vp9TransformSize transformSize,
+        Vp9TransformType transformType,
+        ReadOnlySpan<int> coefficients)
+    {
+        var side = GetSupportedTransformSide(transformSize);
+        var finalShift = transformSize == Vp9TransformSize.Tx4X4 ? 4 : 5;
+        var rowTransform = GetRowTransform(transformType);
+        var columnTransform = GetColumnTransform(transformType);
+        Span<int> output = stackalloc int[side * side];
+        Span<int> tempInput = stackalloc int[side];
+        Span<int> tempOutput = stackalloc int[side];
+
+        for (var row = 0; row < side; row++)
+        {
+            coefficients.Slice(row * side, side).CopyTo(tempInput);
+            Transform1D(transformSize, rowTransform, tempInput, tempOutput);
+            tempOutput.CopyTo(output.Slice(row * side, side));
+            tempInput.Clear();
+        }
+
+        for (var column = 0; column < side; column++)
+        {
+            for (var row = 0; row < side; row++)
+            {
+                tempInput[row] = output[(row * side) + column];
+            }
+
+            Transform1D(transformSize, columnTransform, tempInput, tempOutput);
+            for (var row = 0; row < side; row++)
+            {
+                var residual = RoundPowerOfTwo(tempOutput[row], finalShift);
+                var offset = ((y + row) * stride) + x + column;
+                plane[offset] = ClipPixel(plane[offset] + residual);
+            }
+        }
+    }
+
+    private static void Transform1D(
+        Vp9TransformSize transformSize,
+        Vp9OneDimensionalTransform transform,
+        ReadOnlySpan<int> input,
+        Span<int> output)
+    {
+        switch (transformSize, transform)
+        {
+            case (Vp9TransformSize.Tx4X4, Vp9OneDimensionalTransform.Dct):
+                Idct4(input, output);
+                return;
+            case (Vp9TransformSize.Tx4X4, Vp9OneDimensionalTransform.Adst):
+                Iadst4(input, output);
+                return;
+            case (Vp9TransformSize.Tx8X8, Vp9OneDimensionalTransform.Dct):
+                Idct8(input, output);
+                return;
+            case (Vp9TransformSize.Tx8X8, Vp9OneDimensionalTransform.Adst):
+                Iadst8(input, output);
+                return;
+            default:
+                throw new NotSupportedException($"VP9 {transformSize}/{transform} inverse transform is not implemented yet.");
+        }
+    }
+
+    private static void Iadst4(ReadOnlySpan<int> input, Span<int> output)
+    {
+        var x0 = ToTranLow(input[0]);
+        var x1 = ToTranLow(input[1]);
+        var x2 = ToTranLow(input[2]);
+        var x3 = ToTranLow(input[3]);
+        if ((x0 | x1 | x2 | x3) == 0)
+        {
+            output.Slice(0, 4).Clear();
+            return;
+        }
+
+        var s0 = (long)SinPi1_9 * x0;
+        var s1 = (long)SinPi2_9 * x0;
+        var s2 = (long)SinPi3_9 * x1;
+        var s3 = (long)SinPi4_9 * x2;
+        var s4 = (long)SinPi1_9 * x2;
+        var s5 = (long)SinPi2_9 * x3;
+        var s6 = (long)SinPi4_9 * x3;
+        var s7 = WrapLow(x0 - x2 + x3);
+
+        s0 = s0 + s3 + s5;
+        s1 = s1 - s4 - s6;
+        s3 = s2;
+        s2 = (long)SinPi3_9 * s7;
+
+        output[0] = WrapLow(DctConstRoundShift(s0 + s3));
+        output[1] = WrapLow(DctConstRoundShift(s1 + s3));
+        output[2] = WrapLow(DctConstRoundShift(s2));
+        output[3] = WrapLow(DctConstRoundShift(s0 + s1 - s3));
+    }
+
+    private static void Idct4(ReadOnlySpan<int> input, Span<int> output)
+    {
+        Span<int> step = stackalloc int[4];
+        var temp1 = (long)(ToTranLow(input[0]) + ToTranLow(input[2])) * CosPi16_64;
+        var temp2 = (long)(ToTranLow(input[0]) - ToTranLow(input[2])) * CosPi16_64;
+        step[0] = WrapLow(DctConstRoundShift(temp1));
+        step[1] = WrapLow(DctConstRoundShift(temp2));
+        temp1 = ((long)ToTranLow(input[1]) * CosPi24_64) - ((long)ToTranLow(input[3]) * CosPi8_64);
+        temp2 = ((long)ToTranLow(input[1]) * CosPi8_64) + ((long)ToTranLow(input[3]) * CosPi24_64);
+        step[2] = WrapLow(DctConstRoundShift(temp1));
+        step[3] = WrapLow(DctConstRoundShift(temp2));
+
+        output[0] = WrapLow(step[0] + step[3]);
+        output[1] = WrapLow(step[1] + step[2]);
+        output[2] = WrapLow(step[1] - step[2]);
+        output[3] = WrapLow(step[0] - step[3]);
+    }
+
+    private static void Iadst8(ReadOnlySpan<int> input, Span<int> output)
+    {
+        long x0 = ToTranLow(input[7]);
+        long x1 = ToTranLow(input[0]);
+        long x2 = ToTranLow(input[5]);
+        long x3 = ToTranLow(input[2]);
+        long x4 = ToTranLow(input[3]);
+        long x5 = ToTranLow(input[4]);
+        long x6 = ToTranLow(input[1]);
+        long x7 = ToTranLow(input[6]);
+        if ((x0 | x1 | x2 | x3 | x4 | x5 | x6 | x7) == 0)
+        {
+            output.Slice(0, 8).Clear();
+            return;
+        }
+
+        var s0 = (CosPi2_64 * x0) + (CosPi30_64 * x1);
+        var s1 = (CosPi30_64 * x0) - (CosPi2_64 * x1);
+        var s2 = (CosPi10_64 * x2) + (CosPi22_64 * x3);
+        var s3 = (CosPi22_64 * x2) - (CosPi10_64 * x3);
+        var s4 = (CosPi18_64 * x4) + (CosPi14_64 * x5);
+        var s5 = (CosPi14_64 * x4) - (CosPi18_64 * x5);
+        var s6 = (CosPi26_64 * x6) + (CosPi6_64 * x7);
+        var s7 = (CosPi6_64 * x6) - (CosPi26_64 * x7);
+
+        x0 = WrapLow(DctConstRoundShift(s0 + s4));
+        x1 = WrapLow(DctConstRoundShift(s1 + s5));
+        x2 = WrapLow(DctConstRoundShift(s2 + s6));
+        x3 = WrapLow(DctConstRoundShift(s3 + s7));
+        x4 = WrapLow(DctConstRoundShift(s0 - s4));
+        x5 = WrapLow(DctConstRoundShift(s1 - s5));
+        x6 = WrapLow(DctConstRoundShift(s2 - s6));
+        x7 = WrapLow(DctConstRoundShift(s3 - s7));
+
+        s0 = x0;
+        s1 = x1;
+        s2 = x2;
+        s3 = x3;
+        s4 = (CosPi8_64 * x4) + (CosPi24_64 * x5);
+        s5 = (CosPi24_64 * x4) - (CosPi8_64 * x5);
+        s6 = (-CosPi24_64 * x6) + (CosPi8_64 * x7);
+        s7 = (CosPi8_64 * x6) + (CosPi24_64 * x7);
+
+        x0 = WrapLow((int)(s0 + s2));
+        x1 = WrapLow((int)(s1 + s3));
+        x2 = WrapLow((int)(s0 - s2));
+        x3 = WrapLow((int)(s1 - s3));
+        x4 = WrapLow(DctConstRoundShift(s4 + s6));
+        x5 = WrapLow(DctConstRoundShift(s5 + s7));
+        x6 = WrapLow(DctConstRoundShift(s4 - s6));
+        x7 = WrapLow(DctConstRoundShift(s5 - s7));
+
+        s2 = CosPi16_64 * (x2 + x3);
+        s3 = CosPi16_64 * (x2 - x3);
+        s6 = CosPi16_64 * (x6 + x7);
+        s7 = CosPi16_64 * (x6 - x7);
+
+        x2 = WrapLow(DctConstRoundShift(s2));
+        x3 = WrapLow(DctConstRoundShift(s3));
+        x6 = WrapLow(DctConstRoundShift(s6));
+        x7 = WrapLow(DctConstRoundShift(s7));
+
+        output[0] = WrapLow((int)x0);
+        output[1] = WrapLow((int)-x4);
+        output[2] = WrapLow((int)x6);
+        output[3] = WrapLow((int)-x2);
+        output[4] = WrapLow((int)x3);
+        output[5] = WrapLow((int)-x7);
+        output[6] = WrapLow((int)x5);
+        output[7] = WrapLow((int)-x1);
+    }
+
+    private static void Idct8(ReadOnlySpan<int> input, Span<int> output)
+    {
+        Span<int> step1 = stackalloc int[8];
+        Span<int> step2 = stackalloc int[8];
+
+        step1[0] = ToTranLow(input[0]);
+        step1[2] = ToTranLow(input[4]);
+        step1[1] = ToTranLow(input[2]);
+        step1[3] = ToTranLow(input[6]);
+        var temp1 = ((long)ToTranLow(input[1]) * CosPi28_64) - ((long)ToTranLow(input[7]) * CosPi4_64);
+        var temp2 = ((long)ToTranLow(input[1]) * CosPi4_64) + ((long)ToTranLow(input[7]) * CosPi28_64);
+        step1[4] = WrapLow(DctConstRoundShift(temp1));
+        step1[7] = WrapLow(DctConstRoundShift(temp2));
+        temp1 = ((long)ToTranLow(input[5]) * CosPi12_64) - ((long)ToTranLow(input[3]) * CosPi20_64);
+        temp2 = ((long)ToTranLow(input[5]) * CosPi20_64) + ((long)ToTranLow(input[3]) * CosPi12_64);
+        step1[5] = WrapLow(DctConstRoundShift(temp1));
+        step1[6] = WrapLow(DctConstRoundShift(temp2));
+
+        temp1 = (long)(step1[0] + step1[2]) * CosPi16_64;
+        temp2 = (long)(step1[0] - step1[2]) * CosPi16_64;
+        step2[0] = WrapLow(DctConstRoundShift(temp1));
+        step2[1] = WrapLow(DctConstRoundShift(temp2));
+        temp1 = ((long)step1[1] * CosPi24_64) - ((long)step1[3] * CosPi8_64);
+        temp2 = ((long)step1[1] * CosPi8_64) + ((long)step1[3] * CosPi24_64);
+        step2[2] = WrapLow(DctConstRoundShift(temp1));
+        step2[3] = WrapLow(DctConstRoundShift(temp2));
+        step2[4] = WrapLow(step1[4] + step1[5]);
+        step2[5] = WrapLow(step1[4] - step1[5]);
+        step2[6] = WrapLow(-step1[6] + step1[7]);
+        step2[7] = WrapLow(step1[6] + step1[7]);
+
+        step1[0] = WrapLow(step2[0] + step2[3]);
+        step1[1] = WrapLow(step2[1] + step2[2]);
+        step1[2] = WrapLow(step2[1] - step2[2]);
+        step1[3] = WrapLow(step2[0] - step2[3]);
+        step1[4] = step2[4];
+        temp1 = (long)(step2[6] - step2[5]) * CosPi16_64;
+        temp2 = (long)(step2[5] + step2[6]) * CosPi16_64;
+        step1[5] = WrapLow(DctConstRoundShift(temp1));
+        step1[6] = WrapLow(DctConstRoundShift(temp2));
+        step1[7] = step2[7];
+
+        output[0] = WrapLow(step1[0] + step1[7]);
+        output[1] = WrapLow(step1[1] + step1[6]);
+        output[2] = WrapLow(step1[2] + step1[5]);
+        output[3] = WrapLow(step1[3] + step1[4]);
+        output[4] = WrapLow(step1[3] - step1[4]);
+        output[5] = WrapLow(step1[2] - step1[5]);
+        output[6] = WrapLow(step1[1] - step1[6]);
+        output[7] = WrapLow(step1[0] - step1[7]);
     }
 
     private static void AddIdct32x32(
@@ -525,13 +778,45 @@ internal static class Vp9InverseTransform
         }
     }
 
-    private static bool IsSupportedTx32TransformType(Vp9TransformType transformType)
+    private static bool IsSupportedTransformType(Vp9TransformType transformType)
     {
         return transformType is
             Vp9TransformType.DctDct or
             Vp9TransformType.AdstDct or
             Vp9TransformType.DctAdst or
             Vp9TransformType.AdstAdst;
+    }
+
+    private static int GetSupportedTransformSide(Vp9TransformSize transformSize)
+    {
+        return transformSize switch
+        {
+            Vp9TransformSize.Tx4X4 => 4,
+            Vp9TransformSize.Tx8X8 => 8,
+            Vp9TransformSize.Tx16X16 => 16,
+            Vp9TransformSize.Tx32X32 => 32,
+            _ => throw new ArgumentOutOfRangeException(nameof(transformSize), transformSize, "Unsupported VP9 transform size.")
+        };
+    }
+
+    private static Vp9OneDimensionalTransform GetRowTransform(Vp9TransformType transformType)
+    {
+        return transformType switch
+        {
+            Vp9TransformType.DctDct or Vp9TransformType.DctAdst => Vp9OneDimensionalTransform.Dct,
+            Vp9TransformType.AdstDct or Vp9TransformType.AdstAdst => Vp9OneDimensionalTransform.Adst,
+            _ => throw new ArgumentOutOfRangeException(nameof(transformType), transformType, "Unsupported VP9 transform type.")
+        };
+    }
+
+    private static Vp9OneDimensionalTransform GetColumnTransform(Vp9TransformType transformType)
+    {
+        return transformType switch
+        {
+            Vp9TransformType.DctDct or Vp9TransformType.AdstDct => Vp9OneDimensionalTransform.Dct,
+            Vp9TransformType.DctAdst or Vp9TransformType.AdstAdst => Vp9OneDimensionalTransform.Adst,
+            _ => throw new ArgumentOutOfRangeException(nameof(transformType), transformType, "Unsupported VP9 transform type.")
+        };
     }
 
     private static int ToTranLow(int value)
@@ -569,5 +854,11 @@ internal static class Vp9InverseTransform
     private static byte ClipPixel(int value)
     {
         return (byte)Math.Clamp(value, 0, 255);
+    }
+
+    private enum Vp9OneDimensionalTransform
+    {
+        Dct,
+        Adst
     }
 }

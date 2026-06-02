@@ -184,6 +184,8 @@ internal static class Vp9ResidualSyntax
         var step = Vp9CoefficientEntropyContext.GetTransformSizeIn4x4Blocks(transformSize);
         var blocks = new List<Vp9CoefficientBlockProbe>();
 
+        ThrowIfUnsupportedResidualGrid(modeInfo, plane, transformSize);
+
         if (modeInfo.Skip)
         {
             entropyContext.ClearBlock(
@@ -578,14 +580,33 @@ internal static class Vp9ResidualSyntax
             return;
         }
 
-        if (block.TransformSize == Vp9TransformSize.Tx32X32 &&
+        if (block.TransformSize is Vp9TransformSize.Tx4X4 or Vp9TransformSize.Tx8X8 or Vp9TransformSize.Tx32X32 &&
             block.Eob <= 1024)
         {
             return;
         }
 
         throw new NotSupportedException(
-            $"VP9 full-frame residual probe currently supports only DC-only or TX32 coefficient blocks; got MI ({modeInfo.MiRow},{modeInfo.MiColumn}) plane {plane} block {modeInfo.BlockSize} transform {block.TransformSize}/{block.TransformType} transform offset ({row4},{column4}) eob {block.Eob}.");
+            $"VP9 full-frame residual probe currently supports only DC-only, TX4, TX8, or TX32 coefficient blocks; got MI ({modeInfo.MiRow},{modeInfo.MiColumn}) plane {plane} block {modeInfo.BlockSize} transform {block.TransformSize}/{block.TransformType} transform offset ({row4},{column4}) eob {block.Eob}.");
+    }
+
+    private static void ThrowIfUnsupportedResidualGrid(
+        Vp9ModeInfoProbe modeInfo,
+        int plane,
+        Vp9TransformSize transformSize)
+    {
+        if (modeInfo.Skip)
+        {
+            return;
+        }
+
+        if (plane == 0 &&
+            modeInfo.BlockSize >= Vp9BlockSize.Block16X16 &&
+            transformSize is Vp9TransformSize.Tx4X4 or Vp9TransformSize.Tx8X8)
+        {
+            throw new NotSupportedException(
+                $"VP9 full-frame residual probe does not support {transformSize} transform grids in {modeInfo.BlockSize} blocks yet at MI ({modeInfo.MiRow},{modeInfo.MiColumn}) plane {plane}.");
+        }
     }
 
     private static Vp9TransformSize GetUvTransformSize(Vp9BlockSize blockSize, Vp9TransformSize yTransformSize)

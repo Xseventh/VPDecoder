@@ -363,7 +363,7 @@ public sealed class Vp9TileSyntaxScannerTests
 
         Assert.NotNull(diagnostic);
         Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedFeature, diagnostic.Code);
-        Assert.Equal("VP9 full-frame residual probe currently supports only DC-only or TX32 coefficient blocks; got MI (8,16) plane 0 block Block8X8 transform Tx8X8/AdstDct transform offset (0,0) eob 3.", diagnostic.Message);
+        Assert.Equal("VP9 full-frame residual probe currently supports only DC-only, TX4, TX8, or TX32 coefficient blocks; got MI (10,20) plane 0 block Block16X16 transform Tx16X16/DctAdst transform offset (0,0) eob 2.", diagnostic.Message);
         Assert.Equal(7, probes.Count);
         Assert.Equal(7, probes.SelectMany(probe => probe.ModeInfos).Count());
         Assert.Equal(21, probes.SelectMany(probe => probe.CoefficientGroups).Count());
@@ -382,7 +382,7 @@ public sealed class Vp9TileSyntaxScannerTests
 
         Assert.NotNull(diagnostic);
         Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedFeature, diagnostic.Code);
-        Assert.Equal("VP9 full-frame residual probe currently supports only DC-only or TX32 coefficient blocks; got MI (8,4) plane 0 block Block4X4 transform Tx4X4/AdstAdst transform offset (1,0) eob 14.", diagnostic.Message);
+        Assert.Equal("VP9 full-frame residual probe does not support Tx4X4 transform grids in Block16X16 blocks yet at MI (10,6) plane 0.", diagnostic.Message);
         Assert.Equal(5, probes.Count);
         Assert.Equal(8, probes.SelectMany(probe => probe.ModeInfos).Count());
         Assert.Equal(24, probes.SelectMany(probe => probe.CoefficientGroups).Count());
