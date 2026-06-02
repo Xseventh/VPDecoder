@@ -208,7 +208,7 @@ internal static class Vp9ResidualSyntax
             entropyContext.ClearBlock(
                 plane,
                 GetPlaneX4(modeInfo.MiColumn, plane),
-                GetPlaneY4(modeInfo.MiRow, plane),
+                GetPlaneLeftContextOffset(modeInfo.MiRow, plane),
                 width4,
                 height4);
             for (var row = 0; row < height4; row += step)
@@ -237,7 +237,7 @@ internal static class Vp9ResidualSyntax
         var ac = plane == 0 ? state.DequantTables.YAc : state.DequantTables.UvAc;
         var planeType = plane == 0 ? 0 : 1;
         var originX4 = GetPlaneX4(modeInfo.MiColumn, plane);
-        var originY4 = GetPlaneY4(modeInfo.MiRow, plane);
+        var originY4 = GetPlaneLeftContextOffset(modeInfo.MiRow, plane);
         for (var row = 0; row < height4; row += step)
         {
             for (var column = 0; column < width4; column += step)
@@ -692,9 +692,14 @@ internal static class Vp9ResidualSyntax
         return plane == 0 ? miColumn * 2 : miColumn;
     }
 
-    private static int GetPlaneY4(int miRow, int plane)
+    internal static int GetPlaneLeftContextOffset(int miRow, int plane)
     {
-        return plane == 0 ? miRow * 2 : miRow;
+        if (miRow < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(miRow), "VP9 MI row cannot be negative.");
+        }
+
+        return plane == 0 ? miRow * 2 : ((miRow * 2) & 15) >> 1;
     }
 
     private static Vp9CoefficientBlockProbe CreateBlockProbe(

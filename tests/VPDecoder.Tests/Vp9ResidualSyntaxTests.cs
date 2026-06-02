@@ -62,4 +62,27 @@ public sealed class Vp9ResidualSyntaxTests
     {
         Assert.Equal(expected, Vp9ResidualSyntax.GetUvTransformSizeForYuv420(blockSize, yTransformSize));
     }
+
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(7, 14)]
+    [InlineData(8, 16)]
+    [InlineData(15, 30)]
+    public void GetPlaneLeftContextOffset_ForLuma_UsesLuma4x4Rows(int miRow, int expected)
+    {
+        Assert.Equal(expected, Vp9ResidualSyntax.GetPlaneLeftContextOffset(miRow, plane: 0));
+    }
+
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(7, 7)]
+    [InlineData(8, 0)]
+    [InlineData(10, 2)]
+    [InlineData(15, 7)]
+    [InlineData(16, 0)]
+    public void GetPlaneLeftContextOffset_ForYuv420Chroma_MatchesLibvpxPointerOffset(int miRow, int expected)
+    {
+        Assert.Equal(expected, Vp9ResidualSyntax.GetPlaneLeftContextOffset(miRow, plane: 1));
+        Assert.Equal(expected, Vp9ResidualSyntax.GetPlaneLeftContextOffset(miRow, plane: 2));
+    }
 }
