@@ -31,61 +31,84 @@ internal static class Vp9BlockReconstructor
             throw new ArgumentException("VP9 coefficient block count does not match the block geometry.", nameof(group));
         }
 
+        var transformStep4 = Vp9CoefficientEntropyContext.GetTransformSizeIn4x4Blocks(group.TransformSize);
+        var width4 = width / 4;
+        var height4 = height / 4;
+        var seenBlocks = new bool[expectedBlockCount];
         var planeInfo = GetPlaneInfo(frameBuffer, plane);
         var originX = plane == 0 ? modeInfo.MiColumn * 8 : modeInfo.MiColumn * 4;
         var originY = plane == 0 ? modeInfo.MiRow * 8 : modeInfo.MiRow * 4;
         var tileStartX = plane == 0 ? geometry.MiColumnStart * 8 : geometry.MiColumnStart * 4;
         var planePixels = frameBuffer.Pixels.AsSpan(planeInfo.Metadata.Offset, planeInfo.Metadata.Length);
 
-        for (var blockRow = 0; blockRow < blocksHigh; blockRow++)
+        foreach (var coefficients in group.Blocks)
         {
-            for (var blockColumn = 0; blockColumn < blocksWide; blockColumn++)
+            if (coefficients.TransformSize != group.TransformSize)
             {
-                var blockIndex = (blockRow * blocksWide) + blockColumn;
-                var coefficients = group.Blocks[blockIndex];
-                var x = originX + (blockColumn * transformSize);
-                var y = originY + (blockRow * transformSize);
-                if (x + transformSize > planeInfo.Metadata.Width || y + transformSize > planeInfo.Metadata.Height)
-                {
-                    throw new NotSupportedException(
-                        "VP9 DC-only reconstruction does not support clipped transform blocks at frame edges yet.");
-                }
+                throw new ArgumentException("VP9 coefficient block transform size does not match its group.", nameof(group));
+            }
 
-                var destinationOffset = planeInfo.Metadata.Offset + (y * planeInfo.Stride) + x;
-                var destination = frameBuffer.Pixels.AsSpan(destinationOffset);
-                var above = y > 0 ? ReadAboveEdge(planePixels, planeInfo.Stride, x, y, transformSize) : [];
-                var left = x > tileStartX ? ReadLeftEdge(planePixels, planeInfo.Stride, x, y, transformSize) : [];
-                Vp9IntraPredictor.PredictDc(destination, planeInfo.Stride, transformSize, above, left);
+            if (coefficients.Row4 < 0 ||
+                coefficients.Column4 < 0 ||
+                coefficients.Row4 + transformStep4 > height4 ||
+                coefficients.Column4 + transformStep4 > width4 ||
+                coefficients.Row4 % transformStep4 != 0 ||
+                coefficients.Column4 % transformStep4 != 0)
+            {
+                throw new ArgumentException("VP9 coefficient block transform offset does not fit the block geometry.", nameof(group));
+            }
 
-                if (coefficients.Eob == 0)
-                {
-                    continue;
-                }
+            var blockRow = coefficients.Row4 / transformStep4;
+            var blockColumn = coefficients.Column4 / transformStep4;
+            var blockIndex = (blockRow * blocksWide) + blockColumn;
+            if (seenBlocks[blockIndex])
+            {
+                throw new ArgumentException("VP9 coefficient block transform offsets must be unique within a group.", nameof(group));
+            }
 
-                if (IsDcOnlyOrEmpty(coefficients) &&
-                    (group.TransformSize == Vp9TransformSize.Tx32X32 ||
-                        coefficients.TransformType == Vp9TransformType.DctDct))
-                {
-                    Vp9DcOnlyReconstructor.AddDcOnly(
-                        planePixels,
-                        planeInfo.Stride,
-                        x,
-                        y,
-                        transformSize,
-                        coefficients.DequantizedCoefficients[0]);
-                    continue;
-                }
+            seenBlocks[blockIndex] = true;
+            var x = originX + (coefficients.Column4 * 4);
+            var y = originY + (coefficients.Row4 * 4);
+            if (x + transformSize > planeInfo.Metadata.Width || y + transformSize > planeInfo.Metadata.Height)
+            {
+                throw new NotSupportedException(
+                    "VP9 DC-only reconstruction does not support clipped transform blocks at frame edges yet.");
+            }
 
-                Vp9InverseTransform.AddBlock(
+            var destinationOffset = planeInfo.Metadata.Offset + (y * planeInfo.Stride) + x;
+            var destination = frameBuffer.Pixels.AsSpan(destinationOffset);
+            var above = y > 0 ? ReadAboveEdge(planePixels, planeInfo.Stride, x, y, transformSize) : [];
+            var left = x > tileStartX ? ReadLeftEdge(planePixels, planeInfo.Stride, x, y, transformSize) : [];
+            Vp9IntraPredictor.PredictDc(destination, planeInfo.Stride, transformSize, above, left);
+
+            if (coefficients.Eob == 0)
+            {
+                continue;
+            }
+
+            if (IsDcOnlyOrEmpty(coefficients) &&
+                (group.TransformSize == Vp9TransformSize.Tx32X32 ||
+                    coefficients.TransformType == Vp9TransformType.DctDct))
+            {
+                Vp9DcOnlyReconstructor.AddDcOnly(
                     planePixels,
                     planeInfo.Stride,
                     x,
                     y,
-                    group.TransformSize,
-                    coefficients.TransformType,
-                    coefficients.DequantizedCoefficients,
-                    coefficients.Eob);
+                    transformSize,
+                    coefficients.DequantizedCoefficients[0]);
+                continue;
             }
+
+            Vp9InverseTransform.AddBlock(
+                planePixels,
+                planeInfo.Stride,
+                x,
+                y,
+                group.TransformSize,
+                coefficients.TransformType,
+                coefficients.DequantizedCoefficients,
+                coefficients.Eob);
         }
     }
 
