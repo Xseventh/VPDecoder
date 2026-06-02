@@ -379,6 +379,70 @@ public sealed class Vp9TileSyntaxScannerTests
         Assert.All(frame.Pixels, value => Assert.Equal(0, value));
     }
 
+    [Fact]
+    public void TryReconstructFirstSuperblockDcOnly_ForExternalMainFrame_WritesDeterministicYuvBlocks()
+    {
+        var packet = ReadRequiredSample(
+            "/tmp/vp9-main-frame-0.vp9",
+            30398,
+            "4c57b8dda880711b174483a27e1691c6c9aa9a6721351d041425f8dafb23b7e9");
+        var state = CreateState(packet);
+
+        Assert.True(Vp9TileSyntaxScanner.TryReconstructFirstSuperblockDcOnly(packet, state, out var frame, out var diagnostic), diagnostic?.Message);
+
+        var secondState = CreateState(packet);
+        Assert.True(Vp9TileSyntaxScanner.TryReconstructFirstSuperblockDcOnly(packet, secondState, out var secondFrame, out var secondDiagnostic), secondDiagnostic?.Message);
+
+        Assert.NotNull(frame);
+        Assert.NotNull(secondFrame);
+        Assert.Equal(Vp9OutputPixelFormat.Yuv420, frame.PixelFormat);
+        Assert.Equal(5_386_368, frame.Pixels.Length);
+        Assert.Equal(49_152, frame.Pixels.Count(value => value != 0));
+        Assert.Equal("05f0ab1f0ba4dca0c58a6e12d24999eed02bcaca0a1a52af8d66bcfc38cd4f3b", Hash(frame.Pixels));
+        Assert.Equal(Hash(frame.Pixels), Hash(secondFrame.Pixels));
+        AssertPlaneHash(frame, planeIndex: 0, expectedNonZero: 32_768, expectedHash: "e888c7428609dd5f7974db8379eba2fd70b2ff631e87d367ee05d3747b4dc696");
+        AssertPlaneHash(frame, planeIndex: 1, expectedNonZero: 8_192, expectedHash: "584433f86bd2b8b03a00dfa9b0e2af08b2ba01fbceee5c745619efcfc87204f1");
+        AssertPlaneHash(frame, planeIndex: 2, expectedNonZero: 8_192, expectedHash: "584433f86bd2b8b03a00dfa9b0e2af08b2ba01fbceee5c745619efcfc87204f1");
+        foreach (var x in new[] { 0, 320, 640, 960, 1344, 1664, 1984, 2304 })
+        {
+            AssertPlaneBlock(frame, planeIndex: 0, x, y: 0, size: 64, expected: 255);
+            AssertPlaneBlock(frame, planeIndex: 1, x / 2, y: 0, size: 32, expected: 128);
+            AssertPlaneBlock(frame, planeIndex: 2, x / 2, y: 0, size: 32, expected: 128);
+        }
+    }
+
+    [Fact]
+    public void TryReconstructFirstSuperblockDcOnly_ForExternalAlphaFrame_ReconstructsSkippedChromaPredictors()
+    {
+        var packet = ReadRequiredSample(
+            "/tmp/vp9-alpha-frame-0.vp9",
+            6233,
+            "94079f539a2165b10f5db2d9e9b5d54ca8df534ca3d36e4eaa1234b0b17a7329");
+        var state = CreateState(packet);
+
+        Assert.True(Vp9TileSyntaxScanner.TryReconstructFirstSuperblockDcOnly(packet, state, out var frame, out var diagnostic), diagnostic?.Message);
+
+        var secondState = CreateState(packet);
+        Assert.True(Vp9TileSyntaxScanner.TryReconstructFirstSuperblockDcOnly(packet, secondState, out var secondFrame, out var secondDiagnostic), secondDiagnostic?.Message);
+
+        Assert.NotNull(frame);
+        Assert.NotNull(secondFrame);
+        Assert.Equal(Vp9OutputPixelFormat.Yuv420, frame.PixelFormat);
+        Assert.Equal(5_386_368, frame.Pixels.Length);
+        Assert.Equal(16_384, frame.Pixels.Count(value => value != 0));
+        Assert.Equal("5580ae7be668d41b95e4e82b0578998e2bd67f2ae62f1b771d64091a8fe2dbee", Hash(frame.Pixels));
+        Assert.Equal(Hash(frame.Pixels), Hash(secondFrame.Pixels));
+        AssertPlaneHash(frame, planeIndex: 0, expectedNonZero: 0, expectedHash: "c67cc10105aa9f7de24a1a7ef211f10d682dd62291f292f4a95b09f54f234e34");
+        AssertPlaneHash(frame, planeIndex: 1, expectedNonZero: 8_192, expectedHash: "584433f86bd2b8b03a00dfa9b0e2af08b2ba01fbceee5c745619efcfc87204f1");
+        AssertPlaneHash(frame, planeIndex: 2, expectedNonZero: 8_192, expectedHash: "584433f86bd2b8b03a00dfa9b0e2af08b2ba01fbceee5c745619efcfc87204f1");
+        foreach (var x in new[] { 0, 320, 640, 960, 1344, 1664, 1984, 2304 })
+        {
+            AssertPlaneBlock(frame, planeIndex: 0, x, y: 0, size: 64, expected: 0);
+            AssertPlaneBlock(frame, planeIndex: 1, x / 2, y: 0, size: 32, expected: 128);
+            AssertPlaneBlock(frame, planeIndex: 2, x / 2, y: 0, size: 32, expected: 128);
+        }
+    }
+
     private static Vp9KeyFrameDecodeState CreateState(byte[] packet)
     {
         var header = Vp9FrameHeaderParser.Parse(packet);
@@ -414,12 +478,30 @@ public sealed class Vp9TileSyntaxScannerTests
 
     private static void AssertYBlock(Vp9DecodedFrame frame, int x, int y, int size, byte expected)
     {
-        var yPlane = frame.Planes[0];
+        AssertPlaneBlock(frame, planeIndex: 0, x, y, size, expected);
+    }
+
+    private static void AssertPlaneBlock(Vp9DecodedFrame frame, int planeIndex, int x, int y, int size, byte expected)
+    {
+        var yPlane = frame.Planes[planeIndex];
         for (var row = 0; row < size; row++)
         {
             var offset = yPlane.Offset + ((y + row) * yPlane.Stride) + x;
             Assert.All(frame.Pixels.Skip(offset).Take(size), value => Assert.Equal(expected, value));
         }
+    }
+
+    private static void AssertPlaneHash(Vp9DecodedFrame frame, int planeIndex, int expectedNonZero, string expectedHash)
+    {
+        var plane = frame.Planes[planeIndex];
+        var bytes = frame.Pixels.AsSpan(plane.Offset, plane.Length).ToArray();
+        Assert.Equal(expectedNonZero, bytes.Count(value => value != 0));
+        Assert.Equal(expectedHash, Hash(bytes));
+    }
+
+    private static string Hash(byte[] bytes)
+    {
+        return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes)).ToLowerInvariant();
     }
 
     private static byte[] ReadRequiredSample(string path, int expectedLength, string expectedSha256)

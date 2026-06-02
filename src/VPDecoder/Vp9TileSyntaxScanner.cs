@@ -354,7 +354,7 @@ internal static class Vp9TileSyntaxScanner
                     {
                         var blockIndex = (blockRow * gridSize) + blockColumn;
                         var coefficients = group.Blocks[blockIndex];
-                        if (!IsDcOnlyOrEmpty(coefficients))
+                        if (!Vp9BlockReconstructor.IsDcOnlyOrEmpty(coefficients))
                         {
                             diagnostic = Vp9DecodeDiagnostic.UnsupportedFeature(
                                 "VP9 first-leaf Y DC reconstruction probe supports only empty or DC-only TX32 coefficient blocks.");
@@ -393,6 +393,84 @@ internal static class Vp9TileSyntaxScanner
         catch (Vp9BoolReaderException ex)
         {
             diagnostic = ex.Diagnostic;
+            return false;
+        }
+    }
+
+    public static bool TryReconstructFirstSuperblockDcOnly(
+        ReadOnlyMemory<byte> packet,
+        Vp9KeyFrameDecodeState state,
+        out Vp9DecodedFrame? frame,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
+        frame = null;
+        diagnostic = null;
+
+        if (!TryProbeFirstSuperblockSyntax(packet, state, out var probes, out diagnostic))
+        {
+            return false;
+        }
+
+        try
+        {
+            foreach (var probe in probes)
+            {
+                if (probe.TileIndex < 0 || probe.TileIndex >= state.TileGeometries.Count)
+                {
+                    diagnostic = Vp9DecodeDiagnostic.InternalDecodeFailure(
+                        "VP9 first-superblock reconstruction received an invalid tile index.");
+                    return false;
+                }
+
+                var geometry = state.TileGeometries[probe.TileIndex];
+                var expectedGroupCount = checked(probe.ModeInfos.Count * 3);
+                if (probe.CoefficientGroups.Count != expectedGroupCount)
+                {
+                    diagnostic = Vp9DecodeDiagnostic.InternalDecodeFailure(
+                        "VP9 first-superblock reconstruction received mismatched mode/coefficient groups.");
+                    return false;
+                }
+
+                for (var modeIndex = 0; modeIndex < probe.ModeInfos.Count; modeIndex++)
+                {
+                    var modeInfo = probe.ModeInfos[modeIndex];
+                    if (modeInfo.YMode != Vp9PredictionMode.Dc || modeInfo.UvMode != Vp9PredictionMode.Dc)
+                    {
+                        diagnostic = Vp9DecodeDiagnostic.UnsupportedPredictionMode(
+                            "VP9 first-superblock DC-only reconstruction supports only DC intra prediction modes.");
+                        return false;
+                    }
+
+                    for (var plane = 0; plane < 3; plane++)
+                    {
+                        var group = probe.CoefficientGroups[(modeIndex * 3) + plane];
+                        Vp9BlockReconstructor.ReconstructDcOnlyGroup(
+                            state.FrameBuffer,
+                            geometry,
+                            modeInfo,
+                            group,
+                            plane);
+                    }
+                }
+            }
+
+            frame = state.FrameBuffer.ToDecodedFrame();
+            return true;
+        }
+        catch (NotSupportedException ex)
+        {
+            diagnostic = Vp9DecodeDiagnostic.UnsupportedFeature(ex.Message);
+            return false;
+        }
+        catch (ArgumentException ex)
+        {
+            diagnostic = Vp9DecodeDiagnostic.InternalDecodeFailure(ex.Message);
+            return false;
+        }
+        catch (OverflowException)
+        {
+            diagnostic = Vp9DecodeDiagnostic.InternalDecodeFailure(
+                "VP9 first-superblock reconstruction overflowed a block geometry calculation.");
             return false;
         }
     }
@@ -699,18 +777,6 @@ internal static class Vp9TileSyntaxScanner
             transformSizeContext,
             yMode,
             uvMode);
-    }
-
-    private static bool IsDcOnlyOrEmpty(Vp9CoefficientBlockProbe coefficients)
-    {
-        return coefficients.Eob switch
-        {
-            0 => coefficients.NonZeroCount == 0,
-            1 => coefficients.NonZeroCount == 1 &&
-                coefficients.FirstNonZeroRasterIndex == 0 &&
-                coefficients.LastNonZeroRasterIndex == 0,
-            _ => false
-        };
     }
 
     private static byte[] ReadAboveEdge(ReadOnlySpan<byte> plane, int stride, int x, int y, int size)
