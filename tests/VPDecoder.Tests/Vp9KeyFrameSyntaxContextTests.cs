@@ -46,6 +46,33 @@ public sealed class Vp9KeyFrameSyntaxContextTests
     }
 
     [Fact]
+    public void GetYModeContext_WhenNeighborsAreSub8_UsesLibvpxAboveAndLeftBlockModes()
+    {
+        var context = Vp9KeyFrameSyntaxContext.Create(CreateHeader(miColumns: 16, miRows: 16));
+        context.SetModeInfo(
+            miRow: 0,
+            miColumn: 1,
+            Vp9BlockSize.Block4X4,
+            skip: false,
+            Vp9TransformSize.Tx4X4,
+            Vp9PredictionMode.D63,
+            [Vp9PredictionMode.Dc, Vp9PredictionMode.D45, Vp9PredictionMode.D117, Vp9PredictionMode.D63]);
+        context.SetModeInfo(
+            miRow: 1,
+            miColumn: 0,
+            Vp9BlockSize.Block4X4,
+            skip: false,
+            Vp9TransformSize.Tx4X4,
+            Vp9PredictionMode.TrueMotion,
+            [Vp9PredictionMode.Horizontal, Vp9PredictionMode.D153, Vp9PredictionMode.D207, Vp9PredictionMode.TrueMotion]);
+
+        var modeContext = context.GetYModeContext(1, 1, tileMiColumnStart: 0);
+
+        Assert.Equal(Vp9PredictionMode.D117, modeContext.Above);
+        Assert.Equal(Vp9PredictionMode.D153, modeContext.Left);
+    }
+
+    [Fact]
     public void GetTransformSizeContext_UsesMaxTransformWhenNeighborsAreMissing()
     {
         var context = Vp9KeyFrameSyntaxContext.Create(CreateHeader(miColumns: 16, miRows: 16));

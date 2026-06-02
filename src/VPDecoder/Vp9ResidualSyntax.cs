@@ -149,6 +149,7 @@ internal static class Vp9ResidualSyntax
             state,
             modeInfo,
             modeInfo.TransformSize,
+            GetTransformType(modeInfo, plane: 0, modeInfo.TransformSize, row4: 0, column4: 0),
             planeType,
             referenceType,
             state.DequantTables.YDc,
@@ -171,8 +172,8 @@ internal static class Vp9ResidualSyntax
         var transformSize = plane == 0
             ? modeInfo.TransformSize
             : GetUvTransformSize(modeInfo.BlockSize, modeInfo.TransformSize);
-        var width4 = GetPlaneWidthIn4x4Blocks(modeInfo.BlockSize, plane);
-        var height4 = GetPlaneHeightIn4x4Blocks(modeInfo.BlockSize, plane);
+        var width4 = GetVisiblePlaneWidthIn4x4Blocks(state.Header, modeInfo.BlockSize, modeInfo.MiColumn, plane);
+        var height4 = GetVisiblePlaneHeightIn4x4Blocks(state.Header, modeInfo.BlockSize, modeInfo.MiRow, plane);
         var step = Vp9CoefficientEntropyContext.GetTransformSizeIn4x4Blocks(transformSize);
         var blocks = new List<Vp9CoefficientBlockProbe>();
 
@@ -214,16 +215,19 @@ internal static class Vp9ResidualSyntax
                 var x4 = originX4 + column;
                 var y4 = originY4 + row;
                 var context = entropyContext.GetInitialContext(plane, x4, y4, transformSize);
+                var transformType = GetTransformType(modeInfo, plane, transformSize, row, column);
                 var block = ReadCoefficientBlock(
                     ref reader,
                     state,
                     modeInfo,
                     transformSize,
+                    transformType,
                     planeType,
                     referenceType: 0,
                     dc,
                     ac,
                     context);
+                ThrowIfUnsupportedAcBlock(modeInfo, plane, row, column, block);
                 blocks.Add(block);
                 entropyContext.SetTransformContext(plane, x4, y4, transformSize, block.Eob > 0);
             }
@@ -237,6 +241,7 @@ internal static class Vp9ResidualSyntax
         Vp9KeyFrameDecodeState state,
         Vp9ModeInfoProbe modeInfo,
         Vp9TransformSize transformSize,
+        Vp9TransformType transformType,
         int planeType,
         int referenceType,
         int dcDequant,
@@ -258,8 +263,8 @@ internal static class Vp9ResidualSyntax
         }
 
         var probabilities = state.CompressedHeader.FrameContext.CoefficientProbabilities;
-        var scan = Vp9ScanTables.GetDefaultScan(transformSize);
-        var neighbors = Vp9ScanTables.GetDefaultNeighbors(transformSize);
+        var scan = Vp9ScanTables.GetScan(transformSize, transformType);
+        var neighbors = Vp9ScanTables.GetNeighbors(transformSize, transformType);
         var tokenCache = new byte[maxEob];
         var coefficientIndex = 0;
         var coefficientContext = initialCoefficientContext;
@@ -464,6 +469,71 @@ internal static class Vp9ResidualSyntax
         return transformSize == Vp9TransformSize.Tx32X32 ? value >> 1 : value;
     }
 
+    private static Vp9TransformType GetTransformType(
+        Vp9ModeInfoProbe modeInfo,
+        int plane,
+        Vp9TransformSize transformSize,
+        int row4,
+        int column4)
+    {
+        if (plane != 0)
+        {
+            return Vp9TransformType.DctDct;
+        }
+
+        var mode = GetYTransformPredictionMode(modeInfo, transformSize, row4, column4);
+        return mode switch
+        {
+            Vp9PredictionMode.Dc or Vp9PredictionMode.D45 => Vp9TransformType.DctDct,
+            Vp9PredictionMode.Vertical or Vp9PredictionMode.D117 or Vp9PredictionMode.D63 => Vp9TransformType.AdstDct,
+            Vp9PredictionMode.Horizontal or Vp9PredictionMode.D153 or Vp9PredictionMode.D207 => Vp9TransformType.DctAdst,
+            Vp9PredictionMode.D135 or Vp9PredictionMode.TrueMotion => Vp9TransformType.AdstAdst,
+            _ => throw new ArgumentOutOfRangeException(nameof(modeInfo), mode, "Unsupported VP9 intra prediction mode.")
+        };
+    }
+
+    private static Vp9PredictionMode GetYTransformPredictionMode(
+        Vp9ModeInfoProbe modeInfo,
+        Vp9TransformSize transformSize,
+        int row4,
+        int column4)
+    {
+        if (modeInfo.BlockSize >= Vp9BlockSize.Block8X8 || transformSize != Vp9TransformSize.Tx4X4)
+        {
+            return modeInfo.YMode;
+        }
+
+        if (row4 is < 0 or > 1 || column4 is < 0 or > 1)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(row4),
+                "VP9 sub-8x8 transform block coordinates must be within the owning 8x8 mode-info block.");
+        }
+
+        if (modeInfo.YSubModes.Count != 4)
+        {
+            throw new InvalidOperationException("VP9 sub-8x8 mode info must carry exactly four Y sub-modes.");
+        }
+
+        return modeInfo.YSubModes[(row4 * 2) + column4];
+    }
+
+    private static void ThrowIfUnsupportedAcBlock(
+        Vp9ModeInfoProbe modeInfo,
+        int plane,
+        int row4,
+        int column4,
+        Vp9CoefficientBlockProbe block)
+    {
+        if (block.Eob <= 1 && block.FirstNonZeroRasterIndex <= 0 && block.LastNonZeroRasterIndex <= 0)
+        {
+            return;
+        }
+
+        throw new NotSupportedException(
+            $"VP9 full-frame residual probe does not support AC coefficient blocks yet at MI ({modeInfo.MiRow},{modeInfo.MiColumn}) plane {plane} block {modeInfo.BlockSize} transform {block.TransformSize} transform offset ({row4},{column4}) eob {block.Eob}.");
+    }
+
     private static Vp9CoefficientToken GetToken(int tokenValue)
     {
         return tokenValue switch
@@ -483,17 +553,17 @@ internal static class Vp9ResidualSyntax
 
     private static Vp9TransformSize GetUvTransformSize(Vp9BlockSize blockSize, Vp9TransformSize yTransformSize)
     {
-        return (blockSize, yTransformSize) switch
+        var chromaWidth4 = GetPlaneWidthIn4x4Blocks(blockSize, plane: 1);
+        var chromaHeight4 = GetPlaneHeightIn4x4Blocks(blockSize, plane: 1);
+        var maxChromaTransformSize = Math.Min(chromaWidth4, chromaHeight4) switch
         {
-            (Vp9BlockSize.Block4X4, _) => Vp9TransformSize.Tx4X4,
-            (Vp9BlockSize.Block4X8, _) => Vp9TransformSize.Tx4X4,
-            (Vp9BlockSize.Block8X4, _) => Vp9TransformSize.Tx4X4,
-            (Vp9BlockSize.Block8X8, _) => Vp9TransformSize.Tx4X4,
-            (Vp9BlockSize.Block32X32, Vp9TransformSize.Tx32X32) => Vp9TransformSize.Tx16X16,
-            (Vp9BlockSize.Block64X64, Vp9TransformSize.Tx32X32) => Vp9TransformSize.Tx32X32,
-            _ => throw new NotSupportedException(
-                $"VP9 UV transform size is not supported for block size {blockSize} and Y transform {yTransformSize}.")
+            >= 8 => Vp9TransformSize.Tx32X32,
+            >= 4 => Vp9TransformSize.Tx16X16,
+            >= 2 => Vp9TransformSize.Tx8X8,
+            _ => Vp9TransformSize.Tx4X4
         };
+
+        return (Vp9TransformSize)Math.Min((int)yTransformSize, (int)maxChromaTransformSize);
     }
 
     private static int GetPlaneWidthIn4x4Blocks(Vp9BlockSize blockSize, int plane)
@@ -506,6 +576,30 @@ internal static class Vp9ResidualSyntax
     {
         var miHeight = Vp9ModeInfoSyntax.GetBlockHeightInMiUnits(blockSize);
         return plane == 0 ? miHeight * 2 : miHeight;
+    }
+
+    private static int GetVisiblePlaneWidthIn4x4Blocks(
+        Vp9FrameHeader header,
+        Vp9BlockSize blockSize,
+        int miColumn,
+        int plane)
+    {
+        var blockWidth = GetPlaneWidthIn4x4Blocks(blockSize, plane);
+        var remainingMi = Math.Max(0, header.TileInfo.MiColumns - miColumn);
+        var remainingPlane4 = plane == 0 ? remainingMi * 2 : remainingMi;
+        return Math.Min(blockWidth, remainingPlane4);
+    }
+
+    private static int GetVisiblePlaneHeightIn4x4Blocks(
+        Vp9FrameHeader header,
+        Vp9BlockSize blockSize,
+        int miRow,
+        int plane)
+    {
+        var blockHeight = GetPlaneHeightIn4x4Blocks(blockSize, plane);
+        var remainingMi = Math.Max(0, header.TileInfo.MiRows - miRow);
+        var remainingPlane4 = plane == 0 ? remainingMi * 2 : remainingMi;
+        return Math.Min(blockHeight, remainingPlane4);
     }
 
     private static int GetPlaneX4(int miColumn, int plane)

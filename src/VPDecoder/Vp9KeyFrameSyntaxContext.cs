@@ -88,10 +88,10 @@ internal sealed class Vp9KeyFrameSyntaxContext
     {
         ValidateMiPosition(miRow, miColumn);
         var above = TryGetAbove(miRow, miColumn, out var aboveInfo)
-            ? aboveInfo.YMode
+            ? aboveInfo.GetYModeForBlock(2)
             : Vp9PredictionMode.Dc;
         var left = TryGetLeft(miRow, miColumn, tileMiColumnStart, out var leftInfo)
-            ? leftInfo.YMode
+            ? leftInfo.GetYModeForBlock(1)
             : Vp9PredictionMode.Dc;
         return (above, left);
     }

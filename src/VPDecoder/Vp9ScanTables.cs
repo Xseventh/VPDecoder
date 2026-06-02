@@ -1,5 +1,13 @@
 namespace VPDecoder;
 
+internal enum Vp9TransformType
+{
+    DctDct = 0,
+    AdstDct = 1,
+    DctAdst = 2,
+    AdstAdst = 3
+}
+
 // Generated from libvpx VP9 entropy/scan tables; decoded with length guards at startup.
 internal static class Vp9ScanTables
 {
@@ -8,10 +16,32 @@ internal static class Vp9ScanTables
         0, 4, 1, 5, 8, 2, 12, 9, 3, 6, 13, 10, 7, 14, 11, 15
     ];
 
+    private static readonly short[] RowScan4X4 =
+    [
+        0, 1, 4, 2, 5, 3, 6, 8, 9, 7, 12, 10, 13, 11, 14, 15
+    ];
+
+    private static readonly short[] ColScan4X4 =
+    [
+        0, 4, 8, 1, 12, 5, 9, 2, 13, 6, 10, 3, 7, 14, 11, 15
+    ];
+
     private static readonly short[] DefaultScan4X4Neighbors =
     [
         0, 0, 0, 0, 0, 0, 1, 4, 4, 4, 1, 1, 8, 8, 5, 8, 2,
         2, 2, 5, 9, 12, 6, 9, 3, 6, 10, 13, 7, 10, 11, 14, 0, 0
+    ];
+
+    private static readonly short[] RowScan4X4Neighbors =
+    [
+        0, 0, 0, 0, 0, 0, 1, 1, 4, 4, 2, 2, 5, 5, 4, 4, 8,
+        8, 6, 6, 8, 8, 9, 9, 12, 12, 10, 10, 13, 13, 14, 14, 0, 0
+    ];
+
+    private static readonly short[] ColScan4X4Neighbors =
+    [
+        0, 0, 0, 0, 4, 4, 0, 0, 8, 8, 1, 1, 5, 5, 1, 1, 9,
+        9, 2, 2, 6, 6, 2, 2, 3, 3, 10, 10, 7, 7, 11, 11, 0, 0
     ];
 
     private static readonly short[] DefaultScan8X8 =
@@ -20,6 +50,22 @@ internal static class Vp9ScanTables
         33, 19, 40, 12, 34, 27, 5, 41, 20, 48, 13, 35, 42, 28, 21, 6,
         49, 56, 36, 43, 29, 7, 14, 50, 57, 44, 22, 37, 15, 51, 58, 30,
         45, 23, 52, 59, 38, 31, 60, 53, 46, 39, 61, 54, 47, 62, 55, 63
+    ];
+
+    private static readonly short[] RowScan8X8 =
+    [
+        0, 1, 2, 8, 9, 3, 16, 10, 4, 17, 11, 24, 5, 18, 25, 12,
+        19, 26, 32, 6, 13, 20, 33, 27, 7, 34, 40, 21, 28, 41, 14, 35,
+        48, 42, 29, 36, 49, 22, 43, 15, 56, 37, 50, 44, 30, 57, 23, 51,
+        58, 45, 38, 52, 31, 59, 53, 46, 60, 39, 61, 47, 54, 55, 62, 63
+    ];
+
+    private static readonly short[] ColScan8X8 =
+    [
+        0, 8, 16, 1, 24, 9, 32, 17, 2, 40, 25, 10, 33, 18, 48, 3,
+        26, 41, 11, 56, 19, 34, 4, 49, 27, 42, 12, 35, 20, 57, 50, 28,
+        5, 43, 13, 36, 58, 51, 21, 44, 6, 29, 59, 37, 14, 52, 22, 7,
+        45, 60, 30, 15, 38, 53, 23, 46, 31, 61, 39, 54, 47, 62, 55, 63
     ];
 
     private static readonly short[] DefaultScan8X8Neighbors =
@@ -31,6 +77,28 @@ internal static class Vp9ScanTables
         6, 13, 42, 49, 49, 56, 36, 43, 14, 21, 29, 36, 7, 14, 43, 50, 50, 57, 22,
         29, 37, 44, 15, 22, 44, 51, 51, 58, 30, 37, 23, 30, 52, 59, 45, 52, 38, 45,
         31, 38, 53, 60, 46, 53, 39, 46, 54, 61, 47, 54, 55, 62, 0, 0
+    ];
+
+    private static readonly short[] RowScan8X8Neighbors =
+    [
+        0, 0, 0, 0, 1, 1, 0, 0, 8, 8, 2, 2, 8, 8, 9, 9, 3, 3, 16,
+        16, 10, 10, 16, 16, 4, 4, 17, 17, 24, 24, 11, 11, 18, 18, 25, 25, 24, 24,
+        5, 5, 12, 12, 19, 19, 32, 32, 26, 26, 6, 6, 33, 33, 32, 32, 20, 20, 27,
+        27, 40, 40, 13, 13, 34, 34, 40, 40, 41, 41, 28, 28, 35, 35, 48, 48, 21, 21,
+        42, 42, 14, 14, 48, 48, 36, 36, 49, 49, 43, 43, 29, 29, 56, 56, 22, 22, 50,
+        50, 57, 57, 44, 44, 37, 37, 51, 51, 30, 30, 58, 58, 52, 52, 45, 45, 59, 59,
+        38, 38, 60, 60, 46, 46, 53, 53, 54, 54, 61, 61, 62, 62, 0, 0
+    ];
+
+    private static readonly short[] ColScan8X8Neighbors =
+    [
+        0, 0, 0, 0, 8, 8, 0, 0, 16, 16, 1, 1, 24, 24, 9, 9, 1, 1, 32,
+        32, 17, 17, 2, 2, 25, 25, 10, 10, 40, 40, 2, 2, 18, 18, 33, 33, 3, 3,
+        48, 48, 11, 11, 26, 26, 3, 3, 41, 41, 19, 19, 34, 34, 4, 4, 27, 27, 12,
+        12, 49, 49, 42, 42, 20, 20, 4, 4, 35, 35, 5, 5, 28, 28, 50, 50, 43, 43,
+        13, 13, 36, 36, 5, 5, 21, 21, 51, 51, 29, 29, 6, 6, 44, 44, 14, 14, 6,
+        6, 37, 37, 52, 52, 22, 22, 7, 7, 30, 30, 45, 45, 15, 15, 38, 38, 23, 23,
+        53, 53, 31, 31, 46, 46, 39, 39, 54, 54, 47, 47, 55, 55, 0, 0
     ];
 
     private static readonly short[] DefaultScan16X16 = DecodeInt16Table(
@@ -61,6 +129,72 @@ internal static class Vp9ScanTables
         APUAfQCMAC8APgDYAOcAnACrAF4AbQDnAPYAjQCcAD8ATgDKANkAuwDKAG4AfQDZAOgArAC7AOgA9wBPAF4AnQCsAH4AjQDLANoA
         XwBuAOkA+ADaAOkAjgCdAG8AfgCtALwAvADLAOoA+QDbAOoAfwCOAJ4ArQDMANsAvQDMAI8AngDrAPoArgC9AM0A3ACfAK4A3ADr
         AN0A7ACvAL4AvgDNAOwA+wDOAN0A7QD8AL8AzgDeAO0AzwDeAO4A/QDfAO4A7wD+AAAAAAA=
+        """,
+        514);
+
+    private static readonly short[] RowScan16X16 = DecodeInt16Table(
+        """
+        AAABAAIAEAADABEABAASACAABQAhABMABgAiADAAFAAxAAcAIwAVADIAQAAIACQAQQAWADMAJQBQAAkAQgA0ABcAJgBRAEMACgA1
+        ABgAUgBEAGAAJwALADYAUwBhAEUAGQBiAFQAKABwADcADABGAGMAcQBVABoAKQA4AHIAZAANAEcAgABWABsAcwBlAIEAKgA5
+        AEgAdAAOAFcAggBmAJAASQCDAHUAHAA6AA8AWAArAJEAZwCEAJIAdgBKAKAAWQCFAGgAHQA7AJMAdwAsAKEAlABaAGkAhgCi
+        AHgAsABLAIcAlQAeADwAowCxAC0AeQBbAGoApACyAJYAwACIAKUAswAfAJcAwQBMAHoAPQCJAMIAawCYALQA0AAuAKYApwDD
+        AFwAtQCKANEAewCZAOAAxABNAKgA0gC2APAAbADFAD4AmgDhALcAqQDTAC8AiwBdALgA4gDUAPEAxgCqAHwAmwDHAE4A1QC5
+        AG0A4wDIAD8A5ADyAIwA1gCrALoAnADlAPMAfQBeAMkA9ADXANgA5gCNALsAygBPAKwAbgCdAPUA2QDnAF8A9gDoAH4AywD3
+        AOkArQDaAI4AbwCeALwA+AB/AOoA2wD5AL0AzACPAK4AnwD6AOsAzQDcAK8AvgD7AN0AvwDOAOwAzwDtAPwA3gD9AN8A7gDv
+        AP4A/wA=
+        """,
+        256);
+
+    private static readonly short[] ColScan16X16 = DecodeInt16Table(
+        """
+        AAAQACAAMAABAEAAEQBQACEAYAAxAAIAQQBwABIAUQAiAIAAMgBhAAMAQgCQABMAcQAjAFIAoABiADMAgQAEAEMAsAAUAHIA
+        kQBTACQAYwCCADQAwAAFAKEARABzABUAkgBUANAAsQAlAIMAZAA1AKIA4ABFAAYAdADBAJMAVQAWAPAAhAAmALIAZQCjADYA
+        0QB1AEYABwCUAMIAVgCzAOEAFwCFACcApAAIAGYA0gDxADcAwwB2AJUARwC0ABgAVwDiAIYApQDTACgAZwA4AEgAlgDE
+        APIAdwAJALUA4wBYAKYAGQCHACkAaADUADkAlwDFAHgASQDzALYAiACnANUAWQAKAOQAaQCYAMYAGgAqAHkAtwD0AKgA
+        OgCJAOUASgDWAFoAmQDHALgACwBqAPUAGwB6AOYAqQArANcAOwDIAIoAuQD2AEsADABbAJoA2ADnAGsAHAAsAMkAewCq
+        ADwA9wDoAEwAiwANAFwA2QC6APgAmwBsAB0AfAAtAMoA6QCrAD0ADgBNAIwADwD5AF0AHgC7AJwA2gAuAG0AfQA+
+        AKwATgDLAB8AjQDqAF4ALwC8AD8AnQBuAPoA2wBPAH4AzACtAI4AXwC9AG8A6wCeANwA+wB/AK4AjwDNAOwAnwC+
+        AN0A/ACvAM4A7QC/AP0A3gDuAM8A/gDfAO8A/wA=
+        """,
+        256);
+
+    private static readonly short[] RowScan16X16Neighbors = DecodeInt16Table(
+        """
+        AAAAAAAAAAABAAEAAAAAAAIAAgAQABAAAwADABEAEQAQABAABAAEACAAIAASABIABQAFACEAIQAgACAAEwATADAAMAAGAAYAIgAi
+        ABQAFAAxADEAMAAwAAcABwAjACMAQABAABUAFQAyADIAJAAkAEAAQAAIAAgAQQBBADMAMwAWABYAJQAlAFAAUABCAEIACQAJ
+        ADQANAAXABcAUQBRAEMAQwBQAFAAJgAmAAoACgA1ADUAUgBSAGAAYABEAEQAGAAYAGEAYQBTAFMAJwAnAGAAYAA2ADYACwAL
+        AEUARQBiAGIAcABwAFQAVAAZABkAKAAoADcANwBxAHEAYwBjAAwADABGAEYAcABwAFUAVQAaABoAcgByAGQAZACAAIAAKQAp
+        ADgAOABHAEcAcwBzAA0ADQBWAFYAgQCBAGUAZQCAAIAASABIAIIAggB0AHQAGwAbADkAOQAOAA4AVwBXACoAKgCQAJAAZgBm
+        AIMAgwCRAJEAdQB1AEkASQCQAJAAWABYAIQAhABnAGcAHAAcADoAOgCSAJIAdgB2ACsAKwCgAKAAkwCTAFkAWQBoAGgAhQCF
+        AKEAoQB3AHcAoACgAEoASgCGAIYAlACUAB0AHQA7ADsAogCiALAAsAAsACwAeAB4AFoAWgBpAGkAowCjALEAsQCVAJUAsACw
+        AIcAhwCkAKQAsgCyAB4AHgCWAJYAwADAAEsASwB5AHkAPAA8AIgAiADBAMEAagBqAJcAlwCzALMAwADAAC0ALQClAKUApgCm
+        AMIAwgBbAFsAtAC0AIkAiQDQANAAegB6AJgAmADQANAAwwDDAEwATACnAKcA0QDRALUAtQDgAOAAawBrAMQAxAA9AD0AmQCZ
+        AOAA4AC2ALYAqACoANIA0gAuAC4AigCKAFwAXAC3ALcA4QDhANMA0wDwAPAAxQDFAKkAqQB7AHsAmgCaAMYAxgBNAE0A1ADU
+        ALgAuABsAGwA4gDiAMcAxwA+AD4A4wDjAPEA8QCLAIsA1QDVAKoAqgC5ALkAmwCbAOQA5ADyAPIAfAB8AF0AXQDIAMgA8wDz
+        ANYA1gDXANcA5QDlAIwAjAC6ALoAyQDJAE4ATgCrAKsAbQBtAJwAnAD0APQA2ADYAOYA5gBeAF4A9QD1AOcA5wB9AH0AygDK
+        APYA9gDoAOgArACsANkA2QCNAI0AbgBuAJ0AnQC7ALsA9wD3AH4AfgDpAOkA2gDaAPgA+AC8ALwAywDLAI4AjgCtAK0AngCe
+        APkA+QDqAOoAzADMANsA2wCuAK4AvQC9APoA+gDcANwAvgC+AM0AzQDrAOsAzgDOAOwA7AD7APsA3QDdAPwA/ADeAN4A7QDt
+        AO4A7gD9AP0A/gD+AAAAAAA=
+        """,
+        514);
+
+    private static readonly short[] ColScan16X16Neighbors = DecodeInt16Table(
+        """
+        AAAAAAAAAAAQABAAIAAgAAAAAAAwADAAAQABAEAAQAARABEAUABQACEAIQABAAEAMQAxAGAAYAACAAIAQQBBABIAEgBwAHAA
+        IgAiAFEAUQACAAIAMgAyAIAAgAADAAMAYQBhABMAEwBCAEIAkACQAFIAUgAjACMAcQBxAAMAAwAzADMAoACgAAQABABiAGIA
+        gQCBAEMAQwAUABQAUwBTAHIAcgAkACQAsACwAAQABACRAJEANAA0AGMAYwAFAAUAggCCAEQARADAAMAAoQChABUAFQBzAHMA
+        VABUACUAJQCSAJIA0ADQADUANQAFAAUAZABkALEAsQCDAIMARQBFAAYABgDgAOAAdAB0ABYAFgCiAKIAVQBVAJMAkwAmACYA
+        wQDBAGUAZQA2ADYABgAGAIQAhACyALIARgBGAKMAowDRANEABwAHAHUAdQAXABcAlACUAAcABwBWAFYAwgDCAOEA4QAnACcA
+        swCzAGYAZgCFAIUANwA3AKQApAAIAAgARwBHANIA0gB2AHYAlQCVAMMAwwAYABgAVwBXACgAKAA4ADgAhgCGALQAtADiAOIA
+        ZwBnAAgACAClAKUA0wDTAEgASACWAJYACQAJAHcAdwAZABkAWABYAMQAxAApACkAhwCHALUAtQBoAGgAOQA5AOMA4wCmAKYA
+        eAB4AJcAlwDFAMUASQBJAAkACQDUANQAWQBZAIgAiAC2ALYACgAKABoAGgBpAGkApwCnAOQA5ACYAJgAKgAqAHkAeQDVANUA
+        OgA6AMYAxgBKAEoAiQCJALcAtwCoAKgACgAKAFoAWgDlAOUACwALAGoAagDWANYAmQCZABsAGwDHAMcAKwArALgAuAB6AHoA
+        qQCpAOYA5gA7ADsACwALAEsASwCKAIoAyADIANcA1wBbAFsADAAMABwAHAC5ALkAawBrAJoAmgAsACwA5wDnANgA2AA8ADwA
+        ewB7AAwADABMAEwAyQDJAKoAqgDoAOgAiwCLAFwAXAANAA0AbABsAB0AHQC6ALoA2QDZAJsAmwAtAC0ADQANAD0APQB8AHwA
+        DgAOAOkA6QBNAE0ADgAOAKsAqwCMAIwAygDKAB4AHgBdAF0AbQBtAC4ALgCcAJwAPgA+ALsAuwAPAA8AfQB9ANoA2gBOAE4A
+        HwAfAKwArAAvAC8AjQCNAF4AXgDqAOoAywDLAD8APwBuAG4AvAC8AJ0AnQB+AH4ATwBPAK0ArQBfAF8A2wDbAI4AjgDMAMwA
+        6wDrAG8AbwCeAJ4AfwB/AL0AvQDcANwAjwCPAK4ArgDNAM0A7ADsAJ8AnwC+AL4A3QDdAK8ArwDtAO0AzgDOAN4A3gC/AL8A
+        7gDuAM8AzwDfAN8A7wDvAAAAAAA=
         """,
         514);
 
@@ -162,11 +296,34 @@ internal static class Vp9ScanTables
 
     public static ReadOnlySpan<short> GetDefaultScan(Vp9TransformSize transformSize)
     {
+        return GetScan(transformSize, Vp9TransformType.DctDct);
+    }
+
+    public static ReadOnlySpan<short> GetScan(Vp9TransformSize transformSize, Vp9TransformType transformType)
+    {
         return transformSize switch
         {
-            Vp9TransformSize.Tx4X4 => DefaultScan4X4,
-            Vp9TransformSize.Tx8X8 => DefaultScan8X8,
-            Vp9TransformSize.Tx16X16 => DefaultScan16X16,
+            Vp9TransformSize.Tx4X4 => transformType switch
+            {
+                Vp9TransformType.DctDct or Vp9TransformType.AdstAdst => DefaultScan4X4,
+                Vp9TransformType.AdstDct => RowScan4X4,
+                Vp9TransformType.DctAdst => ColScan4X4,
+                _ => throw new ArgumentOutOfRangeException(nameof(transformType), transformType, "Unsupported VP9 transform type.")
+            },
+            Vp9TransformSize.Tx8X8 => transformType switch
+            {
+                Vp9TransformType.DctDct or Vp9TransformType.AdstAdst => DefaultScan8X8,
+                Vp9TransformType.AdstDct => RowScan8X8,
+                Vp9TransformType.DctAdst => ColScan8X8,
+                _ => throw new ArgumentOutOfRangeException(nameof(transformType), transformType, "Unsupported VP9 transform type.")
+            },
+            Vp9TransformSize.Tx16X16 => transformType switch
+            {
+                Vp9TransformType.DctDct or Vp9TransformType.AdstAdst => DefaultScan16X16,
+                Vp9TransformType.AdstDct => RowScan16X16,
+                Vp9TransformType.DctAdst => ColScan16X16,
+                _ => throw new ArgumentOutOfRangeException(nameof(transformType), transformType, "Unsupported VP9 transform type.")
+            },
             Vp9TransformSize.Tx32X32 => DefaultScan32X32,
             _ => throw new NotSupportedException($"VP9 coefficient scan table for {transformSize} is not implemented yet.")
         };
@@ -174,11 +331,34 @@ internal static class Vp9ScanTables
 
     public static ReadOnlySpan<short> GetDefaultNeighbors(Vp9TransformSize transformSize)
     {
+        return GetNeighbors(transformSize, Vp9TransformType.DctDct);
+    }
+
+    public static ReadOnlySpan<short> GetNeighbors(Vp9TransformSize transformSize, Vp9TransformType transformType)
+    {
         return transformSize switch
         {
-            Vp9TransformSize.Tx4X4 => DefaultScan4X4Neighbors,
-            Vp9TransformSize.Tx8X8 => DefaultScan8X8Neighbors,
-            Vp9TransformSize.Tx16X16 => DefaultScan16X16Neighbors,
+            Vp9TransformSize.Tx4X4 => transformType switch
+            {
+                Vp9TransformType.DctDct or Vp9TransformType.AdstAdst => DefaultScan4X4Neighbors,
+                Vp9TransformType.AdstDct => RowScan4X4Neighbors,
+                Vp9TransformType.DctAdst => ColScan4X4Neighbors,
+                _ => throw new ArgumentOutOfRangeException(nameof(transformType), transformType, "Unsupported VP9 transform type.")
+            },
+            Vp9TransformSize.Tx8X8 => transformType switch
+            {
+                Vp9TransformType.DctDct or Vp9TransformType.AdstAdst => DefaultScan8X8Neighbors,
+                Vp9TransformType.AdstDct => RowScan8X8Neighbors,
+                Vp9TransformType.DctAdst => ColScan8X8Neighbors,
+                _ => throw new ArgumentOutOfRangeException(nameof(transformType), transformType, "Unsupported VP9 transform type.")
+            },
+            Vp9TransformSize.Tx16X16 => transformType switch
+            {
+                Vp9TransformType.DctDct or Vp9TransformType.AdstAdst => DefaultScan16X16Neighbors,
+                Vp9TransformType.AdstDct => RowScan16X16Neighbors,
+                Vp9TransformType.DctAdst => ColScan16X16Neighbors,
+                _ => throw new ArgumentOutOfRangeException(nameof(transformType), transformType, "Unsupported VP9 transform type.")
+            },
             Vp9TransformSize.Tx32X32 => DefaultScan32X32Neighbors,
             _ => throw new NotSupportedException($"VP9 coefficient neighbor table for {transformSize} is not implemented yet.")
         };

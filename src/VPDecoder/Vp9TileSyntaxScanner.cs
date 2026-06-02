@@ -357,6 +357,12 @@ internal static class Vp9TileSyntaxScanner
                             modes,
                             coefficientGroups);
                         parsed.Add(new Vp9SuperblockSyntaxProbe(geometry.Buffer.Index, modes, coefficientGroups));
+                        if (reader.HasError)
+                        {
+                            diagnostic = Vp9DecodeDiagnostic.TruncatedPacket(
+                                $"VP9 full-frame syntax probe ended unexpectedly at tile {geometry.Buffer.Index} MI ({miRow},{miColumn}).");
+                            return false;
+                        }
                     }
                 }
 
@@ -751,11 +757,18 @@ internal static class Vp9TileSyntaxScanner
             Vp9BlockSize.Block4X8 or
             Vp9BlockSize.Block8X4 or
             Vp9BlockSize.Block8X8 or
+            Vp9BlockSize.Block8X16 or
+            Vp9BlockSize.Block16X8 or
+            Vp9BlockSize.Block16X16 or
+            Vp9BlockSize.Block16X32 or
+            Vp9BlockSize.Block32X16 or
             Vp9BlockSize.Block32X32 or
+            Vp9BlockSize.Block32X64 or
+            Vp9BlockSize.Block64X32 or
             Vp9BlockSize.Block64X64))
         {
             throw new NotSupportedException(
-                $"VP9 key-frame syntax probe supports only 4x4, 4x8, 8x4, 8x8, 32x32, or 64x64 leaf blocks, not {blockSize}.");
+                $"VP9 key-frame syntax probe does not support leaf block size {blockSize}.");
         }
 
         var modeInfo = ReadModeInfoAfterPartition(
@@ -768,11 +781,6 @@ internal static class Vp9TileSyntaxScanner
             blockSize,
             partitionPath);
         modes.Add(modeInfo);
-        if (UsesUnsupportedIntraScan(modeInfo))
-        {
-            throw new NotSupportedException(
-                $"VP9 key-frame residual syntax probe does not support non-DC intra scan orders below TX32 yet at MI ({miRow},{miColumn}) block {blockSize} transform {modeInfo.TransformSize}: Y=[{string.Join(",", modeInfo.YSubModes)}], UV={modeInfo.UvMode}.");
-        }
 
         for (var plane = 0; plane < 3; plane++)
         {
@@ -879,19 +887,6 @@ internal static class Vp9TileSyntaxScanner
             yMode,
             uvMode,
             ySubModes);
-    }
-
-    private static bool UsesUnsupportedIntraScan(Vp9ModeInfoProbe modeInfo)
-    {
-        var hasNonDcMode = modeInfo.YSubModes.Any(mode => mode != Vp9PredictionMode.Dc) ||
-            modeInfo.UvMode != Vp9PredictionMode.Dc;
-        if (!hasNonDcMode)
-        {
-            return false;
-        }
-
-        return modeInfo.BlockSize != Vp9BlockSize.Block64X64 ||
-            modeInfo.TransformSize != Vp9TransformSize.Tx32X32;
     }
 
     private static IReadOnlyList<Vp9PredictionMode> ReadYSubModes(
