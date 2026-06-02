@@ -339,16 +339,16 @@ internal static class Vp9TileSyntaxScanner
         var miColumn = geometry.MiColumnStart;
         var blockSize = Vp9BlockSize.Block64X64;
         var partitionPath = new List<Vp9PartitionType>();
+        var syntaxContext = Vp9KeyFrameSyntaxContext.Create(state.Header);
+        var partitionBlockSize = blockSize;
 
         while (true)
         {
+            partitionBlockSize = blockSize;
             var hbs = Vp9ModeInfoSyntax.GetHalfBlockSizeInMiUnits(blockSize);
             var hasRows = miRow + hbs < state.Header.TileInfo.MiRows;
             var hasColumns = miColumn + hbs < state.Header.TileInfo.MiColumns;
-            var context = Vp9PartitionSyntax.GetPartitionContext(
-                aboveContext: 0,
-                leftContext: 0,
-                Vp9ModeInfoSyntax.GetPartitionContextLog2(blockSize));
+            var context = syntaxContext.GetPartitionContext(miRow, miColumn, blockSize);
             var partition = Vp9PartitionSyntax.ReadPartition(ref reader, context, hasRows, hasColumns);
             partitionPath.Add(partition);
             blockSize = Vp9ModeInfoSyntax.GetSubsize(blockSize, partition);
@@ -369,14 +369,23 @@ internal static class Vp9TileSyntaxScanner
             throw new NotSupportedException("VP9 sub-8x8 key-frame mode info is not supported yet.");
         }
 
-        var skip = Vp9ModeInfoSyntax.ReadSkip(ref reader, state.CompressedHeader.FrameContext, out var skipContext);
+        var skipContext = syntaxContext.GetSkipContext(miRow, miColumn, geometry.MiColumnStart);
+        var skip = Vp9ModeInfoSyntax.ReadSkip(ref reader, state.CompressedHeader.FrameContext, skipContext);
+        var transformSizeContext = syntaxContext.GetTransformSizeContext(
+            miRow,
+            miColumn,
+            geometry.MiColumnStart,
+            blockSize);
         var transformSize = Vp9ModeInfoSyntax.ReadTransformSize(
             ref reader,
             state.CompressedHeader,
             blockSize,
-            out var transformSizeContext);
-        var yMode = Vp9ModeInfoSyntax.ReadFirstLeafYMode(ref reader);
+            transformSizeContext);
+        var yModeContext = syntaxContext.GetYModeContext(miRow, miColumn, geometry.MiColumnStart);
+        var yMode = Vp9ModeInfoSyntax.ReadYMode(ref reader, yModeContext.Above, yModeContext.Left);
         var uvMode = Vp9ModeInfoSyntax.ReadUvMode(ref reader, yMode);
+        syntaxContext.SetModeInfo(miRow, miColumn, blockSize, skip, transformSize, yMode);
+        syntaxContext.UpdatePartitionContext(miRow, miColumn, partitionBlockSize, blockSize);
 
         return new Vp9ModeInfoProbe(
             geometry.Buffer.Index,

@@ -67,10 +67,7 @@ internal static class Vp9ModeInfoSyntax
         -6, -7
     ];
 
-    private static ReadOnlySpan<byte> KeyFrameYModeDcDcProbabilities =>
-    [
-        137, 30, 42, 148, 151, 207, 70, 52, 91
-    ];
+    private static readonly byte[] KeyFrameYModeProbabilities = LoadKeyFrameYModeProbabilities();
 
     private static ReadOnlySpan<byte> KeyFrameUvModeProbabilities =>
     [
@@ -89,6 +86,16 @@ internal static class Vp9ModeInfoSyntax
     public static bool ReadSkip(ref Vp9BoolReader reader, Vp9FrameContext frameContext, out int skipContext)
     {
         skipContext = 0;
+        return ReadSkip(ref reader, frameContext, skipContext);
+    }
+
+    public static bool ReadSkip(ref Vp9BoolReader reader, Vp9FrameContext frameContext, int skipContext)
+    {
+        if (skipContext is < 0 or > 2)
+        {
+            throw new ArgumentOutOfRangeException(nameof(skipContext), "VP9 skip context must be between 0 and 2.");
+        }
+
         return reader.Read(frameContext.SkipProbabilities[skipContext]);
     }
 
@@ -106,6 +113,28 @@ internal static class Vp9ModeInfoSyntax
         }
 
         transformSizeContext = maxTransformSize == Vp9TransformSize.Tx4X4 ? 0 : 1;
+        return ReadTransformSize(ref reader, compressedHeader, blockSize, transformSizeContext);
+    }
+
+    public static Vp9TransformSize ReadTransformSize(
+        ref Vp9BoolReader reader,
+        Vp9CompressedHeader compressedHeader,
+        Vp9BlockSize blockSize,
+        int transformSizeContext)
+    {
+        var maxTransformSize = GetMaximumTransformSize(blockSize);
+        if (compressedHeader.TransformMode != Vp9TransformMode.Select || blockSize < Vp9BlockSize.Block8X8)
+        {
+            return (Vp9TransformSize)Math.Min((int)maxTransformSize, GetBiggestTransformSize(compressedHeader.TransformMode));
+        }
+
+        if (transformSizeContext is < 0 or > 1)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(transformSizeContext),
+                "VP9 transform size context must be 0 or 1.");
+        }
+
         var probabilities = GetTransformProbabilities(compressedHeader.FrameContext.TxProbabilities, maxTransformSize, transformSizeContext);
         var txSize = reader.Read(probabilities[0]) ? 1 : 0;
         if (txSize != 0 && maxTransformSize >= Vp9TransformSize.Tx16X16)
@@ -122,11 +151,28 @@ internal static class Vp9ModeInfoSyntax
 
     public static Vp9PredictionMode ReadFirstLeafYMode(ref Vp9BoolReader reader)
     {
-        return (Vp9PredictionMode)Vp9TreeReader.ReadTree(ref reader, IntraModeTree, KeyFrameYModeDcDcProbabilities);
+        return ReadYMode(ref reader, Vp9PredictionMode.Dc, Vp9PredictionMode.Dc);
+    }
+
+    public static Vp9PredictionMode ReadYMode(
+        ref Vp9BoolReader reader,
+        Vp9PredictionMode aboveMode,
+        Vp9PredictionMode leftMode)
+    {
+        ValidatePredictionMode(aboveMode, nameof(aboveMode));
+        ValidatePredictionMode(leftMode, nameof(leftMode));
+
+        var offset = (((int)aboveMode * 10) + (int)leftMode) * 9;
+        return (Vp9PredictionMode)Vp9TreeReader.ReadTree(
+            ref reader,
+            IntraModeTree,
+            KeyFrameYModeProbabilities.AsSpan(offset, 9));
     }
 
     public static Vp9PredictionMode ReadUvMode(ref Vp9BoolReader reader, Vp9PredictionMode yMode)
     {
+        ValidatePredictionMode(yMode, nameof(yMode));
+
         var offset = (int)yMode * 9;
         return (Vp9PredictionMode)Vp9TreeReader.ReadTree(
             ref reader,
@@ -174,6 +220,43 @@ internal static class Vp9ModeInfoSyntax
         };
     }
 
+    public static int GetBlockWidthInMiUnits(Vp9BlockSize blockSize)
+    {
+        return blockSize switch
+        {
+            Vp9BlockSize.Block4X4 or Vp9BlockSize.Block4X8 => 1,
+            Vp9BlockSize.Block8X4 or Vp9BlockSize.Block8X8 or Vp9BlockSize.Block8X16 => 1,
+            Vp9BlockSize.Block16X8 or Vp9BlockSize.Block16X16 or Vp9BlockSize.Block16X32 => 2,
+            Vp9BlockSize.Block32X16 or Vp9BlockSize.Block32X32 or Vp9BlockSize.Block32X64 => 4,
+            Vp9BlockSize.Block64X32 or Vp9BlockSize.Block64X64 => 8,
+            _ => throw new ArgumentOutOfRangeException(nameof(blockSize), blockSize, "Unsupported VP9 block size.")
+        };
+    }
+
+    public static int GetBlockHeightInMiUnits(Vp9BlockSize blockSize)
+    {
+        return blockSize switch
+        {
+            Vp9BlockSize.Block4X4 or Vp9BlockSize.Block8X4 => 1,
+            Vp9BlockSize.Block4X8 or Vp9BlockSize.Block8X8 or Vp9BlockSize.Block16X8 => 1,
+            Vp9BlockSize.Block8X16 or Vp9BlockSize.Block16X16 or Vp9BlockSize.Block32X16 => 2,
+            Vp9BlockSize.Block16X32 or Vp9BlockSize.Block32X32 or Vp9BlockSize.Block64X32 => 4,
+            Vp9BlockSize.Block32X64 or Vp9BlockSize.Block64X64 => 8,
+            _ => throw new ArgumentOutOfRangeException(nameof(blockSize), blockSize, "Unsupported VP9 block size.")
+        };
+    }
+
+    public static Vp9TransformSize GetMaximumTransformSize(Vp9BlockSize blockSize)
+    {
+        return blockSize switch
+        {
+            <= Vp9BlockSize.Block8X4 => Vp9TransformSize.Tx4X4,
+            <= Vp9BlockSize.Block16X8 => Vp9TransformSize.Tx8X8,
+            <= Vp9BlockSize.Block32X16 => Vp9TransformSize.Tx16X16,
+            _ => Vp9TransformSize.Tx32X32
+        };
+    }
+
     public static int GetHalfBlockSizeInMiUnits(Vp9BlockSize blockSize)
     {
         return blockSize switch
@@ -195,17 +278,6 @@ internal static class Vp9ModeInfoSyntax
             Vp9BlockSize.Block16X16 => 1,
             Vp9BlockSize.Block8X8 => 0,
             _ => 0
-        };
-    }
-
-    private static Vp9TransformSize GetMaximumTransformSize(Vp9BlockSize blockSize)
-    {
-        return blockSize switch
-        {
-            <= Vp9BlockSize.Block8X4 => Vp9TransformSize.Tx4X4,
-            <= Vp9BlockSize.Block16X8 => Vp9TransformSize.Tx8X8,
-            <= Vp9BlockSize.Block32X16 => Vp9TransformSize.Tx16X16,
-            _ => Vp9TransformSize.Tx32X32
         };
     }
 
@@ -233,5 +305,37 @@ internal static class Vp9ModeInfoSyntax
             Vp9TransformSize.Tx32X32 => [probabilities.ThirtyTwoByThirtyTwo[context, 0], probabilities.ThirtyTwoByThirtyTwo[context, 1], probabilities.ThirtyTwoByThirtyTwo[context, 2]],
             _ => throw new ArgumentOutOfRangeException(nameof(maxTransformSize))
         };
+    }
+
+    private static byte[] LoadKeyFrameYModeProbabilities()
+    {
+        const string encoded =
+            "iR4qlJfPRjRbXC1miHS0SlpkSSATu97XLiJkWx4gdHm6XVZeSCMklUTORD9pSR8cijl8N3qXQxcVjH7FKCWrVhscgJrULSs1SiAb" +
+            "a1agP4ZmO0MsjKHKTkN3PyR+knuePFpgKy6ohmuARY5cLB1En8mxMjlNOiZMcmGsToVcLilMjD+4RXA5JiBVjC5wNpeFJxs9g26v" +
+            "LEuINB5KcYKvM0A6LyNQZEqPQKNKJD10coCiUH1SUhoaq9DMLCBpNyxEprPAOTlsKhoLx/HkFw9VRCoTg6DHNzRTOjIZi3PoJzR2" +
+            "MiMhmWiiQDuDLBgQlrHKIROcNxsMmcvaGhsxNTEVbnSoO1BMJkgTqMvUMjJrZxokgYTJU1BdOyZTcGeiYohaPh4XnsjPOzkyQx4d" +
+            "VFa/Zls7PCAhcEfcQFloNRoigjiVVHhnNRUXhW3SOE2sTRMdcI7kN0IkPR0dXWGlU6+iLy8rcom1ZGNfRRcdgFPHLixlNSg3i0W3" +
+            "PVBuKB0TobTPKxhbPCITaT3GNUBZNB8WnijROj5ZLB8dky6eOGbGIxMMh1fRKS2nNxkVdl/XJidCMyYZcTqkRl1hLzYikmzLSGeX" +
+            "QBMlnEKKMV+FLhtQljd8N3mHJBcbpZWmNkB2NRUkgz+jPG1RKBojmii5M2F7IxMisxNhMIF8JBQaiD6kIU2aLRIgglqdKE9bLRoc" +
+            "gS2BMZN7JiwziEqiOWF5SxEWiIq5ICKmOCc6hXWtMDW7IxUModTPFBeROB0TdW21N0RwLx0RmUDcOzNyLhAYiEyTKUCsIhELbJi7" +
+            "DQ/RMxgOc4XRIBpoNx4Sek+zLFh0JTEZgaikKTaUUhYgf4/VJylGPiw9e2m9MDlALxkRr97cGB5WRCQRambOO0pKOScXl0TYNz86" +
+            "MR4jjUaoUihzMxkPiIHKJiOLRBoQb43XHRwcOycTcku0TWgqKD0afpjOPTtdThcnb3WqSnxeMCJWZVySTrOGLxYYiruyREU7OBkh" +
+            "aXC7X7GBMB8bcj+3UnQ4KxwleT97PcCpKhEYbWGxOEx6OhIcaYu2Rlw/LhcgSlaWQ7dYJCYwXHqlWIlbQUY8m5/HPTxRLE5zhHet" +
+            "R3BdJyYVuOPOKiBAOi8kfInBUFJOMTIjkF/NP047KTU0lEeOQYAzKCQcj4/KKDeJNCIdgbfjKiMrKiwsaGmkQIJQK1E1jKnMRFRI";
+        var probabilities = Convert.FromBase64String(encoded);
+        if (probabilities.Length != 10 * 10 * 9)
+        {
+            throw new InvalidOperationException("VP9 key-frame Y mode probability table length is invalid.");
+        }
+
+        return probabilities;
+    }
+
+    private static void ValidatePredictionMode(Vp9PredictionMode mode, string parameterName)
+    {
+        if (mode is < Vp9PredictionMode.Dc or > Vp9PredictionMode.TrueMotion)
+        {
+            throw new ArgumentOutOfRangeException(parameterName, mode, "VP9 prediction mode is outside the intra-mode range.");
+        }
     }
 }
