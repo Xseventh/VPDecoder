@@ -209,8 +209,8 @@ internal static class Vp9ResidualSyntax
                 plane,
                 GetPlaneX4(modeInfo.MiColumn, plane),
                 GetPlaneLeftContextOffset(modeInfo.MiRow, plane),
-                width4,
-                height4);
+                GetPlaneWidthIn4x4Blocks(modeInfo.BlockSize, plane),
+                GetPlaneHeightIn4x4Blocks(modeInfo.BlockSize, plane));
             for (var row = 0; row < height4; row += step)
             {
                 for (var column = 0; column < width4; column += step)
@@ -246,6 +246,8 @@ internal static class Vp9ResidualSyntax
                 var y4 = originY4 + row;
                 var context = entropyContext.GetInitialContext(plane, x4, y4, transformSize);
                 var transformType = GetTransformType(modeInfo, plane, transformSize, row, column);
+                var visibleWidth4 = Math.Min(step, width4 - column);
+                var visibleHeight4 = Math.Min(step, height4 - row);
                 var block = ReadCoefficientBlock(
                     ref reader,
                     state,
@@ -261,7 +263,14 @@ internal static class Vp9ResidualSyntax
                     context);
                 ThrowIfUnsupportedResidualBlock(modeInfo, plane, row, column, block);
                 blocks.Add(block);
-                entropyContext.SetTransformContext(plane, x4, y4, transformSize, block.Eob > 0);
+                entropyContext.SetTransformContext(
+                    plane,
+                    x4,
+                    y4,
+                    transformSize,
+                    block.Eob > 0,
+                    visibleWidth4,
+                    visibleHeight4);
             }
         }
 

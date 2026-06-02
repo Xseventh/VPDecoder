@@ -38,12 +38,31 @@ internal sealed class Vp9CoefficientEntropyContext
         return above + left;
     }
 
-    public void SetTransformContext(int plane, int x4, int y4, Vp9TransformSize transformSize, bool hasEob)
+    public void SetTransformContext(
+        int plane,
+        int x4,
+        int y4,
+        Vp9TransformSize transformSize,
+        bool hasEob,
+        int visibleWidth4,
+        int visibleHeight4)
     {
         ValidatePlane(plane);
         var step = GetTransformSizeIn4x4Blocks(transformSize);
-        Fill(_aboveContexts[plane], x4, step, hasEob);
-        FillWrapped(_leftContexts[plane], y4, step, hasEob);
+        ValidateVisibleContextLength(visibleWidth4, step, nameof(visibleWidth4));
+        ValidateVisibleContextLength(visibleHeight4, step, nameof(visibleHeight4));
+
+        if (!hasEob)
+        {
+            Fill(_aboveContexts[plane], x4, step, false);
+            FillWrapped(_leftContexts[plane], y4, step, false);
+            return;
+        }
+
+        Fill(_aboveContexts[plane], x4, visibleWidth4, true);
+        Fill(_aboveContexts[plane], x4 + visibleWidth4, step - visibleWidth4, false);
+        FillWrapped(_leftContexts[plane], y4, visibleHeight4, true);
+        FillWrapped(_leftContexts[plane], y4 + visibleHeight4, step - visibleHeight4, false);
     }
 
     public void ClearBlock(int plane, int x4, int y4, int width4, int height4)
@@ -132,6 +151,17 @@ internal sealed class Vp9CoefficientEntropyContext
         if (plane is < 0 or > 2)
         {
             throw new ArgumentOutOfRangeException(nameof(plane), plane, "VP9 plane index must be 0, 1, or 2.");
+        }
+    }
+
+    private static void ValidateVisibleContextLength(int length, int step, string parameterName)
+    {
+        if (length < 1 || length > step)
+        {
+            throw new ArgumentOutOfRangeException(
+                parameterName,
+                length,
+                $"VP9 visible transform context length must be between 1 and {step}.");
         }
     }
 }
