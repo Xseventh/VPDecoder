@@ -77,12 +77,20 @@ internal static class Vp9BlockReconstructor
 
             var destinationOffset = planeInfo.Metadata.Offset + (y * planeInfo.Stride) + x;
             var destination = frameBuffer.Pixels.AsSpan(destinationOffset);
-            var above = y > 0 ? ReadAboveEdge(planePixels, planeInfo.Stride, x, y, transformSize) : [];
+            var predictionMode = GetPredictionMode(modeInfo, coefficients, plane);
+            var above = y > 0
+                ? ReadAboveEdge(
+                    planePixels,
+                    planeInfo.Stride,
+                    planeInfo.Metadata.Width,
+                    x,
+                    y,
+                    GetRequiredAboveEdgeLength(predictionMode, transformSize))
+                : [];
             var left = x > tileStartX ? ReadLeftEdge(planePixels, planeInfo.Stride, x, y, transformSize) : [];
             var aboveLeft = above.Length != 0 && left.Length != 0
                 ? planePixels[((y - 1) * planeInfo.Stride) + x - 1]
                 : (byte?)null;
-            var predictionMode = GetPredictionMode(modeInfo, coefficients, plane);
             Vp9IntraPredictor.Predict(
                 predictionMode,
                 destination,
@@ -206,10 +214,25 @@ internal static class Vp9BlockReconstructor
         return modeInfo.YSubModes[(coefficients.Row4 * 2) + coefficients.Column4];
     }
 
-    private static byte[] ReadAboveEdge(ReadOnlySpan<byte> plane, int stride, int x, int y, int size)
+    private static int GetRequiredAboveEdgeLength(Vp9PredictionMode mode, int transformSize)
     {
-        var above = new byte[size];
-        plane.Slice(((y - 1) * stride) + x, size).CopyTo(above);
+        return mode == Vp9PredictionMode.D63
+            ? transformSize + 2
+            : mode == Vp9PredictionMode.D45
+                ? transformSize + 1
+                : transformSize;
+    }
+
+    private static byte[] ReadAboveEdge(ReadOnlySpan<byte> plane, int stride, int planeWidth, int x, int y, int length)
+    {
+        var above = new byte[length];
+        var available = Math.Min(length, planeWidth - x);
+        plane.Slice(((y - 1) * stride) + x, available).CopyTo(above);
+        if (available < length)
+        {
+            Array.Fill(above, above[available - 1], available, length - available);
+        }
+
         return above;
     }
 

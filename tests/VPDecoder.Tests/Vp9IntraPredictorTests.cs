@@ -83,22 +83,27 @@ public sealed class Vp9IntraPredictorTests
         Assert.Equal([255, 255, 255, 255], destination.Skip(12).Take(4).ToArray());
     }
 
-    [Fact]
-    public void Predict_ForUnsupportedDirectionalMode_ThrowsConcreteDiagnostic()
+    [Theory]
+    [InlineData(Vp9PredictionMode.D45, new byte[] { 20, 30, 40, 40, 30, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40 })]
+    [InlineData(Vp9PredictionMode.D63, new byte[] { 15, 25, 35, 45, 20, 30, 40, 50, 25, 35, 40, 40, 30, 40, 40, 40 })]
+    [InlineData(Vp9PredictionMode.D117, new byte[] { 8, 15, 25, 35, 23, 11, 20, 30, 56, 8, 15, 25, 80, 23, 11, 20 })]
+    [InlineData(Vp9PredictionMode.D135, new byte[] { 23, 11, 20, 30, 56, 23, 11, 20, 80, 56, 23, 11, 90, 80, 56, 23 })]
+    [InlineData(Vp9PredictionMode.D153, new byte[] { 38, 23, 11, 20, 75, 56, 38, 23, 85, 80, 75, 56, 95, 90, 85, 80 })]
+    [InlineData(Vp9PredictionMode.D207, new byte[] { 75, 80, 85, 90, 85, 90, 95, 98, 95, 98, 100, 100, 100, 100, 100, 100 })]
+    public void Predict_ForDirectionalModes_UsesLibvpxAverages(Vp9PredictionMode mode, byte[] expected)
     {
         var destination = new byte[4 * 4];
 
-        var exception = Assert.Throws<NotSupportedException>(() =>
-            Vp9IntraPredictor.Predict(
-                Vp9PredictionMode.D45,
-                destination,
-                stride: 4,
-                size: 4,
-                above: [1, 2, 3, 4],
-                left: [5, 6, 7, 8],
-                aboveLeft: 0));
+        Vp9IntraPredictor.Predict(
+            mode,
+            destination,
+            stride: 4,
+            size: 4,
+            above: [10, 20, 30, 40, 50, 60],
+            left: [70, 80, 90, 100],
+            aboveLeft: 5);
 
-        Assert.Contains("VP9 intra predictor D45 is not implemented yet.", exception.Message);
+        Assert.Equal(expected, destination);
     }
 
     [Fact]
