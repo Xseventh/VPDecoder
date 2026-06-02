@@ -115,6 +115,64 @@ public sealed class Vp9BlockReconstructorTests
             MaxBlockValue(yPlane, stride: 16, x: 12, y: 12, size: 4));
     }
 
+    [Fact]
+    public void ReconstructDcOnlyGroup_ForVerticalMode_UsesAbovePredictor()
+    {
+        var frameBuffer = Vp9YuvFrameBuffer.Create(16, 16);
+        var yPlane = frameBuffer.Pixels.AsSpan(frameBuffer.YPlane.Offset, frameBuffer.YPlane.Length);
+        byte[] above = [10, 20, 30, 40, 50, 60, 70, 80];
+        above.CopyTo(yPlane.Slice(7 * frameBuffer.YStride, above.Length));
+        var geometry = new Vp9TileGeometry(
+            TileRow: 0,
+            TileColumn: 0,
+            MiRowStart: 0,
+            MiRowEnd: 2,
+            MiColumnStart: 0,
+            MiColumnEnd: 2,
+            new Vp9TileBuffer(Index: 0, SizeFieldOffset: null, DataOffset: 0, Size: 0));
+        var modeInfo = new Vp9ModeInfoProbe(
+            TileIndex: 0,
+            MiRow: 1,
+            MiColumn: 0,
+            Vp9BlockSize.Block8X8,
+            PartitionPath: [Vp9PartitionType.None],
+            Skip: true,
+            SkipContext: 0,
+            Vp9TransformSize.Tx8X8,
+            TransformSizeContext: 0,
+            Vp9PredictionMode.Vertical,
+            Vp9PredictionMode.Dc,
+            YSubModes: []);
+        var group = new Vp9CoefficientBlockGroupProbe(
+            TileIndex: 0,
+            Vp9BlockSize.Block8X8,
+            Vp9TransformSize.Tx8X8,
+            [
+                new Vp9CoefficientBlockProbe(
+                    TileIndex: 0,
+                    Vp9TransformSize.Tx8X8,
+                    Vp9TransformType.AdstDct,
+                    Row4: 0,
+                    Column4: 0,
+                    PlaneType: 0,
+                    ReferenceType: 0,
+                    InitialCoefficientContext: 0,
+                    Eob: 0,
+                    NonZeroCount: 0,
+                    FirstNonZeroRasterIndex: -1,
+                    LastNonZeroRasterIndex: -1,
+                    new int[64],
+                    CoefficientsSha256: "synthetic")
+            ]);
+
+        Vp9BlockReconstructor.ReconstructDcOnlyGroup(frameBuffer, geometry, modeInfo, group, plane: 0);
+
+        for (var row = 8; row < 16; row++)
+        {
+            Assert.Equal(above, yPlane.Slice(row * frameBuffer.YStride, above.Length).ToArray());
+        }
+    }
+
     private static Vp9CoefficientBlockProbe CreateTx4Block(int row4, int column4, int dc)
     {
         var coefficients = new int[16];

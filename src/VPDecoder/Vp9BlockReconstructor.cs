@@ -79,7 +79,18 @@ internal static class Vp9BlockReconstructor
             var destination = frameBuffer.Pixels.AsSpan(destinationOffset);
             var above = y > 0 ? ReadAboveEdge(planePixels, planeInfo.Stride, x, y, transformSize) : [];
             var left = x > tileStartX ? ReadLeftEdge(planePixels, planeInfo.Stride, x, y, transformSize) : [];
-            Vp9IntraPredictor.PredictDc(destination, planeInfo.Stride, transformSize, above, left);
+            var aboveLeft = above.Length != 0 && left.Length != 0
+                ? planePixels[((y - 1) * planeInfo.Stride) + x - 1]
+                : (byte?)null;
+            var predictionMode = GetPredictionMode(modeInfo, coefficients, plane);
+            Vp9IntraPredictor.Predict(
+                predictionMode,
+                destination,
+                planeInfo.Stride,
+                transformSize,
+                above,
+                left,
+                aboveLeft);
 
             if (coefficients.Eob == 0)
             {
@@ -157,6 +168,42 @@ internal static class Vp9BlockReconstructor
             Vp9TransformSize.Tx32X32 => 32,
             _ => throw new ArgumentOutOfRangeException(nameof(transformSize), transformSize, "Unsupported VP9 transform size.")
         };
+    }
+
+    private static Vp9PredictionMode GetPredictionMode(
+        Vp9ModeInfoProbe modeInfo,
+        Vp9CoefficientBlockProbe coefficients,
+        int plane)
+    {
+        if (plane is 1 or 2)
+        {
+            return modeInfo.UvMode;
+        }
+
+        if (plane != 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(plane), plane, "VP9 plane index must be 0, 1, or 2.");
+        }
+
+        if (modeInfo.BlockSize >= Vp9BlockSize.Block8X8 ||
+            coefficients.TransformSize != Vp9TransformSize.Tx4X4)
+        {
+            return modeInfo.YMode;
+        }
+
+        if (modeInfo.YSubModes.Count != 4)
+        {
+            throw new InvalidOperationException("VP9 sub-8x8 reconstruction requires exactly four Y sub-modes.");
+        }
+
+        if (coefficients.Row4 is < 0 or > 1 || coefficients.Column4 is < 0 or > 1)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(coefficients),
+                "VP9 sub-8x8 reconstruction transform offsets must be within the owning 8x8 block.");
+        }
+
+        return modeInfo.YSubModes[(coefficients.Row4 * 2) + coefficients.Column4];
     }
 
     private static byte[] ReadAboveEdge(ReadOnlySpan<byte> plane, int stride, int x, int y, int size)
