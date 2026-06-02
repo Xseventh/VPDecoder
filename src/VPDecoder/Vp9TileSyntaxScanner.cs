@@ -768,6 +768,13 @@ internal static class Vp9TileSyntaxScanner
             blockSize,
             partitionPath);
         modes.Add(modeInfo);
+        if (modeInfo.YSubModes.Any(mode => mode != Vp9PredictionMode.Dc) ||
+            modeInfo.UvMode != Vp9PredictionMode.Dc)
+        {
+            throw new NotSupportedException(
+                $"VP9 key-frame residual syntax probe does not support non-DC intra prediction modes yet at MI ({miRow},{miColumn}) block {blockSize}: Y=[{string.Join(",", modeInfo.YSubModes)}], UV={modeInfo.UvMode}.");
+        }
+
         for (var plane = 0; plane < 3; plane++)
         {
             coefficientGroups.Add(Vp9ResidualSyntax.ReadPlaneCoefficientBlocks(

@@ -342,7 +342,7 @@ public sealed class Vp9TileSyntaxScannerTests
     }
 
     [Fact]
-    public void TryProbeFullFrameSyntax_ForExternalMainFrame_ReturnsConcreteBlock16Unsupported()
+    public void TryProbeFullFrameSyntax_ForExternalMainFrame_ReturnsConcreteNonDcPredictionUnsupported()
     {
         var packet = ReadRequiredSample(
             "/tmp/vp9-main-frame-0.vp9",
@@ -354,14 +354,14 @@ public sealed class Vp9TileSyntaxScannerTests
 
         Assert.NotNull(diagnostic);
         Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedFeature, diagnostic.Code);
-        Assert.Equal("VP9 key-frame syntax probe supports only 4x4, 4x8, 8x4, 8x8, 32x32, or 64x64 leaf blocks, not Block16X16.", diagnostic.Message);
-        Assert.Equal(7, probes.Count);
-        Assert.Equal(7, probes.SelectMany(probe => probe.ModeInfos).Count());
-        Assert.Equal(21, probes.SelectMany(probe => probe.CoefficientGroups).Count());
+        Assert.Equal("VP9 key-frame residual syntax probe does not support non-DC intra prediction modes yet at MI (0,8) block Block64X64: Y=[Horizontal,Horizontal,Horizontal,Horizontal], UV=D207.", diagnostic.Message);
+        Assert.Single(probes);
+        Assert.Single(probes.SelectMany(probe => probe.ModeInfos));
+        Assert.Equal(3, probes.SelectMany(probe => probe.CoefficientGroups).Count());
     }
 
     [Fact]
-    public void TryProbeFullFrameSyntax_ForExternalAlphaFrame_ReturnsConcreteBlock16Unsupported()
+    public void TryProbeFullFrameSyntax_ForExternalAlphaFrame_ReturnsConcreteNonDcPredictionUnsupported()
     {
         var packet = ReadRequiredSample(
             "/tmp/vp9-alpha-frame-0.vp9",
@@ -373,10 +373,10 @@ public sealed class Vp9TileSyntaxScannerTests
 
         Assert.NotNull(diagnostic);
         Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedFeature, diagnostic.Code);
-        Assert.Equal("VP9 key-frame syntax probe supports only 4x4, 4x8, 8x4, 8x8, 32x32, or 64x64 leaf blocks, not Block16X16.", diagnostic.Message);
-        Assert.Equal(5, probes.Count);
-        Assert.Equal(8, probes.SelectMany(probe => probe.ModeInfos).Count());
-        Assert.Equal(24, probes.SelectMany(probe => probe.CoefficientGroups).Count());
+        Assert.Equal("VP9 key-frame residual syntax probe does not support non-DC intra prediction modes yet at MI (0,32) block Block64X64: Y=[D207,D207,D207,D207], UV=D117.", diagnostic.Message);
+        Assert.Equal(4, probes.Count);
+        Assert.Equal(7, probes.SelectMany(probe => probe.ModeInfos).Count());
+        Assert.Equal(21, probes.SelectMany(probe => probe.CoefficientGroups).Count());
     }
 
     [Fact]
