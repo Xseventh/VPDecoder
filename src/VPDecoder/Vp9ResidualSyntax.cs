@@ -186,7 +186,8 @@ internal static class Vp9ResidualSyntax
         Vp9KeyFrameDecodeState state,
         Vp9ModeInfoProbe modeInfo,
         Vp9CoefficientEntropyContext entropyContext,
-        int plane)
+        int plane,
+        bool allowFullFrameGridContinuationProbe = false)
     {
         if (plane is < 0 or > 2)
         {
@@ -201,7 +202,10 @@ internal static class Vp9ResidualSyntax
         var step = Vp9CoefficientEntropyContext.GetTransformSizeIn4x4Blocks(transformSize);
         var blocks = new List<Vp9CoefficientBlockProbe>();
 
-        ThrowIfUnsupportedFullFrameGridContinuation(modeInfo, plane, transformSize);
+        if (!allowFullFrameGridContinuationProbe)
+        {
+            ThrowIfUnsupportedFullFrameGridContinuation(modeInfo, plane, transformSize);
+        }
 
         if (modeInfo.Skip)
         {

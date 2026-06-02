@@ -393,6 +393,118 @@ public sealed class Vp9TileSyntaxScannerTests
     }
 
     [Fact]
+    public void TryProbeFirstBlock16X16LumaTx4Group_ForExternalMainFrame_ReadsFirstGatedGroup()
+    {
+        var packet = ReadRequiredSample(
+            "/tmp/vp9-main-frame-0.vp9",
+            30398,
+            "4c57b8dda880711b174483a27e1691c6c9aa9a6721351d041425f8dafb23b7e9");
+        var state = CreateState(packet);
+
+        Assert.True(
+            Vp9TileSyntaxScanner.TryProbeFirstBlock16X16LumaTx4Group(
+                packet,
+                state,
+                out var modeInfo,
+                out var group,
+                out var diagnostic),
+            diagnostic?.Message);
+
+        var secondState = CreateState(packet);
+        Assert.True(
+            Vp9TileSyntaxScanner.TryProbeFirstBlock16X16LumaTx4Group(
+                packet,
+                secondState,
+                out _,
+                out var secondGroup,
+                out var secondDiagnostic),
+            secondDiagnostic?.Message);
+
+        Assert.NotNull(modeInfo);
+        Assert.NotNull(group);
+        Assert.NotNull(secondGroup);
+        Assert.Equal(130, modeInfo.MiRow);
+        Assert.Equal(38, modeInfo.MiColumn);
+        Assert.Equal(Vp9BlockSize.Block16X16, modeInfo.BlockSize);
+        Assert.Equal(Vp9TransformSize.Tx4X4, modeInfo.TransformSize);
+        Assert.Equal(Vp9PredictionMode.Vertical, modeInfo.YMode);
+        Assert.Equal(Vp9TransformSize.Tx4X4, group.TransformSize);
+        Assert.Equal(16, group.Blocks.Count);
+        Assert.Equal([0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3], group.Blocks.Select(block => block.Row4).ToArray());
+        Assert.Equal([0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3], group.Blocks.Select(block => block.Column4).ToArray());
+        Assert.All(group.Blocks, block =>
+        {
+            Assert.Equal(Vp9TransformType.AdstDct, block.TransformType);
+            Assert.Equal(16, block.DequantizedCoefficients.Length);
+        });
+        Assert.Equal(
+            group.Blocks.Select(block => block.CoefficientsSha256),
+            secondGroup.Blocks.Select(block => block.CoefficientsSha256));
+        Assert.Equal(
+            group.Blocks.Select(block => block.InitialCoefficientContext),
+            secondGroup.Blocks.Select(block => block.InitialCoefficientContext));
+        Assert.Equal(
+            group.Blocks.Select(block => block.Eob),
+            secondGroup.Blocks.Select(block => block.Eob));
+    }
+
+    [Fact]
+    public void TryProbeFirstBlock16X16LumaTx4Group_ForExternalAlphaFrame_ReadsFirstGatedGroup()
+    {
+        var packet = ReadRequiredSample(
+            "/tmp/vp9-alpha-frame-0.vp9",
+            6233,
+            "94079f539a2165b10f5db2d9e9b5d54ca8df534ca3d36e4eaa1234b0b17a7329");
+        var state = CreateState(packet);
+
+        Assert.True(
+            Vp9TileSyntaxScanner.TryProbeFirstBlock16X16LumaTx4Group(
+                packet,
+                state,
+                out var modeInfo,
+                out var group,
+                out var diagnostic),
+            diagnostic?.Message);
+
+        var secondState = CreateState(packet);
+        Assert.True(
+            Vp9TileSyntaxScanner.TryProbeFirstBlock16X16LumaTx4Group(
+                packet,
+                secondState,
+                out _,
+                out var secondGroup,
+                out var secondDiagnostic),
+            secondDiagnostic?.Message);
+
+        Assert.NotNull(modeInfo);
+        Assert.NotNull(group);
+        Assert.NotNull(secondGroup);
+        Assert.Equal(128, modeInfo.MiRow);
+        Assert.Equal(70, modeInfo.MiColumn);
+        Assert.Equal(Vp9BlockSize.Block16X16, modeInfo.BlockSize);
+        Assert.Equal(Vp9TransformSize.Tx4X4, modeInfo.TransformSize);
+        Assert.Equal(Vp9PredictionMode.Dc, modeInfo.YMode);
+        Assert.Equal(Vp9TransformSize.Tx4X4, group.TransformSize);
+        Assert.Equal(16, group.Blocks.Count);
+        Assert.Equal([0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3], group.Blocks.Select(block => block.Row4).ToArray());
+        Assert.Equal([0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3], group.Blocks.Select(block => block.Column4).ToArray());
+        Assert.All(group.Blocks, block =>
+        {
+            Assert.Equal(Vp9TransformType.DctDct, block.TransformType);
+            Assert.Equal(16, block.DequantizedCoefficients.Length);
+        });
+        Assert.Equal(
+            group.Blocks.Select(block => block.CoefficientsSha256),
+            secondGroup.Blocks.Select(block => block.CoefficientsSha256));
+        Assert.Equal(
+            group.Blocks.Select(block => block.InitialCoefficientContext),
+            secondGroup.Blocks.Select(block => block.InitialCoefficientContext));
+        Assert.Equal(
+            group.Blocks.Select(block => block.Eob),
+            secondGroup.Blocks.Select(block => block.Eob));
+    }
+
+    [Fact]
     public void TryReconstructFirstLeafYDc_ForExternalMainFrame_WritesDeterministicYBlocks()
     {
         var packet = ReadRequiredSample(

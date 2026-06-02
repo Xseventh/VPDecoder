@@ -387,6 +387,80 @@ internal static class Vp9TileSyntaxScanner
         }
     }
 
+    public static bool TryProbeFirstBlock16X16LumaTx4Group(
+        ReadOnlyMemory<byte> packet,
+        Vp9KeyFrameDecodeState state,
+        out Vp9ModeInfoProbe? modeInfo,
+        out Vp9CoefficientBlockGroupProbe? coefficientGroup,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
+        modeInfo = null;
+        coefficientGroup = null;
+        diagnostic = null;
+
+        try
+        {
+            foreach (var geometry in state.TileGeometries)
+            {
+                if (geometry.Buffer.DataOffset + geometry.Buffer.Size > packet.Length)
+                {
+                    diagnostic = Vp9DecodeDiagnostic.TruncatedPacket("VP9 tile buffer extends past the packet boundary.");
+                    return false;
+                }
+
+                var tileBytes = packet.Span.Slice(geometry.Buffer.DataOffset, geometry.Buffer.Size);
+                var reader = new Vp9BoolReader(tileBytes);
+                var syntaxContext = Vp9KeyFrameSyntaxContext.Create(state.Header);
+                var coefficientContext = Vp9CoefficientEntropyContext.Create(state.Header);
+
+                for (var miRow = geometry.MiRowStart; miRow < geometry.MiRowEnd; miRow += SuperblockSizeInMiUnits)
+                {
+                    syntaxContext.ResetLeftPartitionContext();
+                    coefficientContext.ResetLeftContexts();
+
+                    for (var miColumn = geometry.MiColumnStart; miColumn < geometry.MiColumnEnd; miColumn += SuperblockSizeInMiUnits)
+                    {
+                        if (TryReadFirstBlock16X16LumaTx4Group(
+                                ref reader,
+                                state,
+                                geometry,
+                                syntaxContext,
+                                coefficientContext,
+                                miRow,
+                                miColumn,
+                                Vp9BlockSize.Block64X64,
+                                [],
+                                out modeInfo,
+                                out coefficientGroup))
+                        {
+                            return true;
+                        }
+
+                        if (reader.HasError)
+                        {
+                            diagnostic = Vp9DecodeDiagnostic.TruncatedPacket(
+                                $"VP9 Block16X16 luma Tx4 group probe ended unexpectedly at tile {geometry.Buffer.Index} MI ({miRow},{miColumn}).");
+                            return false;
+                        }
+                    }
+                }
+            }
+
+            diagnostic = Vp9DecodeDiagnostic.UnsupportedFeature("VP9 Block16X16 luma Tx4 group probe did not find a matching block.");
+            return false;
+        }
+        catch (NotSupportedException ex)
+        {
+            diagnostic = Vp9DecodeDiagnostic.UnsupportedFeature(ex.Message);
+            return false;
+        }
+        catch (Vp9BoolReaderException ex)
+        {
+            diagnostic = ex.Diagnostic;
+            return false;
+        }
+    }
+
     public static bool TryReconstructFirstLeafYDc(
         ReadOnlyMemory<byte> packet,
         Vp9KeyFrameDecodeState state,
@@ -791,6 +865,271 @@ internal static class Vp9TileSyntaxScanner
                 coefficientContext,
                 plane));
         }
+    }
+
+    private static bool TryReadFirstBlock16X16LumaTx4Group(
+        ref Vp9BoolReader reader,
+        Vp9KeyFrameDecodeState state,
+        Vp9TileGeometry geometry,
+        Vp9KeyFrameSyntaxContext syntaxContext,
+        Vp9CoefficientEntropyContext coefficientContext,
+        int miRow,
+        int miColumn,
+        Vp9BlockSize blockSize,
+        IReadOnlyList<Vp9PartitionType> partitionPath,
+        out Vp9ModeInfoProbe? modeInfo,
+        out Vp9CoefficientBlockGroupProbe? coefficientGroup)
+    {
+        modeInfo = null;
+        coefficientGroup = null;
+
+        if (miRow >= state.Header.TileInfo.MiRows || miColumn >= state.Header.TileInfo.MiColumns)
+        {
+            return false;
+        }
+
+        var hbs = Vp9ModeInfoSyntax.GetHalfBlockSizeInMiUnits(blockSize);
+        var hasRows = miRow + hbs < state.Header.TileInfo.MiRows;
+        var hasColumns = miColumn + hbs < state.Header.TileInfo.MiColumns;
+        var partition = Vp9PartitionSyntax.ReadPartition(
+            ref reader,
+            syntaxContext.GetPartitionContext(miRow, miColumn, blockSize),
+            hasRows,
+            hasColumns);
+        var subsize = Vp9ModeInfoSyntax.GetSubsize(blockSize, partition);
+        var childPath = partitionPath.Concat([partition]).ToArray();
+        if (hbs == 0)
+        {
+            var found = TryReadFirstBlock16X16LumaTx4BlockSyntax(
+                ref reader,
+                state,
+                geometry,
+                syntaxContext,
+                coefficientContext,
+                miRow,
+                miColumn,
+                subsize,
+                childPath,
+                out modeInfo,
+                out coefficientGroup);
+            if (!found)
+            {
+                syntaxContext.UpdatePartitionContext(miRow, miColumn, blockSize, subsize);
+            }
+
+            return found;
+        }
+
+        switch (partition)
+        {
+            case Vp9PartitionType.None:
+                if (TryReadFirstBlock16X16LumaTx4BlockSyntax(
+                        ref reader,
+                        state,
+                        geometry,
+                        syntaxContext,
+                        coefficientContext,
+                        miRow,
+                        miColumn,
+                        subsize,
+                        childPath,
+                        out modeInfo,
+                        out coefficientGroup))
+                {
+                    return true;
+                }
+
+                break;
+
+            case Vp9PartitionType.Horizontal:
+                if (TryReadFirstBlock16X16LumaTx4BlockSyntax(
+                        ref reader,
+                        state,
+                        geometry,
+                        syntaxContext,
+                        coefficientContext,
+                        miRow,
+                        miColumn,
+                        subsize,
+                        childPath,
+                        out modeInfo,
+                        out coefficientGroup))
+                {
+                    return true;
+                }
+
+                if (hasRows &&
+                    TryReadFirstBlock16X16LumaTx4BlockSyntax(
+                        ref reader,
+                        state,
+                        geometry,
+                        syntaxContext,
+                        coefficientContext,
+                        miRow + hbs,
+                        miColumn,
+                        subsize,
+                        childPath,
+                        out modeInfo,
+                        out coefficientGroup))
+                {
+                    return true;
+                }
+
+                break;
+
+            case Vp9PartitionType.Vertical:
+                if (TryReadFirstBlock16X16LumaTx4BlockSyntax(
+                        ref reader,
+                        state,
+                        geometry,
+                        syntaxContext,
+                        coefficientContext,
+                        miRow,
+                        miColumn,
+                        subsize,
+                        childPath,
+                        out modeInfo,
+                        out coefficientGroup))
+                {
+                    return true;
+                }
+
+                if (hasColumns &&
+                    TryReadFirstBlock16X16LumaTx4BlockSyntax(
+                        ref reader,
+                        state,
+                        geometry,
+                        syntaxContext,
+                        coefficientContext,
+                        miRow,
+                        miColumn + hbs,
+                        subsize,
+                        childPath,
+                        out modeInfo,
+                        out coefficientGroup))
+                {
+                    return true;
+                }
+
+                break;
+
+            case Vp9PartitionType.Split:
+                if (TryReadFirstBlock16X16LumaTx4Group(
+                        ref reader,
+                        state,
+                        geometry,
+                        syntaxContext,
+                        coefficientContext,
+                        miRow,
+                        miColumn,
+                        subsize,
+                        childPath,
+                        out modeInfo,
+                        out coefficientGroup) ||
+                    TryReadFirstBlock16X16LumaTx4Group(
+                        ref reader,
+                        state,
+                        geometry,
+                        syntaxContext,
+                        coefficientContext,
+                        miRow,
+                        miColumn + hbs,
+                        subsize,
+                        childPath,
+                        out modeInfo,
+                        out coefficientGroup) ||
+                    TryReadFirstBlock16X16LumaTx4Group(
+                        ref reader,
+                        state,
+                        geometry,
+                        syntaxContext,
+                        coefficientContext,
+                        miRow + hbs,
+                        miColumn,
+                        subsize,
+                        childPath,
+                        out modeInfo,
+                        out coefficientGroup) ||
+                    TryReadFirstBlock16X16LumaTx4Group(
+                        ref reader,
+                        state,
+                        geometry,
+                        syntaxContext,
+                        coefficientContext,
+                        miRow + hbs,
+                        miColumn + hbs,
+                        subsize,
+                        childPath,
+                        out modeInfo,
+                        out coefficientGroup))
+                {
+                    return true;
+                }
+
+                break;
+
+            default:
+                throw new ArgumentOutOfRangeException(nameof(partition), partition, "Unsupported VP9 partition type.");
+        }
+
+        if (blockSize >= Vp9BlockSize.Block8X8 &&
+            (blockSize == Vp9BlockSize.Block8X8 || partition != Vp9PartitionType.Split))
+        {
+            syntaxContext.UpdatePartitionContext(miRow, miColumn, blockSize, subsize);
+        }
+
+        return false;
+    }
+
+    private static bool TryReadFirstBlock16X16LumaTx4BlockSyntax(
+        ref Vp9BoolReader reader,
+        Vp9KeyFrameDecodeState state,
+        Vp9TileGeometry geometry,
+        Vp9KeyFrameSyntaxContext syntaxContext,
+        Vp9CoefficientEntropyContext coefficientContext,
+        int miRow,
+        int miColumn,
+        Vp9BlockSize blockSize,
+        IReadOnlyList<Vp9PartitionType> partitionPath,
+        out Vp9ModeInfoProbe modeInfo,
+        out Vp9CoefficientBlockGroupProbe? coefficientGroup)
+    {
+        modeInfo = ReadModeInfoAfterPartition(
+            ref reader,
+            state,
+            geometry,
+            syntaxContext,
+            miRow,
+            miColumn,
+            blockSize,
+            partitionPath);
+
+        if (!modeInfo.Skip &&
+            modeInfo.BlockSize == Vp9BlockSize.Block16X16 &&
+            modeInfo.TransformSize == Vp9TransformSize.Tx4X4)
+        {
+            coefficientGroup = Vp9ResidualSyntax.ReadPlaneCoefficientBlocks(
+                ref reader,
+                state,
+                modeInfo,
+                coefficientContext,
+                plane: 0,
+                allowFullFrameGridContinuationProbe: true);
+            return true;
+        }
+
+        for (var plane = 0; plane < 3; plane++)
+        {
+            _ = Vp9ResidualSyntax.ReadPlaneCoefficientBlocks(
+                ref reader,
+                state,
+                modeInfo,
+                coefficientContext,
+                plane);
+        }
+
+        coefficientGroup = null;
+        return false;
     }
 
     private static Vp9ModeInfoProbe ReadFirstLeafModeInfo(
