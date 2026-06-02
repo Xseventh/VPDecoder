@@ -50,6 +50,23 @@ public sealed record Vp9CoefficientBlockGroupProbe(
 
 internal static class Vp9ResidualSyntax
 {
+    private static readonly Vp9TransformSize[][] Yuv420UvTransformSizeLookup =
+    [
+        [Vp9TransformSize.Tx4X4, Vp9TransformSize.Tx4X4, Vp9TransformSize.Tx4X4, Vp9TransformSize.Tx4X4],
+        [Vp9TransformSize.Tx4X4, Vp9TransformSize.Tx4X4, Vp9TransformSize.Tx4X4, Vp9TransformSize.Tx4X4],
+        [Vp9TransformSize.Tx4X4, Vp9TransformSize.Tx4X4, Vp9TransformSize.Tx4X4, Vp9TransformSize.Tx4X4],
+        [Vp9TransformSize.Tx4X4, Vp9TransformSize.Tx4X4, Vp9TransformSize.Tx4X4, Vp9TransformSize.Tx4X4],
+        [Vp9TransformSize.Tx4X4, Vp9TransformSize.Tx4X4, Vp9TransformSize.Tx4X4, Vp9TransformSize.Tx4X4],
+        [Vp9TransformSize.Tx4X4, Vp9TransformSize.Tx8X8, Vp9TransformSize.Tx8X8, Vp9TransformSize.Tx8X8],
+        [Vp9TransformSize.Tx4X4, Vp9TransformSize.Tx8X8, Vp9TransformSize.Tx8X8, Vp9TransformSize.Tx8X8],
+        [Vp9TransformSize.Tx4X4, Vp9TransformSize.Tx8X8, Vp9TransformSize.Tx8X8, Vp9TransformSize.Tx8X8],
+        [Vp9TransformSize.Tx4X4, Vp9TransformSize.Tx8X8, Vp9TransformSize.Tx8X8, Vp9TransformSize.Tx8X8],
+        [Vp9TransformSize.Tx4X4, Vp9TransformSize.Tx8X8, Vp9TransformSize.Tx16X16, Vp9TransformSize.Tx16X16],
+        [Vp9TransformSize.Tx4X4, Vp9TransformSize.Tx8X8, Vp9TransformSize.Tx16X16, Vp9TransformSize.Tx16X16],
+        [Vp9TransformSize.Tx4X4, Vp9TransformSize.Tx8X8, Vp9TransformSize.Tx16X16, Vp9TransformSize.Tx16X16],
+        [Vp9TransformSize.Tx4X4, Vp9TransformSize.Tx8X8, Vp9TransformSize.Tx16X16, Vp9TransformSize.Tx32X32]
+    ];
+
     public static Vp9CoefficientTokenProbe ReadFirstYCoefficientToken(
         ref Vp9BoolReader reader,
         Vp9KeyFrameDecodeState state,
@@ -611,17 +628,27 @@ internal static class Vp9ResidualSyntax
 
     private static Vp9TransformSize GetUvTransformSize(Vp9BlockSize blockSize, Vp9TransformSize yTransformSize)
     {
-        var chromaWidth4 = GetPlaneWidthIn4x4Blocks(blockSize, plane: 1);
-        var chromaHeight4 = GetPlaneHeightIn4x4Blocks(blockSize, plane: 1);
-        var maxChromaTransformSize = Math.Min(chromaWidth4, chromaHeight4) switch
-        {
-            >= 8 => Vp9TransformSize.Tx32X32,
-            >= 4 => Vp9TransformSize.Tx16X16,
-            >= 2 => Vp9TransformSize.Tx8X8,
-            _ => Vp9TransformSize.Tx4X4
-        };
+        return GetUvTransformSizeForYuv420(blockSize, yTransformSize);
+    }
 
-        return (Vp9TransformSize)Math.Min((int)yTransformSize, (int)maxChromaTransformSize);
+    internal static Vp9TransformSize GetUvTransformSizeForYuv420(
+        Vp9BlockSize blockSize,
+        Vp9TransformSize yTransformSize)
+    {
+        if ((uint)blockSize >= (uint)Yuv420UvTransformSizeLookup.Length)
+        {
+            throw new ArgumentOutOfRangeException(nameof(blockSize), blockSize, "Unsupported VP9 block size.");
+        }
+
+        if (yTransformSize is < Vp9TransformSize.Tx4X4 or > Vp9TransformSize.Tx32X32)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(yTransformSize),
+                yTransformSize,
+                "Unsupported VP9 transform size.");
+        }
+
+        return Yuv420UvTransformSizeLookup[(int)blockSize][(int)yTransformSize];
     }
 
     private static int GetPlaneWidthIn4x4Blocks(Vp9BlockSize blockSize, int plane)
