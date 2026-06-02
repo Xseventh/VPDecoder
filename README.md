@@ -39,8 +39,8 @@ Current status:
 - Converts decoded YUV420 frames to BGRA8888/RGBA8888 and composes alpha from
   either BGRA red or YUV luma.
 - Provides a small raw VP9 CLI smoke workflow in `src/VPDecoder.Cli`.
-- Exposes a VP8 raw decoder scaffold that returns strict unsupported
-  diagnostics until VP8 bitstream support is implemented.
+- Parses raw VP8 frame tags and key-frame uncompressed headers, then returns
+  strict unsupported diagnostics until VP8 pixel reconstruction is implemented.
 - Validates the current sample shape: VP9 profile 0, 8-bit, YUV420,
   2656x1352, 8 tile columns.
 - Fails explicitly for unsupported decode work instead of emitting pixels.

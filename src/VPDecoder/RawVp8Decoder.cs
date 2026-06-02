@@ -8,51 +8,149 @@ public sealed class RawVp8Decoder
     public Vp8DecodeResult DecodeFrame(ReadOnlySpan<byte> packet, Vp8DecodeOptions? options = null)
     {
         options ??= Vp8DecodeOptions.Default;
-        if (options.ExpectedWidth is <= 0)
+        var diagnostic = ValidateOptions(options);
+        if (diagnostic is not null)
         {
-            return Vp8DecodeResult.Fail(Vp8DecodeDiagnostic.InvalidDecodeOptions("Expected VP8 width must be positive when provided."));
+            return Vp8DecodeResult.Fail(diagnostic);
         }
 
-        if (options.ExpectedHeight is <= 0)
+        if (!Vp8FrameHeaderParser.TryParse(packet, out var header, out diagnostic))
         {
-            return Vp8DecodeResult.Fail(Vp8DecodeDiagnostic.InvalidDecodeOptions("Expected VP8 height must be positive when provided."));
+            return Vp8DecodeResult.Fail(
+                diagnostic ?? Vp8DecodeDiagnostic.InternalDecodeFailure("VP8 header parser failed without a diagnostic."));
         }
 
-        if (!Enum.IsDefined(typeof(Vp9OutputPixelFormat), options.OutputFormat))
+        if (header is null)
         {
-            return Vp8DecodeResult.Fail(Vp8DecodeDiagnostic.InvalidDecodeOptions($"Unsupported VP8 output pixel format value {options.OutputFormat}."));
+            return Vp8DecodeResult.Fail(Vp8DecodeDiagnostic.InternalDecodeFailure("VP8 header parser succeeded without returning a header."));
         }
 
-        if (packet.IsEmpty)
+        diagnostic = ValidateHeader(header, options);
+        if (diagnostic is not null)
         {
-            return Vp8DecodeResult.Fail(Vp8DecodeDiagnostic.InvalidPacket("VP8 packet is empty."));
+            return Vp8DecodeResult.Fail(diagnostic, header);
         }
 
-        return Vp8DecodeResult.Fail(Vp8DecodeDiagnostic.UnsupportedFeature("VP8 raw frame decoding is not implemented yet."));
+        if (header.FrameType == Vp8FrameType.InterFrame)
+        {
+            return Vp8DecodeResult.Fail(
+                Vp8DecodeDiagnostic.UnsupportedInterFrameFeature(
+                    "VP8 inter frames require decoder reference state and are not supported yet."),
+                header);
+        }
+
+        return Vp8DecodeResult.Fail(
+            Vp8DecodeDiagnostic.UnsupportedFeature("VP8 key-frame pixel reconstruction is not implemented yet."),
+            header);
     }
 
     public void Reset()
     {
+    }
+
+    private static Vp8DecodeDiagnostic? ValidateOptions(Vp8DecodeOptions options)
+    {
+        if (options.ExpectedWidth is <= 0)
+        {
+            return Vp8DecodeDiagnostic.InvalidDecodeOptions("Expected VP8 width must be positive when provided.");
+        }
+
+        if (options.ExpectedHeight is <= 0)
+        {
+            return Vp8DecodeDiagnostic.InvalidDecodeOptions("Expected VP8 height must be positive when provided.");
+        }
+
+        if (!Enum.IsDefined(typeof(Vp9OutputPixelFormat), options.OutputFormat))
+        {
+            return Vp8DecodeDiagnostic.InvalidDecodeOptions($"Unsupported VP8 output pixel format value {options.OutputFormat}.");
+        }
+
+        if (options.MaxWidth <= 0)
+        {
+            return Vp8DecodeDiagnostic.InvalidDecodeOptions("Maximum VP8 width must be positive.");
+        }
+
+        if (options.MaxHeight <= 0)
+        {
+            return Vp8DecodeDiagnostic.InvalidDecodeOptions("Maximum VP8 height must be positive.");
+        }
+
+        if (options.MaxPixelCount <= 0)
+        {
+            return Vp8DecodeDiagnostic.InvalidDecodeOptions("Maximum VP8 pixel count must be positive.");
+        }
+
+        return null;
+    }
+
+    private static Vp8DecodeDiagnostic? ValidateHeader(Vp8FrameHeader header, Vp8DecodeOptions options)
+    {
+        if (header.HeaderSizeInBytes + header.FirstPartitionSize > header.PacketLength)
+        {
+            return Vp8DecodeDiagnostic.TruncatedPacket("VP8 first partition extends past the packet boundary.");
+        }
+
+        if (header.FrameType != Vp8FrameType.KeyFrame)
+        {
+            return null;
+        }
+
+        if (options.ExpectedWidth is { } expectedWidth && header.Width != expectedWidth)
+        {
+            return Vp8DecodeDiagnostic.DimensionMismatch(
+                $"Decoded VP8 width {header.Width} does not match expected width {expectedWidth}.");
+        }
+
+        if (options.ExpectedHeight is { } expectedHeight && header.Height != expectedHeight)
+        {
+            return Vp8DecodeDiagnostic.DimensionMismatch(
+                $"Decoded VP8 height {header.Height} does not match expected height {expectedHeight}.");
+        }
+
+        if (header.Width > options.MaxWidth)
+        {
+            return Vp8DecodeDiagnostic.AllocationLimitExceeded(
+                $"VP8 width {header.Width} exceeds configured maximum width {options.MaxWidth}.");
+        }
+
+        if (header.Height > options.MaxHeight)
+        {
+            return Vp8DecodeDiagnostic.AllocationLimitExceeded(
+                $"VP8 height {header.Height} exceeds configured maximum height {options.MaxHeight}.");
+        }
+
+        var pixelCount = checked((long)header.Width * header.Height);
+        if (pixelCount > options.MaxPixelCount)
+        {
+            return Vp8DecodeDiagnostic.AllocationLimitExceeded(
+                $"VP8 frame has {pixelCount} pixels, exceeding configured maximum {options.MaxPixelCount}.");
+        }
+
+        return null;
     }
 }
 
 public sealed record Vp8DecodeOptions(
     int? ExpectedWidth = null,
     int? ExpectedHeight = null,
-    Vp9OutputPixelFormat OutputFormat = Vp9OutputPixelFormat.Bgra8888)
+    Vp9OutputPixelFormat OutputFormat = Vp9OutputPixelFormat.Bgra8888,
+    int MaxWidth = 16_384,
+    int MaxHeight = 16_384,
+    long MaxPixelCount = 268_435_456)
 {
     public static Vp8DecodeOptions Default { get; } = new();
 }
 
 public sealed record Vp8DecodeResult(
     Vp9DecodedFrame? Frame,
+    Vp8FrameHeader? Header,
     Vp8DecodeDiagnostic? Diagnostic)
 {
     public bool Succeeded => Frame is not null && Diagnostic is null;
 
-    public static Vp8DecodeResult Fail(Vp8DecodeDiagnostic diagnostic)
+    public static Vp8DecodeResult Fail(Vp8DecodeDiagnostic diagnostic, Vp8FrameHeader? header = null)
     {
-        return new Vp8DecodeResult(null, diagnostic);
+        return new Vp8DecodeResult(null, header, diagnostic);
     }
 }
 
@@ -74,11 +172,41 @@ public sealed record Vp8DecodeDiagnostic(
     {
         return new Vp8DecodeDiagnostic(Vp8DecodeDiagnosticCode.UnsupportedFeature, message);
     }
+
+    public static Vp8DecodeDiagnostic UnsupportedInterFrameFeature(string message)
+    {
+        return new Vp8DecodeDiagnostic(Vp8DecodeDiagnosticCode.UnsupportedInterFrameFeature, message);
+    }
+
+    public static Vp8DecodeDiagnostic TruncatedPacket(string message)
+    {
+        return new Vp8DecodeDiagnostic(Vp8DecodeDiagnosticCode.TruncatedPacket, message);
+    }
+
+    public static Vp8DecodeDiagnostic DimensionMismatch(string message)
+    {
+        return new Vp8DecodeDiagnostic(Vp8DecodeDiagnosticCode.DimensionMismatch, message);
+    }
+
+    public static Vp8DecodeDiagnostic AllocationLimitExceeded(string message)
+    {
+        return new Vp8DecodeDiagnostic(Vp8DecodeDiagnosticCode.AllocationLimitExceeded, message);
+    }
+
+    public static Vp8DecodeDiagnostic InternalDecodeFailure(string message)
+    {
+        return new Vp8DecodeDiagnostic(Vp8DecodeDiagnosticCode.InternalDecodeFailure, message);
+    }
 }
 
 public enum Vp8DecodeDiagnosticCode
 {
     InvalidDecodeOptions,
     InvalidPacket,
-    UnsupportedFeature
+    UnsupportedFeature,
+    UnsupportedInterFrameFeature,
+    TruncatedPacket,
+    DimensionMismatch,
+    AllocationLimitExceeded,
+    InternalDecodeFailure
 }
