@@ -72,7 +72,7 @@ internal static class Vp9BlockReconstructor
             if (x + transformSize > planeInfo.Metadata.Width || y + transformSize > planeInfo.Metadata.Height)
             {
                 throw new NotSupportedException(
-                    "VP9 DC-only reconstruction does not support clipped transform blocks at frame edges yet.");
+                    $"VP9 reconstruction does not yet support clipped transform blocks at frame edges; got MI ({modeInfo.MiRow},{modeInfo.MiColumn}) plane {plane} block {modeInfo.BlockSize} transform {group.TransformSize} transform offset ({coefficients.Row4},{coefficients.Column4}) pixel origin ({x},{y}) in plane {planeInfo.Metadata.Width}x{planeInfo.Metadata.Height}.");
             }
 
             var destinationOffset = planeInfo.Metadata.Offset + (y * planeInfo.Stride) + x;

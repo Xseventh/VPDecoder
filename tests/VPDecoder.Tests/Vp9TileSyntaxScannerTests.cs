@@ -576,6 +576,27 @@ public sealed class Vp9TileSyntaxScannerTests
             secondGroup.Blocks.Select(block => block.Eob));
     }
 
+    [Theory]
+    [InlineData("/tmp/vp9-main-frame-0.vp9", 30398, "4c57b8dda880711b174483a27e1691c6c9aa9a6721351d041425f8dafb23b7e9")]
+    [InlineData("/tmp/vp9-alpha-frame-0.vp9", 6233, "94079f539a2165b10f5db2d9e9b5d54ca8df534ca3d36e4eaa1234b0b17a7329")]
+    public void TryReconstructFullFrame_ForExternalSamples_ReachesConcreteClippedTransformGate(
+        string path,
+        int expectedLength,
+        string expectedSha256)
+    {
+        var packet = ReadRequiredSample(path, expectedLength, expectedSha256);
+        var state = CreateState(packet);
+
+        Assert.False(Vp9TileSyntaxScanner.TryReconstructFullFrame(packet, state, out var frame, out var diagnostic));
+
+        Assert.Null(frame);
+        Assert.NotNull(diagnostic);
+        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedFeature, diagnostic.Code);
+        Assert.Equal(
+            "VP9 reconstruction does not yet support clipped transform blocks at frame edges; got MI (168,0) plane 0 block Block64X32 transform Tx32X32 transform offset (0,0) pixel origin (0,1344) in plane 2656x1352.",
+            diagnostic.Message);
+    }
+
     [Fact]
     public void TryReconstructFirstLeafYDc_ForExternalMainFrame_WritesDeterministicYBlocks()
     {

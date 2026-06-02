@@ -631,6 +631,75 @@ internal static class Vp9TileSyntaxScanner
         }
     }
 
+    public static bool TryReconstructFullFrame(
+        ReadOnlyMemory<byte> packet,
+        Vp9KeyFrameDecodeState state,
+        out Vp9DecodedFrame? frame,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
+        frame = null;
+        if (!TryProbeFullFrameSyntax(packet, state, out var probes, out diagnostic))
+        {
+            return false;
+        }
+
+        try
+        {
+            foreach (var probe in probes)
+            {
+                if (probe.TileIndex < 0 || probe.TileIndex >= state.TileGeometries.Count)
+                {
+                    diagnostic = Vp9DecodeDiagnostic.InternalDecodeFailure(
+                        "VP9 full-frame reconstruction received an invalid tile index.");
+                    return false;
+                }
+
+                var geometry = state.TileGeometries[probe.TileIndex];
+                var expectedGroupCount = checked(probe.ModeInfos.Count * 3);
+                if (probe.CoefficientGroups.Count != expectedGroupCount)
+                {
+                    diagnostic = Vp9DecodeDiagnostic.InternalDecodeFailure(
+                        "VP9 full-frame reconstruction received mismatched mode/coefficient groups.");
+                    return false;
+                }
+
+                for (var modeIndex = 0; modeIndex < probe.ModeInfos.Count; modeIndex++)
+                {
+                    var modeInfo = probe.ModeInfos[modeIndex];
+                    for (var plane = 0; plane < 3; plane++)
+                    {
+                        var group = probe.CoefficientGroups[(modeIndex * 3) + plane];
+                        Vp9BlockReconstructor.ReconstructDcOnlyGroup(
+                            state.FrameBuffer,
+                            geometry,
+                            modeInfo,
+                            group,
+                            plane);
+                    }
+                }
+            }
+
+            frame = state.FrameBuffer.ToDecodedFrame();
+            return true;
+        }
+        catch (NotSupportedException ex)
+        {
+            diagnostic = Vp9DecodeDiagnostic.UnsupportedFeature(ex.Message);
+            return false;
+        }
+        catch (ArgumentException ex)
+        {
+            diagnostic = Vp9DecodeDiagnostic.InternalDecodeFailure(ex.Message);
+            return false;
+        }
+        catch (OverflowException)
+        {
+            diagnostic = Vp9DecodeDiagnostic.InternalDecodeFailure(
+                "VP9 full-frame reconstruction overflowed a block geometry calculation.");
+            return false;
+        }
+    }
+
     private static void ReadPartitionSyntax(
         ref Vp9BoolReader reader,
         Vp9KeyFrameDecodeState state,
