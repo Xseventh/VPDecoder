@@ -44,6 +44,9 @@ Current status:
 - Maintains decoder-owned VP9 frame-context slots for compressed-header
   probability state, commits refreshed contexts only after successful decode,
   and resets them with `Reset()`.
+- Carries libvpx-derived VP9 inter probability defaults and drains ordinary
+  inter compressed-header probability syntax for no-update streams, while
+  still gating inter reconstruction.
 - Preserves deterministic evidence for the first Block16X16 luma TX4 group
   that previously exposed residual synchronization drift.
 - Converts decoded YUV420 frames to BGRA8888/RGBA8888 and composes alpha from

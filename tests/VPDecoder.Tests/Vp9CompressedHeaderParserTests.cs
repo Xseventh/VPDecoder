@@ -78,6 +78,29 @@ public sealed class Vp9CompressedHeaderParserTests
     }
 
     [Fact]
+    public void TryParse_OrdinaryInterFrameWithNoUpdates_DrainsInterProbabilitySyntax()
+    {
+        var headerPacket = Vp9TestPackets.CreateOrdinaryInterFramePacket(
+            firstPartitionSize: 64);
+        var packet = AppendCompressedHeader(headerPacket, compressedHeaderLength: 64);
+        var frameHeader = Vp9FrameHeaderParser.Parse(packet);
+
+        Assert.True(Vp9CompressedHeaderParser.TryParse(packet, frameHeader, out var compressedHeader, out var diagnostic), diagnostic?.Message);
+        Assert.NotNull(compressedHeader);
+        Assert.Equal(Vp9TransformMode.Only4X4, compressedHeader.TransformMode);
+        Assert.Equal(Vp9ReferenceMode.Single, compressedHeader.ReferenceMode);
+        Assert.Equal(0, compressedHeader.TxProbabilityUpdateCount);
+        Assert.Equal(0, compressedHeader.CoefficientProbabilityUpdateCount);
+        Assert.Equal(0, compressedHeader.SkipProbabilityUpdateCount);
+        Assert.Equal(0, compressedHeader.InterProbabilityUpdateCount);
+        Assert.Equal(0, compressedHeader.MotionVectorProbabilityUpdateCount);
+        Assert.Equal(199, compressedHeader.FrameContext.PartitionProbabilities[0, 0]);
+        Assert.Equal(2, compressedHeader.FrameContext.InterModeProbabilities[0, 0]);
+        Assert.Equal(33, compressedHeader.FrameContext.SingleReferenceProbabilities[0, 0]);
+        Assert.Equal(32, compressedHeader.FrameContext.MotionVectorProbabilities.Joints[0]);
+    }
+
+    [Fact]
     public void TryParse_WhenBoolReaderMarkerIsInvalid_ReturnsInvalidPacketDiagnostic()
     {
         var packet = CreatePaddedMainFramePacket();
@@ -99,6 +122,13 @@ public sealed class Vp9CompressedHeaderParserTests
         ];
         var packet = new byte[header.Length + 320];
         header.CopyTo(packet, 0);
+        return packet;
+    }
+
+    private static byte[] AppendCompressedHeader(byte[] headerPacket, int compressedHeaderLength)
+    {
+        var packet = new byte[headerPacket.Length + compressedHeaderLength];
+        headerPacket.CopyTo(packet, 0);
         return packet;
     }
 

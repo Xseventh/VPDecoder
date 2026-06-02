@@ -7,7 +7,8 @@ internal static class Vp9TestPackets
         bool sizeFromReference = false,
         bool stopAfterSizeReference = true,
         int frameContextIndex = 2,
-        int tileInfoWidth = 16)
+        int tileInfoWidth = 16,
+        int firstPartitionSize = 1)
     {
         var writer = new BitWriter();
         WriteFramePrefix(writer, showFrame: true, errorResilientMode);
@@ -46,7 +47,7 @@ internal static class Vp9TestPackets
         writer.WriteLiteral(2, 2);
 
         WriteFrameContext(writer, errorResilientMode, frameContextIndex);
-        WriteLoopFilterQuantSegmentationTileAndPartition(writer, tileInfoWidth);
+        WriteLoopFilterQuantSegmentationTileAndPartition(writer, tileInfoWidth, firstPartitionSize);
         return writer.ToArray();
     }
 
@@ -63,7 +64,7 @@ internal static class Vp9TestPackets
         WriteFrameSize(writer, width: 16, height: 8);
         writer.WriteBit(false);
         WriteFrameContext(writer, errorResilientMode: false, frameContextIndex: 1);
-        WriteLoopFilterQuantSegmentationTileAndPartition(writer, tileInfoWidth: 16);
+        WriteLoopFilterQuantSegmentationTileAndPartition(writer, tileInfoWidth: 16, firstPartitionSize: 1);
         return writer.ToArray();
     }
 
@@ -95,7 +96,7 @@ internal static class Vp9TestPackets
         writer.WriteLiteral(frameContextIndex, 2);
     }
 
-    private static void WriteLoopFilterQuantSegmentationTileAndPartition(BitWriter writer, int tileInfoWidth)
+    private static void WriteLoopFilterQuantSegmentationTileAndPartition(BitWriter writer, int tileInfoWidth, int firstPartitionSize)
     {
         writer.WriteLiteral(0, 6);
         writer.WriteLiteral(0, 3);
@@ -106,7 +107,7 @@ internal static class Vp9TestPackets
         writer.WriteBit(false);
         writer.WriteBit(false);
         WriteTileInfo(writer, tileInfoWidth);
-        writer.WriteLiteral(1, 16);
+        writer.WriteLiteral(firstPartitionSize, 16);
     }
 
     private static void WriteTileInfo(BitWriter writer, int width)

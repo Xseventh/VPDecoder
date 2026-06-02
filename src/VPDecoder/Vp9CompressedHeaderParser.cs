@@ -40,6 +40,16 @@ public static class Vp9CompressedHeaderParser
                 : 0;
             var coefficientUpdateCount = ReadCoefficientProbabilities(ref reader, frameContext, transformMode);
             var skipUpdateCount = ReadSkipProbabilities(ref reader, frameContext);
+            var referenceMode = Vp9ReferenceMode.Single;
+            var interProbabilityUpdateCount = 0;
+            var motionVectorProbabilityUpdateCount = 0;
+            if (frameHeader.FrameType == Vp9FrameType.InterFrame && !frameHeader.IntraOnly)
+            {
+                var interUpdates = ReadInterFrameProbabilities(ref reader, frameHeader, frameContext);
+                referenceMode = interUpdates.ReferenceMode;
+                interProbabilityUpdateCount = interUpdates.InterProbabilityUpdateCount;
+                motionVectorProbabilityUpdateCount = interUpdates.MotionVectorProbabilityUpdateCount;
+            }
 
             if (reader.HasError)
             {
@@ -52,7 +62,10 @@ public static class Vp9CompressedHeaderParser
                 frameContext,
                 txUpdateCount,
                 coefficientUpdateCount,
-                skipUpdateCount);
+                skipUpdateCount,
+                referenceMode,
+                interProbabilityUpdateCount,
+                motionVectorProbabilityUpdateCount);
             return true;
         }
         catch (Vp9BoolReaderException ex)
@@ -180,6 +193,253 @@ public static class Vp9CompressedHeaderParser
         return updateCount;
     }
 
+    private static Vp9InterProbabilityUpdateSummary ReadInterFrameProbabilities(
+        ref Vp9BoolReader reader,
+        Vp9FrameHeader frameHeader,
+        Vp9FrameContext frameContext)
+    {
+        var interUpdateCount = 0;
+        interUpdateCount += ReadInterModeProbabilities(ref reader, frameContext);
+        if (frameHeader.InterpolationFilter == Vp9InterpolationFilter.Switchable)
+        {
+            interUpdateCount += ReadSwitchableInterpolationProbabilities(ref reader, frameContext);
+        }
+
+        interUpdateCount += ReadIntraInterProbabilities(ref reader, frameContext);
+        var referenceMode = ReadFrameReferenceMode(ref reader, frameHeader);
+        interUpdateCount += ReadFrameReferenceModeProbabilities(ref reader, referenceMode, frameContext);
+        interUpdateCount += ReadInterFrameYModeProbabilities(ref reader, frameContext);
+        interUpdateCount += ReadPartitionProbabilities(ref reader, frameContext);
+        var motionVectorUpdateCount = ReadMotionVectorProbabilities(
+            ref reader,
+            frameContext.MotionVectorProbabilities,
+            frameHeader.AllowHighPrecisionMv);
+
+        return new Vp9InterProbabilityUpdateSummary(
+            referenceMode,
+            interUpdateCount,
+            motionVectorUpdateCount);
+    }
+
+    private static int ReadInterModeProbabilities(ref Vp9BoolReader reader, Vp9FrameContext frameContext)
+    {
+        var updateCount = 0;
+        for (var i = 0; i < frameContext.InterModeProbabilities.GetLength(0); i++)
+        {
+            for (var j = 0; j < frameContext.InterModeProbabilities.GetLength(1); j++)
+            {
+                if (Vp9ProbabilityUpdater.DiffUpdateProbability(ref reader, ref frameContext.InterModeProbabilities[i, j]))
+                {
+                    updateCount++;
+                }
+            }
+        }
+
+        return updateCount;
+    }
+
+    private static int ReadSwitchableInterpolationProbabilities(ref Vp9BoolReader reader, Vp9FrameContext frameContext)
+    {
+        var updateCount = 0;
+        for (var i = 0; i < frameContext.SwitchableInterpolationProbabilities.GetLength(0); i++)
+        {
+            for (var j = 0; j < frameContext.SwitchableInterpolationProbabilities.GetLength(1); j++)
+            {
+                if (Vp9ProbabilityUpdater.DiffUpdateProbability(ref reader, ref frameContext.SwitchableInterpolationProbabilities[i, j]))
+                {
+                    updateCount++;
+                }
+            }
+        }
+
+        return updateCount;
+    }
+
+    private static int ReadIntraInterProbabilities(ref Vp9BoolReader reader, Vp9FrameContext frameContext)
+    {
+        var updateCount = 0;
+        for (var i = 0; i < frameContext.IntraInterProbabilities.Length; i++)
+        {
+            if (Vp9ProbabilityUpdater.DiffUpdateProbability(ref reader, ref frameContext.IntraInterProbabilities[i]))
+            {
+                updateCount++;
+            }
+        }
+
+        return updateCount;
+    }
+
+    private static Vp9ReferenceMode ReadFrameReferenceMode(ref Vp9BoolReader reader, Vp9FrameHeader frameHeader)
+    {
+        if (!IsCompoundReferenceAllowed(frameHeader))
+        {
+            return Vp9ReferenceMode.Single;
+        }
+
+        if (!reader.ReadBit())
+        {
+            return Vp9ReferenceMode.Single;
+        }
+
+        return reader.ReadBit() ? Vp9ReferenceMode.Select : Vp9ReferenceMode.Compound;
+    }
+
+    private static int ReadFrameReferenceModeProbabilities(
+        ref Vp9BoolReader reader,
+        Vp9ReferenceMode referenceMode,
+        Vp9FrameContext frameContext)
+    {
+        var updateCount = 0;
+        if (referenceMode == Vp9ReferenceMode.Select)
+        {
+            for (var i = 0; i < frameContext.CompoundInterProbabilities.Length; i++)
+            {
+                if (Vp9ProbabilityUpdater.DiffUpdateProbability(ref reader, ref frameContext.CompoundInterProbabilities[i]))
+                {
+                    updateCount++;
+                }
+            }
+        }
+
+        if (referenceMode != Vp9ReferenceMode.Compound)
+        {
+            for (var i = 0; i < frameContext.SingleReferenceProbabilities.GetLength(0); i++)
+            {
+                for (var j = 0; j < frameContext.SingleReferenceProbabilities.GetLength(1); j++)
+                {
+                    if (Vp9ProbabilityUpdater.DiffUpdateProbability(ref reader, ref frameContext.SingleReferenceProbabilities[i, j]))
+                    {
+                        updateCount++;
+                    }
+                }
+            }
+        }
+
+        if (referenceMode != Vp9ReferenceMode.Single)
+        {
+            for (var i = 0; i < frameContext.CompoundReferenceProbabilities.Length; i++)
+            {
+                if (Vp9ProbabilityUpdater.DiffUpdateProbability(ref reader, ref frameContext.CompoundReferenceProbabilities[i]))
+                {
+                    updateCount++;
+                }
+            }
+        }
+
+        return updateCount;
+    }
+
+    private static int ReadInterFrameYModeProbabilities(ref Vp9BoolReader reader, Vp9FrameContext frameContext)
+    {
+        var updateCount = 0;
+        for (var i = 0; i < frameContext.InterFrameYModeProbabilities.GetLength(0); i++)
+        {
+            for (var j = 0; j < frameContext.InterFrameYModeProbabilities.GetLength(1); j++)
+            {
+                if (Vp9ProbabilityUpdater.DiffUpdateProbability(ref reader, ref frameContext.InterFrameYModeProbabilities[i, j]))
+                {
+                    updateCount++;
+                }
+            }
+        }
+
+        return updateCount;
+    }
+
+    private static int ReadPartitionProbabilities(ref Vp9BoolReader reader, Vp9FrameContext frameContext)
+    {
+        var updateCount = 0;
+        for (var i = 0; i < frameContext.PartitionProbabilities.GetLength(0); i++)
+        {
+            for (var j = 0; j < frameContext.PartitionProbabilities.GetLength(1); j++)
+            {
+                if (Vp9ProbabilityUpdater.DiffUpdateProbability(ref reader, ref frameContext.PartitionProbabilities[i, j]))
+                {
+                    updateCount++;
+                }
+            }
+        }
+
+        return updateCount;
+    }
+
+    private static int ReadMotionVectorProbabilities(
+        ref Vp9BoolReader reader,
+        Vp9MotionVectorProbabilities probabilities,
+        bool allowHighPrecisionMv)
+    {
+        var updateCount = 0;
+        updateCount += UpdateMvProbabilities(ref reader, probabilities.Joints);
+
+        foreach (var component in probabilities.Components)
+        {
+            var sign = component.Sign;
+            updateCount += UpdateMvProbability(ref reader, ref sign);
+            component.Sign = sign;
+            updateCount += UpdateMvProbabilities(ref reader, component.Classes);
+            updateCount += UpdateMvProbabilities(ref reader, component.Class0);
+            updateCount += UpdateMvProbabilities(ref reader, component.Bits);
+        }
+
+        foreach (var component in probabilities.Components)
+        {
+            for (var i = 0; i < component.Class0Fp.GetLength(0); i++)
+            {
+                for (var j = 0; j < component.Class0Fp.GetLength(1); j++)
+                {
+                    updateCount += UpdateMvProbability(ref reader, ref component.Class0Fp[i, j]);
+                }
+            }
+
+            updateCount += UpdateMvProbabilities(ref reader, component.Fp);
+        }
+
+        if (allowHighPrecisionMv)
+        {
+            foreach (var component in probabilities.Components)
+            {
+                var class0Hp = component.Class0Hp;
+                updateCount += UpdateMvProbability(ref reader, ref class0Hp);
+                component.Class0Hp = class0Hp;
+
+                var hp = component.Hp;
+                updateCount += UpdateMvProbability(ref reader, ref hp);
+                component.Hp = hp;
+            }
+        }
+
+        return updateCount;
+    }
+
+    private static int UpdateMvProbabilities(ref Vp9BoolReader reader, byte[] probabilities)
+    {
+        var updateCount = 0;
+        for (var i = 0; i < probabilities.Length; i++)
+        {
+            updateCount += UpdateMvProbability(ref reader, ref probabilities[i]);
+        }
+
+        return updateCount;
+    }
+
+    private static int UpdateMvProbability(ref Vp9BoolReader reader, ref byte probability)
+    {
+        if (!reader.Read(252))
+        {
+            return 0;
+        }
+
+        probability = (byte)((reader.ReadLiteral(7) << 1) | 1);
+        return 1;
+    }
+
+    private static bool IsCompoundReferenceAllowed(Vp9FrameHeader frameHeader)
+    {
+        return frameHeader.ReferenceFrameSignBiases.Count >= 3 &&
+            (frameHeader.ReferenceFrameSignBiases[1] != frameHeader.ReferenceFrameSignBiases[0] ||
+                frameHeader.ReferenceFrameSignBiases[2] != frameHeader.ReferenceFrameSignBiases[0]);
+    }
+
     private static int GetMaximumCoefficientTransformSize(Vp9TransformMode transformMode)
     {
         return transformMode switch
@@ -192,4 +452,9 @@ public static class Vp9CompressedHeaderParser
                 Vp9DecodeDiagnostic.InvalidPacket($"Invalid VP9 transform mode: {transformMode}."))
         };
     }
+
+    private sealed record Vp9InterProbabilityUpdateSummary(
+        Vp9ReferenceMode ReferenceMode,
+        int InterProbabilityUpdateCount,
+        int MotionVectorProbabilityUpdateCount);
 }

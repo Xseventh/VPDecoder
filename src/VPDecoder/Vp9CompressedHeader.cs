@@ -5,7 +5,10 @@ public sealed record Vp9CompressedHeader(
     Vp9FrameContext FrameContext,
     int TxProbabilityUpdateCount,
     int CoefficientProbabilityUpdateCount,
-    int SkipProbabilityUpdateCount);
+    int SkipProbabilityUpdateCount,
+    Vp9ReferenceMode ReferenceMode = Vp9ReferenceMode.Single,
+    int InterProbabilityUpdateCount = 0,
+    int MotionVectorProbabilityUpdateCount = 0);
 
 public enum Vp9TransformMode
 {
@@ -14,4 +17,11 @@ public enum Vp9TransformMode
     Allow16X16 = 2,
     Allow32X32 = 3,
     Select = 4
+}
+
+public enum Vp9ReferenceMode
+{
+    Single = 0,
+    Compound = 1,
+    Select = 2
 }
