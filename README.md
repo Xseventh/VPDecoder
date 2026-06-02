@@ -33,7 +33,8 @@ Current status:
   samples.
 - Maintains decoder-owned VP9 reference slots for decoded key frames, supports
   `show_existing_frame` replay with copied output, and clears those slots on
-  `Reset()`.
+  `Reset()`. Reference updates use VP9 `refresh_frame_flags`, so future
+  successful inter or intra-only frames can refresh only selected slots.
 - Parses VP9 ordinary inter-frame and hidden intra-only uncompressed headers
   far enough to expose reference, refresh, size, motion, loop-filter,
   quantization, segmentation, and tile metadata before returning strict

@@ -5,10 +5,9 @@ namespace VPDecoder;
 /// </summary>
 public sealed class RawVp9Decoder
 {
-    private const int Vp9ReferenceFrameCount = 8;
     private const int Vp9FrameContextCount = 4;
 
-    private readonly Vp9ReferenceFrame?[] _referenceFrames = new Vp9ReferenceFrame?[Vp9ReferenceFrameCount];
+    private readonly Vp9ReferenceFrameStore _referenceFrames = new();
     private readonly Vp9FrameContext[] _frameContexts = CreateDefaultFrameContexts();
 
     public Vp9DecodeResult DecodeFrame(ReadOnlySpan<byte> packet, Vp9DecodeOptions? options = null)
@@ -26,7 +25,7 @@ public sealed class RawVp9Decoder
             return Vp9DecodeResult.Fail(Vp9DecodeDiagnostic.InvalidPacket("VP9 packet is empty."));
         }
 
-        if (!Vp9FrameHeaderParser.TryParse(packet, CreateReferenceFrameInfos(), out var header, out diagnostic))
+        if (!Vp9FrameHeaderParser.TryParse(packet, _referenceFrames.CreateFrameInfos(), out var header, out diagnostic))
         {
             return Vp9DecodeResult.Fail(
                 diagnostic ?? Vp9DecodeDiagnostic.InternalDecodeFailure("VP9 header parser failed without a diagnostic."));
@@ -126,9 +125,9 @@ public sealed class RawVp9Decoder
                 compressedHeader);
         }
 
-        var yuvFrame = reconstructedFrame.Frame;
         RefreshFrameContext(header, compressedHeader.FrameContext);
-        RefreshReferenceFrames(yuvFrame, header.ColorRange);
+        var yuvFrame = reconstructedFrame.Frame;
+        _referenceFrames.Refresh(yuvFrame, header.ColorRange, header.RefreshFrameFlags);
 
         var outputFrame = options.OutputFormat == Vp9OutputPixelFormat.Yuv420
             ? yuvFrame
@@ -190,7 +189,7 @@ public sealed class RawVp9Decoder
 
     public void Reset()
     {
-        Array.Clear(_referenceFrames);
+        _referenceFrames.Reset();
         ResetFrameContexts();
     }
 
@@ -211,15 +210,14 @@ public sealed class RawVp9Decoder
                 header);
         }
 
-        if (header.ExistingFrameIndex is not { } index || index < 0 || index >= _referenceFrames.Length)
+        if (header.ExistingFrameIndex is not { } index || index < 0 || index >= _referenceFrames.Count)
         {
             return Vp9DecodeResult.Fail(
                 Vp9DecodeDiagnostic.InvalidPacket("VP9 show-existing-frame packet references an invalid slot."),
                 header);
         }
 
-        var referenceFrame = _referenceFrames[index];
-        if (referenceFrame?.Frame is null)
+        if (!_referenceFrames.TryGet(index, out var referenceFrame) || referenceFrame?.Frame is null)
         {
             return Vp9DecodeResult.Fail(
                 Vp9DecodeDiagnostic.MissingReferenceFrame($"VP9 reference frame slot {index} is empty."),
@@ -277,30 +275,6 @@ public sealed class RawVp9Decoder
             colorResult.CompressedHeader);
     }
 
-    private void RefreshReferenceFrames(Vp9DecodedFrame yuvFrame, Vp9ColorRange colorRange)
-    {
-        var referenceFrame = new Vp9ReferenceFrame(CloneFrame(yuvFrame), colorRange);
-        for (var i = 0; i < _referenceFrames.Length; i++)
-        {
-            _referenceFrames[i] = referenceFrame;
-        }
-    }
-
-    private Vp9ReferenceFrameInfo?[] CreateReferenceFrameInfos()
-    {
-        var referenceFrameInfos = new Vp9ReferenceFrameInfo?[_referenceFrames.Length];
-        for (var i = 0; i < _referenceFrames.Length; i++)
-        {
-            var referenceFrame = _referenceFrames[i]?.Frame;
-            if (referenceFrame is not null)
-            {
-                referenceFrameInfos[i] = new Vp9ReferenceFrameInfo(referenceFrame.Width, referenceFrame.Height);
-            }
-        }
-
-        return referenceFrameInfos;
-    }
-
     private static Vp9FrameContext[] CreateDefaultFrameContexts()
     {
         var frameContexts = new Vp9FrameContext[Vp9FrameContextCount];
@@ -341,29 +315,8 @@ public sealed class RawVp9Decoder
     private static Vp9DecodedFrame ConvertReferenceFrame(Vp9ReferenceFrame referenceFrame, Vp9OutputPixelFormat outputFormat)
     {
         return outputFormat == Vp9OutputPixelFormat.Yuv420
-            ? CloneFrame(referenceFrame.Frame)
+            ? Vp9ReferenceFrameStore.CloneFrame(referenceFrame.Frame)
             : Vp9ColorConverter.ConvertYuv420ToPacked(referenceFrame.Frame, referenceFrame.ColorRange, outputFormat);
-    }
-
-    private static Vp9DecodedFrame CloneFrame(Vp9DecodedFrame frame)
-    {
-        var pixels = new byte[frame.Pixels.Length];
-        frame.Pixels.AsSpan().CopyTo(pixels);
-
-        return frame.PixelFormat == Vp9OutputPixelFormat.Yuv420
-            ? Vp9DecodedFrame.CreateYuv420(
-                frame.Width,
-                frame.Height,
-                pixels,
-                frame.Planes[0],
-                frame.Planes[1],
-                frame.Planes[2])
-            : Vp9DecodedFrame.CreatePacked(
-                frame.Width,
-                frame.Height,
-                frame.PixelFormat,
-                pixels,
-                frame.Stride);
     }
 
     private static Vp9DecodeDiagnostic? ValidateOptions(Vp9DecodeOptions options)
@@ -439,29 +392,8 @@ public sealed class RawVp9Decoder
 
     private Vp9DecodeDiagnostic? ValidateInterFrameReferences(Vp9FrameHeader header)
     {
-        if (header.ShowExistingFrame || header.FrameType != Vp9FrameType.InterFrame || header.IntraOnly)
-        {
-            return null;
-        }
-
-        if (header.Profile != 0 || header.BitDepth != 8 || header.SubsamplingX != 1 || header.SubsamplingY != 1)
-        {
-            return null;
-        }
-
-        foreach (var slot in header.ReferenceFrameIndices)
-        {
-            if (slot < 0 || slot >= _referenceFrames.Length || _referenceFrames[slot]?.Frame is null)
-            {
-                return Vp9DecodeDiagnostic.MissingReferenceFrame(
-                    $"VP9 inter frame references empty reference frame slot {slot}.");
-            }
-        }
-
-        return null;
+        return _referenceFrames.ValidateInterFrameReferences(header);
     }
-
-    private sealed record Vp9ReferenceFrame(Vp9DecodedFrame Frame, Vp9ColorRange ColorRange);
 
     private static Vp9DecodeDiagnostic? ValidateHeader(Vp9FrameHeader header, Vp9DecodeOptions options)
     {
