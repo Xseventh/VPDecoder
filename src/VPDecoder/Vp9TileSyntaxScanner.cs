@@ -638,6 +638,22 @@ internal static class Vp9TileSyntaxScanner
         out Vp9DecodeDiagnostic? diagnostic)
     {
         frame = null;
+        if (!TryReconstructFullFrameWithSyntax(packet, state, out var reconstructedFrame, out diagnostic))
+        {
+            return false;
+        }
+
+        frame = reconstructedFrame?.Frame;
+        return true;
+    }
+
+    public static bool TryReconstructFullFrameWithSyntax(
+        ReadOnlyMemory<byte> packet,
+        Vp9KeyFrameDecodeState state,
+        out Vp9ReconstructedFrame? reconstructedFrame,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
+        reconstructedFrame = null;
         if (!TryProbeFullFrameSyntax(packet, state, out var probes, out diagnostic))
         {
             return false;
@@ -679,7 +695,12 @@ internal static class Vp9TileSyntaxScanner
                 }
             }
 
-            frame = state.FrameBuffer.ToDecodedFrame();
+            var frame = state.FrameBuffer.ToDecodedFrame();
+            reconstructedFrame = new Vp9ReconstructedFrame(
+                frame,
+                probes,
+                state.Header.TileInfo.MiRows,
+                state.Header.TileInfo.MiColumns);
             return true;
         }
         catch (NotSupportedException ex)

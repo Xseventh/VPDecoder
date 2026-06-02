@@ -632,6 +632,75 @@ public sealed class Vp9TileSyntaxScannerTests
         AssertPlaneHash(frame, planeIndex: 2, expectedVNonZero, expectedVHash);
     }
 
+    [Theory]
+    [InlineData(
+        "/tmp/vp9-main-frame-0.vp9",
+        30398,
+        "4c57b8dda880711b174483a27e1691c6c9aa9a6721351d041425f8dafb23b7e9",
+        5320,
+        15960,
+        25326,
+        168,
+        328,
+        Vp9BlockSize.Block32X16,
+        Vp9TransformSize.Tx16X16,
+        Vp9TransformSize.Tx8X8)]
+    [InlineData(
+        "/tmp/vp9-alpha-frame-0.vp9",
+        6233,
+        "94079f539a2165b10f5db2d9e9b5d54ca8df534ca3d36e4eaa1234b0b17a7329",
+        2218,
+        6654,
+        10488,
+        168,
+        330,
+        Vp9BlockSize.Block16X8,
+        Vp9TransformSize.Tx8X8,
+        Vp9TransformSize.Tx4X4)]
+    public void TryReconstructFullFrameWithSyntax_ForExternalSamples_RetainsLoopFilterMetadata(
+        string path,
+        int expectedLength,
+        string expectedSha256,
+        int expectedModeCount,
+        int expectedGroupCount,
+        int expectedCoefficientBlockCount,
+        int expectedLastMiRow,
+        int expectedLastMiColumn,
+        Vp9BlockSize expectedLastBlockSize,
+        Vp9TransformSize expectedLastYTransformSize,
+        Vp9TransformSize expectedLastUvTransformSize)
+    {
+        var packet = ReadRequiredSample(path, expectedLength, expectedSha256);
+        var state = CreateState(packet);
+
+        Assert.True(Vp9TileSyntaxScanner.TryReconstructFullFrameWithSyntax(packet, state, out var reconstructed, out var diagnostic), diagnostic?.Message);
+
+        Assert.NotNull(reconstructed);
+        Assert.Null(diagnostic);
+        Assert.Equal(2656, reconstructed.Frame.Width);
+        Assert.Equal(1352, reconstructed.Frame.Height);
+        Assert.Equal(924, reconstructed.Superblocks.Count);
+        Assert.Equal(expectedModeCount, reconstructed.ModeBlocks.Count);
+        Assert.Equal(expectedGroupCount, reconstructed.CoefficientGroupCount);
+        Assert.Equal(expectedCoefficientBlockCount, reconstructed.CoefficientBlockCount);
+        Assert.Equal(reconstructed.MiRows * reconstructed.MiColumns, reconstructed.CoveredMiUnitCount);
+        Assert.Equal(169, reconstructed.MiRows);
+        Assert.Equal(332, reconstructed.MiColumns);
+        Assert.Contains(reconstructed.ModeBlocks, modeBlock => modeBlock.NonZeroCoefficientBlockCount > 0);
+
+        Assert.True(reconstructed.TryGetModeBlockAtMi(168, 331, out var lastVisibleBlock));
+        Assert.NotNull(lastVisibleBlock);
+        Assert.Equal(expectedLastMiRow, lastVisibleBlock.ModeInfo.MiRow);
+        Assert.Equal(expectedLastMiColumn, lastVisibleBlock.ModeInfo.MiColumn);
+        Assert.Equal(expectedLastBlockSize, lastVisibleBlock.ModeInfo.BlockSize);
+        Assert.Equal(expectedLastYTransformSize, lastVisibleBlock.CoefficientGroups[0].TransformSize);
+        Assert.Equal(expectedLastUvTransformSize, lastVisibleBlock.CoefficientGroups[1].TransformSize);
+        Assert.Equal(expectedLastUvTransformSize, lastVisibleBlock.CoefficientGroups[2].TransformSize);
+
+        Assert.False(reconstructed.TryGetModeBlockAtMi(169, 0, out _));
+        Assert.False(reconstructed.TryGetModeBlockAtMi(0, 332, out _));
+    }
+
     [Fact]
     public void TryReconstructFirstLeafYDc_ForExternalMainFrame_WritesDeterministicYBlocks()
     {
