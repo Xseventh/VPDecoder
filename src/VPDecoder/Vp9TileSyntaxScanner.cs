@@ -1,5 +1,10 @@
 namespace VPDecoder;
 
+public sealed record Vp9SuperblockSyntaxProbe(
+    int TileIndex,
+    IReadOnlyList<Vp9ModeInfoProbe> ModeInfos,
+    IReadOnlyList<Vp9CoefficientBlockGroupProbe> CoefficientGroups);
+
 internal static class Vp9TileSyntaxScanner
 {
     private const int SuperblockSizeInMiUnits = 8;
@@ -243,6 +248,68 @@ internal static class Vp9TileSyntaxScanner
         }
     }
 
+    public static bool TryProbeFirstSuperblockSyntax(
+        ReadOnlyMemory<byte> packet,
+        Vp9KeyFrameDecodeState state,
+        out IReadOnlyList<Vp9SuperblockSyntaxProbe> probes,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
+        var parsed = new Vp9SuperblockSyntaxProbe[state.TileGeometries.Count];
+        probes = parsed;
+        diagnostic = null;
+
+        try
+        {
+            for (var i = 0; i < state.TileGeometries.Count; i++)
+            {
+                var geometry = state.TileGeometries[i];
+                if (geometry.Buffer.DataOffset + geometry.Buffer.Size > packet.Length)
+                {
+                    diagnostic = Vp9DecodeDiagnostic.TruncatedPacket("VP9 tile buffer extends past the packet boundary.");
+                    return false;
+                }
+
+                var tileBytes = packet.Span.Slice(geometry.Buffer.DataOffset, geometry.Buffer.Size);
+                var reader = new Vp9BoolReader(tileBytes);
+                var syntaxContext = Vp9KeyFrameSyntaxContext.Create(state.Header);
+                var coefficientContext = Vp9CoefficientEntropyContext.Create(state.Header);
+                var modes = new List<Vp9ModeInfoProbe>();
+                var coefficientGroups = new List<Vp9CoefficientBlockGroupProbe>();
+                ReadPartitionSyntax(
+                    ref reader,
+                    state,
+                    geometry,
+                    syntaxContext,
+                    coefficientContext,
+                    geometry.MiRowStart,
+                    geometry.MiColumnStart,
+                    Vp9BlockSize.Block64X64,
+                    [],
+                    modes,
+                    coefficientGroups);
+                if (reader.HasError)
+                {
+                    diagnostic = Vp9DecodeDiagnostic.TruncatedPacket("VP9 first superblock syntax probe ended unexpectedly.");
+                    return false;
+                }
+
+                parsed[i] = new Vp9SuperblockSyntaxProbe(geometry.Buffer.Index, modes, coefficientGroups);
+            }
+
+            return true;
+        }
+        catch (NotSupportedException ex)
+        {
+            diagnostic = Vp9DecodeDiagnostic.UnsupportedFeature(ex.Message);
+            return false;
+        }
+        catch (Vp9BoolReaderException ex)
+        {
+            diagnostic = ex.Diagnostic;
+            return false;
+        }
+    }
+
     public static bool TryReconstructFirstLeafYDc(
         ReadOnlyMemory<byte> packet,
         Vp9KeyFrameDecodeState state,
@@ -330,6 +397,221 @@ internal static class Vp9TileSyntaxScanner
         }
     }
 
+    private static void ReadPartitionSyntax(
+        ref Vp9BoolReader reader,
+        Vp9KeyFrameDecodeState state,
+        Vp9TileGeometry geometry,
+        Vp9KeyFrameSyntaxContext syntaxContext,
+        Vp9CoefficientEntropyContext coefficientContext,
+        int miRow,
+        int miColumn,
+        Vp9BlockSize blockSize,
+        IReadOnlyList<Vp9PartitionType> partitionPath,
+        List<Vp9ModeInfoProbe> modes,
+        List<Vp9CoefficientBlockGroupProbe> coefficientGroups)
+    {
+        if (miRow >= state.Header.TileInfo.MiRows || miColumn >= state.Header.TileInfo.MiColumns)
+        {
+            return;
+        }
+
+        var hbs = Vp9ModeInfoSyntax.GetHalfBlockSizeInMiUnits(blockSize);
+        if (hbs == 0)
+        {
+            throw new NotSupportedException("VP9 first superblock syntax probe does not support sub-8x8 partitions.");
+        }
+
+        var hasRows = miRow + hbs < state.Header.TileInfo.MiRows;
+        var hasColumns = miColumn + hbs < state.Header.TileInfo.MiColumns;
+        var partition = Vp9PartitionSyntax.ReadPartition(
+            ref reader,
+            syntaxContext.GetPartitionContext(miRow, miColumn, blockSize),
+            hasRows,
+            hasColumns);
+        var subsize = Vp9ModeInfoSyntax.GetSubsize(blockSize, partition);
+        var childPath = partitionPath.Concat([partition]).ToArray();
+
+        switch (partition)
+        {
+            case Vp9PartitionType.None:
+                ReadBlockSyntax(
+                    ref reader,
+                    state,
+                    geometry,
+                    syntaxContext,
+                    coefficientContext,
+                    miRow,
+                    miColumn,
+                    subsize,
+                    childPath,
+                    modes,
+                    coefficientGroups);
+                break;
+
+            case Vp9PartitionType.Horizontal:
+                ReadBlockSyntax(
+                    ref reader,
+                    state,
+                    geometry,
+                    syntaxContext,
+                    coefficientContext,
+                    miRow,
+                    miColumn,
+                    subsize,
+                    childPath,
+                    modes,
+                    coefficientGroups);
+                if (hasRows)
+                {
+                    ReadBlockSyntax(
+                        ref reader,
+                        state,
+                        geometry,
+                        syntaxContext,
+                        coefficientContext,
+                        miRow + hbs,
+                        miColumn,
+                        subsize,
+                        childPath,
+                        modes,
+                        coefficientGroups);
+                }
+
+                break;
+
+            case Vp9PartitionType.Vertical:
+                ReadBlockSyntax(
+                    ref reader,
+                    state,
+                    geometry,
+                    syntaxContext,
+                    coefficientContext,
+                    miRow,
+                    miColumn,
+                    subsize,
+                    childPath,
+                    modes,
+                    coefficientGroups);
+                if (hasColumns)
+                {
+                    ReadBlockSyntax(
+                        ref reader,
+                        state,
+                        geometry,
+                        syntaxContext,
+                        coefficientContext,
+                        miRow,
+                        miColumn + hbs,
+                        subsize,
+                        childPath,
+                        modes,
+                        coefficientGroups);
+                }
+
+                break;
+
+            case Vp9PartitionType.Split:
+                ReadPartitionSyntax(
+                    ref reader,
+                    state,
+                    geometry,
+                    syntaxContext,
+                    coefficientContext,
+                    miRow,
+                    miColumn,
+                    subsize,
+                    childPath,
+                    modes,
+                    coefficientGroups);
+                ReadPartitionSyntax(
+                    ref reader,
+                    state,
+                    geometry,
+                    syntaxContext,
+                    coefficientContext,
+                    miRow,
+                    miColumn + hbs,
+                    subsize,
+                    childPath,
+                    modes,
+                    coefficientGroups);
+                ReadPartitionSyntax(
+                    ref reader,
+                    state,
+                    geometry,
+                    syntaxContext,
+                    coefficientContext,
+                    miRow + hbs,
+                    miColumn,
+                    subsize,
+                    childPath,
+                    modes,
+                    coefficientGroups);
+                ReadPartitionSyntax(
+                    ref reader,
+                    state,
+                    geometry,
+                    syntaxContext,
+                    coefficientContext,
+                    miRow + hbs,
+                    miColumn + hbs,
+                    subsize,
+                    childPath,
+                    modes,
+                    coefficientGroups);
+                break;
+
+            default:
+                throw new ArgumentOutOfRangeException(nameof(partition), partition, "Unsupported VP9 partition type.");
+        }
+
+        if (blockSize >= Vp9BlockSize.Block8X8 &&
+            (blockSize == Vp9BlockSize.Block8X8 || partition != Vp9PartitionType.Split))
+        {
+            syntaxContext.UpdatePartitionContext(miRow, miColumn, blockSize, subsize);
+        }
+    }
+
+    private static void ReadBlockSyntax(
+        ref Vp9BoolReader reader,
+        Vp9KeyFrameDecodeState state,
+        Vp9TileGeometry geometry,
+        Vp9KeyFrameSyntaxContext syntaxContext,
+        Vp9CoefficientEntropyContext coefficientContext,
+        int miRow,
+        int miColumn,
+        Vp9BlockSize blockSize,
+        IReadOnlyList<Vp9PartitionType> partitionPath,
+        List<Vp9ModeInfoProbe> modes,
+        List<Vp9CoefficientBlockGroupProbe> coefficientGroups)
+    {
+        if (blockSize is not (Vp9BlockSize.Block32X32 or Vp9BlockSize.Block64X64))
+        {
+            throw new NotSupportedException(
+                $"VP9 first superblock syntax probe supports only 32x32 or 64x64 leaf blocks, not {blockSize}.");
+        }
+
+        var modeInfo = ReadModeInfoAfterPartition(
+            ref reader,
+            state,
+            geometry,
+            syntaxContext,
+            miRow,
+            miColumn,
+            blockSize,
+            partitionPath);
+        modes.Add(modeInfo);
+        for (var plane = 0; plane < 3; plane++)
+        {
+            coefficientGroups.Add(Vp9ResidualSyntax.ReadPlaneCoefficientBlocks(
+                ref reader,
+                state,
+                modeInfo,
+                coefficientContext,
+                plane));
+        }
+    }
+
     private static Vp9ModeInfoProbe ReadFirstLeafModeInfo(
         ref Vp9BoolReader reader,
         Vp9KeyFrameDecodeState state,
@@ -340,11 +622,9 @@ internal static class Vp9TileSyntaxScanner
         var blockSize = Vp9BlockSize.Block64X64;
         var partitionPath = new List<Vp9PartitionType>();
         var syntaxContext = Vp9KeyFrameSyntaxContext.Create(state.Header);
-        var partitionBlockSize = blockSize;
 
         while (true)
         {
-            partitionBlockSize = blockSize;
             var hbs = Vp9ModeInfoSyntax.GetHalfBlockSizeInMiUnits(blockSize);
             var hasRows = miRow + hbs < state.Header.TileInfo.MiRows;
             var hasColumns = miColumn + hbs < state.Header.TileInfo.MiColumns;
@@ -369,6 +649,27 @@ internal static class Vp9TileSyntaxScanner
             throw new NotSupportedException("VP9 sub-8x8 key-frame mode info is not supported yet.");
         }
 
+        return ReadModeInfoAfterPartition(
+            ref reader,
+            state,
+            geometry,
+            syntaxContext,
+            miRow,
+            miColumn,
+            blockSize,
+            partitionPath);
+    }
+
+    private static Vp9ModeInfoProbe ReadModeInfoAfterPartition(
+        ref Vp9BoolReader reader,
+        Vp9KeyFrameDecodeState state,
+        Vp9TileGeometry geometry,
+        Vp9KeyFrameSyntaxContext syntaxContext,
+        int miRow,
+        int miColumn,
+        Vp9BlockSize blockSize,
+        IReadOnlyList<Vp9PartitionType> partitionPath)
+    {
         var skipContext = syntaxContext.GetSkipContext(miRow, miColumn, geometry.MiColumnStart);
         var skip = Vp9ModeInfoSyntax.ReadSkip(ref reader, state.CompressedHeader.FrameContext, skipContext);
         var transformSizeContext = syntaxContext.GetTransformSizeContext(
@@ -385,7 +686,6 @@ internal static class Vp9TileSyntaxScanner
         var yMode = Vp9ModeInfoSyntax.ReadYMode(ref reader, yModeContext.Above, yModeContext.Left);
         var uvMode = Vp9ModeInfoSyntax.ReadUvMode(ref reader, yMode);
         syntaxContext.SetModeInfo(miRow, miColumn, blockSize, skip, transformSize, yMode);
-        syntaxContext.UpdatePartitionContext(miRow, miColumn, partitionBlockSize, blockSize);
 
         return new Vp9ModeInfoProbe(
             geometry.Buffer.Index,

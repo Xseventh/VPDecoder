@@ -265,6 +265,83 @@ public sealed class Vp9TileSyntaxScannerTests
     }
 
     [Fact]
+    public void TryProbeFirstSuperblockSyntax_ForExternalMainFrame_DrainsYuvCoefficientGroups()
+    {
+        var packet = ReadRequiredSample(
+            "/tmp/vp9-main-frame-0.vp9",
+            30398,
+            "4c57b8dda880711b174483a27e1691c6c9aa9a6721351d041425f8dafb23b7e9");
+        var state = CreateState(packet);
+
+        Assert.True(Vp9TileSyntaxScanner.TryProbeFirstSuperblockSyntax(packet, state, out var probes, out var diagnostic), diagnostic?.Message);
+
+        Assert.Equal(8, probes.Count);
+        Assert.All(probes, probe =>
+        {
+            Assert.Single(probe.ModeInfos);
+            Assert.Equal(3, probe.CoefficientGroups.Count);
+            var mode = probe.ModeInfos[0];
+            Assert.Equal([Vp9PartitionType.None], mode.PartitionPath);
+            Assert.Equal(Vp9BlockSize.Block64X64, mode.BlockSize);
+            Assert.False(mode.Skip);
+            Assert.Equal(0, mode.SkipContext);
+            Assert.Equal(Vp9TransformSize.Tx32X32, mode.TransformSize);
+            Assert.Equal(Vp9PredictionMode.Dc, mode.YMode);
+            Assert.Equal(Vp9PredictionMode.Dc, mode.UvMode);
+
+            Assert.Equal(Vp9TransformSize.Tx32X32, probe.CoefficientGroups[0].TransformSize);
+            Assert.Equal([1, 0, 1, 0], probe.CoefficientGroups[0].Blocks.Select(block => block.Eob).ToArray());
+            Assert.Equal([16625, 0, 200, 0], probe.CoefficientGroups[0].Blocks.Select(block => block.DequantizedCoefficients[0]).ToArray());
+            Assert.Equal([0, 1, 1, 1], probe.CoefficientGroups[0].Blocks.Select(block => block.InitialCoefficientContext).ToArray());
+            AssertCoefficientBlock(probe.CoefficientGroups[1].Blocks[0], initialContext: 0, eob: 0, nonZeroCount: 0, dc: 0, firstNonZero: -1, lastNonZero: -1, hash: "ad7facb2586fc6e966c004d7d1d16b024f5805ff7cb47c7a85dabd8b48892ca7", planeType: 1);
+            AssertCoefficientBlock(probe.CoefficientGroups[2].Blocks[0], initialContext: 0, eob: 1, nonZeroCount: 1, dc: 25, firstNonZero: 0, lastNonZero: 0, hash: "08facbceb1744917b5a2b39ff4509b223010125c9992bca76b7dec06871a283d", planeType: 1);
+        });
+    }
+
+    [Fact]
+    public void TryProbeFirstSuperblockSyntax_ForExternalAlphaFrame_DrainsSplitYuvCoefficientGroups()
+    {
+        var packet = ReadRequiredSample(
+            "/tmp/vp9-alpha-frame-0.vp9",
+            6233,
+            "94079f539a2165b10f5db2d9e9b5d54ca8df534ca3d36e4eaa1234b0b17a7329");
+        var state = CreateState(packet);
+
+        Assert.True(Vp9TileSyntaxScanner.TryProbeFirstSuperblockSyntax(packet, state, out var probes, out var diagnostic), diagnostic?.Message);
+
+        Assert.Equal(8, probes.Count);
+        Assert.All(probes, probe =>
+        {
+            Assert.Equal(4, probe.ModeInfos.Count);
+            Assert.Equal(12, probe.CoefficientGroups.Count);
+            Assert.Equal([0, 0, 0, 2], probe.ModeInfos.Select(mode => mode.SkipContext).ToArray());
+            Assert.Equal([false, true, true, true], probe.ModeInfos.Select(mode => mode.Skip).ToArray());
+            Assert.All(probe.ModeInfos, mode =>
+            {
+                Assert.Equal([Vp9PartitionType.Split, Vp9PartitionType.None], mode.PartitionPath);
+                Assert.Equal(Vp9BlockSize.Block32X32, mode.BlockSize);
+                Assert.Equal(Vp9TransformSize.Tx32X32, mode.TransformSize);
+                Assert.Equal(1, mode.TransformSizeContext);
+                Assert.Equal(Vp9PredictionMode.Dc, mode.YMode);
+                Assert.Equal(Vp9PredictionMode.Dc, mode.UvMode);
+            });
+
+            Assert.Equal([0, 0, 4, 4], probe.ModeInfos.Select(mode => mode.MiRow).ToArray());
+            Assert.Equal([0, 4, 0, 4], probe.ModeInfos.Select(mode => mode.MiColumn - probe.ModeInfos[0].MiColumn).ToArray());
+            AssertCoefficientBlock(probe.CoefficientGroups[0].Blocks[0], initialContext: 0, eob: 1, nonZeroCount: 1, dc: -16380, firstNonZero: 0, lastNonZero: 0, hash: "11c1b2812be2ade82d7d2f30c5e2fd5f312cff471fd9294ed134e59f004335fc");
+            for (var i = 1; i < probe.CoefficientGroups.Count; i++)
+            {
+                var expectedLength = probe.CoefficientGroups[i].TransformSize == Vp9TransformSize.Tx16X16 ? 256 : 1024;
+                var expectedPlaneType = i % 3 == 0 ? 0 : 1;
+                var expectedHash = expectedLength == 256
+                    ? "5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef"
+                    : "ad7facb2586fc6e966c004d7d1d16b024f5805ff7cb47c7a85dabd8b48892ca7";
+                AssertCoefficientBlock(probe.CoefficientGroups[i].Blocks[0], initialContext: 0, eob: 0, nonZeroCount: 0, dc: 0, firstNonZero: -1, lastNonZero: -1, hash: expectedHash, coefficientLength: expectedLength, planeType: expectedPlaneType);
+            }
+        });
+    }
+
+    [Fact]
     public void TryReconstructFirstLeafYDc_ForExternalMainFrame_WritesDeterministicYBlocks()
     {
         var packet = ReadRequiredSample(
@@ -319,15 +396,16 @@ public sealed class Vp9TileSyntaxScannerTests
         int dc,
         int firstNonZero,
         int lastNonZero,
-        string hash)
+        string hash,
+        int coefficientLength = 1024,
+        int planeType = 0)
     {
-        Assert.Equal(Vp9TransformSize.Tx32X32, block.TransformSize);
-        Assert.Equal(0, block.PlaneType);
+        Assert.Equal(planeType, block.PlaneType);
         Assert.Equal(0, block.ReferenceType);
         Assert.Equal(initialContext, block.InitialCoefficientContext);
         Assert.Equal(eob, block.Eob);
         Assert.Equal(nonZeroCount, block.NonZeroCount);
-        Assert.Equal(1024, block.DequantizedCoefficients.Length);
+        Assert.Equal(coefficientLength, block.DequantizedCoefficients.Length);
         Assert.Equal(dc, block.DequantizedCoefficients[0]);
         Assert.Equal(firstNonZero, block.FirstNonZeroRasterIndex);
         Assert.Equal(lastNonZero, block.LastNonZeroRasterIndex);

@@ -144,12 +144,112 @@ internal static class Vp9ResidualSyntax
             throw new NotSupportedException("VP9 first Y coefficient block probe currently supports only TX32 blocks.");
         }
 
-        var maxEob = Vp9ScanTables.GetMaximumEob(modeInfo.TransformSize);
+        return ReadCoefficientBlock(
+            ref reader,
+            state,
+            modeInfo,
+            modeInfo.TransformSize,
+            planeType,
+            referenceType,
+            state.DequantTables.YDc,
+            state.DequantTables.YAc,
+            initialCoefficientContext);
+    }
+
+    public static Vp9CoefficientBlockGroupProbe ReadPlaneCoefficientBlocks(
+        ref Vp9BoolReader reader,
+        Vp9KeyFrameDecodeState state,
+        Vp9ModeInfoProbe modeInfo,
+        Vp9CoefficientEntropyContext entropyContext,
+        int plane)
+    {
+        if (plane is < 0 or > 2)
+        {
+            throw new ArgumentOutOfRangeException(nameof(plane), plane, "VP9 plane index must be 0, 1, or 2.");
+        }
+
+        var transformSize = plane == 0
+            ? modeInfo.TransformSize
+            : GetUvTransformSize(modeInfo.BlockSize, modeInfo.TransformSize);
+        var width4 = GetPlaneWidthIn4x4Blocks(modeInfo.BlockSize, plane);
+        var height4 = GetPlaneHeightIn4x4Blocks(modeInfo.BlockSize, plane);
+        var step = Vp9CoefficientEntropyContext.GetTransformSizeIn4x4Blocks(transformSize);
+        var blocks = new List<Vp9CoefficientBlockProbe>();
+
+        if (modeInfo.Skip)
+        {
+            entropyContext.ClearBlock(
+                plane,
+                GetPlaneX4(modeInfo.MiColumn, plane),
+                GetPlaneY4(modeInfo.MiRow, plane),
+                width4,
+                height4);
+            for (var row = 0; row < height4; row += step)
+            {
+                for (var column = 0; column < width4; column += step)
+                {
+                    blocks.Add(CreateBlockProbe(
+                        modeInfo,
+                        transformSize,
+                        plane == 0 ? 0 : 1,
+                        referenceType: 0,
+                        initialCoefficientContext: 0,
+                        eob: 0,
+                        new int[Vp9ScanTables.GetMaximumEob(transformSize)]));
+                }
+            }
+
+            return new Vp9CoefficientBlockGroupProbe(modeInfo.TileIndex, modeInfo.BlockSize, transformSize, blocks);
+        }
+
+        var dc = plane == 0 ? state.DequantTables.YDc : state.DequantTables.UvDc;
+        var ac = plane == 0 ? state.DequantTables.YAc : state.DequantTables.UvAc;
+        var planeType = plane == 0 ? 0 : 1;
+        var originX4 = GetPlaneX4(modeInfo.MiColumn, plane);
+        var originY4 = GetPlaneY4(modeInfo.MiRow, plane);
+        for (var row = 0; row < height4; row += step)
+        {
+            for (var column = 0; column < width4; column += step)
+            {
+                var x4 = originX4 + column;
+                var y4 = originY4 + row;
+                var context = entropyContext.GetInitialContext(plane, x4, y4, transformSize);
+                var block = ReadCoefficientBlock(
+                    ref reader,
+                    state,
+                    modeInfo,
+                    transformSize,
+                    planeType,
+                    referenceType: 0,
+                    dc,
+                    ac,
+                    context);
+                blocks.Add(block);
+                entropyContext.SetTransformContext(plane, x4, y4, transformSize, block.Eob > 0);
+            }
+        }
+
+        return new Vp9CoefficientBlockGroupProbe(modeInfo.TileIndex, modeInfo.BlockSize, transformSize, blocks);
+    }
+
+    private static Vp9CoefficientBlockProbe ReadCoefficientBlock(
+        ref Vp9BoolReader reader,
+        Vp9KeyFrameDecodeState state,
+        Vp9ModeInfoProbe modeInfo,
+        Vp9TransformSize transformSize,
+        int planeType,
+        int referenceType,
+        int dcDequant,
+        int acDequant,
+        int initialCoefficientContext)
+    {
+        var maxEob = Vp9ScanTables.GetMaximumEob(transformSize);
         var coefficients = new int[maxEob];
         if (modeInfo.Skip)
         {
             return CreateBlockProbe(
                 modeInfo,
+                transformSize,
                 planeType,
                 referenceType,
                 initialCoefficientContext,
@@ -158,18 +258,18 @@ internal static class Vp9ResidualSyntax
         }
 
         var probabilities = state.CompressedHeader.FrameContext.CoefficientProbabilities;
-        var scan = Vp9ScanTables.GetDefaultScan(modeInfo.TransformSize);
-        var neighbors = Vp9ScanTables.GetDefaultNeighbors(modeInfo.TransformSize);
+        var scan = Vp9ScanTables.GetDefaultScan(transformSize);
+        var neighbors = Vp9ScanTables.GetDefaultNeighbors(transformSize);
         var tokenCache = new byte[maxEob];
         var coefficientIndex = 0;
         var coefficientContext = initialCoefficientContext;
-        var dq = state.DequantTables.YDc;
+        var dq = dcDequant;
 
         while (coefficientIndex < maxEob)
         {
-            var band = Vp9ScanTables.GetBand(modeInfo.TransformSize, coefficientIndex);
+            var band = Vp9ScanTables.GetBand(transformSize, coefficientIndex);
             var probabilityIndex = state.CompressedHeader.FrameContext.GetCoefficientProbabilityIndex(
-                (int)modeInfo.TransformSize,
+                (int)transformSize,
                 planeType,
                 referenceType,
                 band,
@@ -189,6 +289,7 @@ internal static class Vp9ResidualSyntax
                 {
                     return CreateBlockProbe(
                         modeInfo,
+                        transformSize,
                         planeType,
                         referenceType,
                         initialCoefficientContext,
@@ -197,19 +298,19 @@ internal static class Vp9ResidualSyntax
                 }
 
                 coefficientContext = Vp9ScanTables.GetCoefficientContext(neighbors, tokenCache, coefficientIndex);
-                band = Vp9ScanTables.GetBand(modeInfo.TransformSize, coefficientIndex);
+                band = Vp9ScanTables.GetBand(transformSize, coefficientIndex);
                 probabilityIndex = state.CompressedHeader.FrameContext.GetCoefficientProbabilityIndex(
-                    (int)modeInfo.TransformSize,
+                    (int)transformSize,
                     planeType,
                     referenceType,
                     band,
                     coefficientContext,
                     0);
-                dq = state.DequantTables.YAc;
+                dq = acDequant;
             }
 
             var coefficient = ReadNonZeroCoefficientValue(ref reader, probabilities[probabilityIndex + 2]);
-            var dequantizedValue = Dequantize(coefficient.TokenValue, dq, modeInfo.TransformSize);
+            var dequantizedValue = Dequantize(coefficient.TokenValue, dq, transformSize);
             if (reader.ReadBit())
             {
                 dequantizedValue = -dequantizedValue;
@@ -222,12 +323,13 @@ internal static class Vp9ResidualSyntax
             if (coefficientIndex < maxEob)
             {
                 coefficientContext = Vp9ScanTables.GetCoefficientContext(neighbors, tokenCache, coefficientIndex);
-                dq = state.DequantTables.YAc;
+                dq = acDequant;
             }
         }
 
         return CreateBlockProbe(
             modeInfo,
+            transformSize,
             planeType,
             referenceType,
             initialCoefficientContext,
@@ -257,6 +359,7 @@ internal static class Vp9ResidualSyntax
                 {
                     blocks[blockIndex] = CreateBlockProbe(
                         modeInfo,
+                        modeInfo.TransformSize,
                         planeType: 0,
                         referenceType: 0,
                         initialCoefficientContext: 0,
@@ -378,8 +481,42 @@ internal static class Vp9ResidualSyntax
         };
     }
 
+    private static Vp9TransformSize GetUvTransformSize(Vp9BlockSize blockSize, Vp9TransformSize yTransformSize)
+    {
+        return (blockSize, yTransformSize) switch
+        {
+            (Vp9BlockSize.Block32X32, Vp9TransformSize.Tx32X32) => Vp9TransformSize.Tx16X16,
+            (Vp9BlockSize.Block64X64, Vp9TransformSize.Tx32X32) => Vp9TransformSize.Tx32X32,
+            _ => throw new NotSupportedException(
+                $"VP9 UV transform size is not supported for block size {blockSize} and Y transform {yTransformSize}.")
+        };
+    }
+
+    private static int GetPlaneWidthIn4x4Blocks(Vp9BlockSize blockSize, int plane)
+    {
+        var miWidth = Vp9ModeInfoSyntax.GetBlockWidthInMiUnits(blockSize);
+        return plane == 0 ? miWidth * 2 : miWidth;
+    }
+
+    private static int GetPlaneHeightIn4x4Blocks(Vp9BlockSize blockSize, int plane)
+    {
+        var miHeight = Vp9ModeInfoSyntax.GetBlockHeightInMiUnits(blockSize);
+        return plane == 0 ? miHeight * 2 : miHeight;
+    }
+
+    private static int GetPlaneX4(int miColumn, int plane)
+    {
+        return plane == 0 ? miColumn * 2 : miColumn;
+    }
+
+    private static int GetPlaneY4(int miRow, int plane)
+    {
+        return plane == 0 ? miRow * 2 : miRow;
+    }
+
     private static Vp9CoefficientBlockProbe CreateBlockProbe(
         Vp9ModeInfoProbe modeInfo,
+        Vp9TransformSize transformSize,
         int planeType,
         int referenceType,
         int initialCoefficientContext,
@@ -407,7 +544,7 @@ internal static class Vp9ResidualSyntax
 
         return new Vp9CoefficientBlockProbe(
             modeInfo.TileIndex,
-            modeInfo.TransformSize,
+            transformSize,
             planeType,
             referenceType,
             initialCoefficientContext,
