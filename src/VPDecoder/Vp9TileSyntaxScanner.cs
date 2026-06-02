@@ -573,7 +573,7 @@ internal static class Vp9TileSyntaxScanner
             hasRows,
             hasColumns);
         var subsize = Vp9ModeInfoSyntax.GetSubsize(blockSize, partition);
-        if (hbs == 0)
+        if (hbs == 0 && partition != Vp9PartitionType.None)
         {
             throw new NotSupportedException(
                 $"VP9 key-frame syntax probe does not support sub-8x8 partition {partition} at MI ({miRow},{miColumn}); subsize {subsize}.");
@@ -735,10 +735,10 @@ internal static class Vp9TileSyntaxScanner
         List<Vp9ModeInfoProbe> modes,
         List<Vp9CoefficientBlockGroupProbe> coefficientGroups)
     {
-        if (blockSize is not (Vp9BlockSize.Block32X32 or Vp9BlockSize.Block64X64))
+        if (blockSize is not (Vp9BlockSize.Block8X8 or Vp9BlockSize.Block32X32 or Vp9BlockSize.Block64X64))
         {
             throw new NotSupportedException(
-                $"VP9 key-frame syntax probe supports only 32x32 or 64x64 leaf blocks, not {blockSize}.");
+                $"VP9 key-frame syntax probe supports only 8x8, 32x32, or 64x64 leaf blocks, not {blockSize}.");
         }
 
         var modeInfo = ReadModeInfoAfterPartition(

@@ -485,6 +485,7 @@ internal static class Vp9ResidualSyntax
     {
         return (blockSize, yTransformSize) switch
         {
+            (Vp9BlockSize.Block8X8, _) => Vp9TransformSize.Tx4X4,
             (Vp9BlockSize.Block32X32, Vp9TransformSize.Tx32X32) => Vp9TransformSize.Tx16X16,
             (Vp9BlockSize.Block64X64, Vp9TransformSize.Tx32X32) => Vp9TransformSize.Tx32X32,
             _ => throw new NotSupportedException(
