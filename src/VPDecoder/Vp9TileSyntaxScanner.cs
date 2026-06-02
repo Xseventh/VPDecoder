@@ -768,11 +768,10 @@ internal static class Vp9TileSyntaxScanner
             blockSize,
             partitionPath);
         modes.Add(modeInfo);
-        if (modeInfo.YSubModes.Any(mode => mode != Vp9PredictionMode.Dc) ||
-            modeInfo.UvMode != Vp9PredictionMode.Dc)
+        if (UsesUnsupportedIntraScan(modeInfo))
         {
             throw new NotSupportedException(
-                $"VP9 key-frame residual syntax probe does not support non-DC intra prediction modes yet at MI ({miRow},{miColumn}) block {blockSize}: Y=[{string.Join(",", modeInfo.YSubModes)}], UV={modeInfo.UvMode}.");
+                $"VP9 key-frame residual syntax probe does not support non-DC intra scan orders below TX32 yet at MI ({miRow},{miColumn}) block {blockSize} transform {modeInfo.TransformSize}: Y=[{string.Join(",", modeInfo.YSubModes)}], UV={modeInfo.UvMode}.");
         }
 
         for (var plane = 0; plane < 3; plane++)
@@ -880,6 +879,19 @@ internal static class Vp9TileSyntaxScanner
             yMode,
             uvMode,
             ySubModes);
+    }
+
+    private static bool UsesUnsupportedIntraScan(Vp9ModeInfoProbe modeInfo)
+    {
+        var hasNonDcMode = modeInfo.YSubModes.Any(mode => mode != Vp9PredictionMode.Dc) ||
+            modeInfo.UvMode != Vp9PredictionMode.Dc;
+        if (!hasNonDcMode)
+        {
+            return false;
+        }
+
+        return modeInfo.BlockSize != Vp9BlockSize.Block64X64 ||
+            modeInfo.TransformSize != Vp9TransformSize.Tx32X32;
     }
 
     private static IReadOnlyList<Vp9PredictionMode> ReadYSubModes(

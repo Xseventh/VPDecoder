@@ -354,10 +354,10 @@ public sealed class Vp9TileSyntaxScannerTests
 
         Assert.NotNull(diagnostic);
         Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedFeature, diagnostic.Code);
-        Assert.Equal("VP9 key-frame residual syntax probe does not support non-DC intra prediction modes yet at MI (0,8) block Block64X64: Y=[Horizontal,Horizontal,Horizontal,Horizontal], UV=D207.", diagnostic.Message);
-        Assert.Single(probes);
-        Assert.Single(probes.SelectMany(probe => probe.ModeInfos));
-        Assert.Equal(3, probes.SelectMany(probe => probe.CoefficientGroups).Count());
+        Assert.Equal("VP9 key-frame residual syntax probe does not support non-DC intra scan orders below TX32 yet at MI (8,16) block Block8X8 transform Tx8X8: Y=[Vertical,Vertical,Vertical,Vertical], UV=Vertical.", diagnostic.Message);
+        Assert.Equal(7, probes.Count);
+        Assert.Equal(7, probes.SelectMany(probe => probe.ModeInfos).Count());
+        Assert.Equal(21, probes.SelectMany(probe => probe.CoefficientGroups).Count());
     }
 
     [Fact]
@@ -373,10 +373,10 @@ public sealed class Vp9TileSyntaxScannerTests
 
         Assert.NotNull(diagnostic);
         Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedFeature, diagnostic.Code);
-        Assert.Equal("VP9 key-frame residual syntax probe does not support non-DC intra prediction modes yet at MI (0,32) block Block64X64: Y=[D207,D207,D207,D207], UV=D117.", diagnostic.Message);
-        Assert.Equal(4, probes.Count);
-        Assert.Equal(7, probes.SelectMany(probe => probe.ModeInfos).Count());
-        Assert.Equal(21, probes.SelectMany(probe => probe.CoefficientGroups).Count());
+        Assert.Equal("VP9 key-frame residual syntax probe does not support non-DC intra scan orders below TX32 yet at MI (8,0) block Block32X32 transform Tx32X32: Y=[TrueMotion,TrueMotion,TrueMotion,TrueMotion], UV=TrueMotion.", diagnostic.Message);
+        Assert.Equal(5, probes.Count);
+        Assert.Equal(8, probes.SelectMany(probe => probe.ModeInfos).Count());
+        Assert.Equal(24, probes.SelectMany(probe => probe.CoefficientGroups).Count());
     }
 
     [Fact]
