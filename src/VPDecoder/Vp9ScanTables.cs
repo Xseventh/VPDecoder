@@ -3,6 +3,36 @@ namespace VPDecoder;
 // Generated from libvpx VP9 entropy/scan tables; decoded with length guards at startup.
 internal static class Vp9ScanTables
 {
+    private static readonly short[] DefaultScan4X4 =
+    [
+        0, 4, 1, 5, 8, 2, 12, 9, 3, 6, 13, 10, 7, 14, 11, 15
+    ];
+
+    private static readonly short[] DefaultScan4X4Neighbors =
+    [
+        0, 0, 0, 0, 0, 0, 1, 4, 4, 4, 1, 1, 8, 8, 5, 8, 2,
+        2, 2, 5, 9, 12, 6, 9, 3, 6, 10, 13, 7, 10, 11, 14, 0, 0
+    ];
+
+    private static readonly short[] DefaultScan8X8 =
+    [
+        0, 8, 1, 16, 9, 2, 17, 24, 10, 3, 18, 25, 32, 11, 4, 26,
+        33, 19, 40, 12, 34, 27, 5, 41, 20, 48, 13, 35, 42, 28, 21, 6,
+        49, 56, 36, 43, 29, 7, 14, 50, 57, 44, 22, 37, 15, 51, 58, 30,
+        45, 23, 52, 59, 38, 31, 60, 53, 46, 39, 61, 54, 47, 62, 55, 63
+    ];
+
+    private static readonly short[] DefaultScan8X8Neighbors =
+    [
+        0, 0, 0, 0, 0, 0, 8, 8, 1, 8, 1, 1, 9, 16, 16, 16, 2, 9, 2,
+        2, 10, 17, 17, 24, 24, 24, 3, 10, 3, 3, 18, 25, 25, 32, 11, 18, 32, 32,
+        4, 11, 26, 33, 19, 26, 4, 4, 33, 40, 12, 19, 40, 40, 5, 12, 27, 34, 34,
+        41, 20, 27, 13, 20, 5, 5, 41, 48, 48, 48, 28, 35, 35, 42, 21, 28, 6, 6,
+        6, 13, 42, 49, 49, 56, 36, 43, 14, 21, 29, 36, 7, 14, 43, 50, 50, 57, 22,
+        29, 37, 44, 15, 22, 44, 51, 51, 58, 30, 37, 23, 30, 52, 59, 45, 52, 38, 45,
+        31, 38, 53, 60, 46, 53, 39, 46, 54, 61, 47, 54, 55, 62, 0, 0
+    ];
+
     private static readonly short[] DefaultScan16X16 = DecodeInt16Table(
         """
         AAAQAAEAIAARAAIAMAAhABIAAwBAACIAMQATAEEAUAAyAAQAIwBCABQAUQBgADMABQAkAFIAYQBDAHAAFQA0AGIAJQBTAHEABgBE
@@ -134,6 +164,8 @@ internal static class Vp9ScanTables
     {
         return transformSize switch
         {
+            Vp9TransformSize.Tx4X4 => DefaultScan4X4,
+            Vp9TransformSize.Tx8X8 => DefaultScan8X8,
             Vp9TransformSize.Tx16X16 => DefaultScan16X16,
             Vp9TransformSize.Tx32X32 => DefaultScan32X32,
             _ => throw new NotSupportedException($"VP9 coefficient scan table for {transformSize} is not implemented yet.")
@@ -144,6 +176,8 @@ internal static class Vp9ScanTables
     {
         return transformSize switch
         {
+            Vp9TransformSize.Tx4X4 => DefaultScan4X4Neighbors,
+            Vp9TransformSize.Tx8X8 => DefaultScan8X8Neighbors,
             Vp9TransformSize.Tx16X16 => DefaultScan16X16Neighbors,
             Vp9TransformSize.Tx32X32 => DefaultScan32X32Neighbors,
             _ => throw new NotSupportedException($"VP9 coefficient neighbor table for {transformSize} is not implemented yet.")
