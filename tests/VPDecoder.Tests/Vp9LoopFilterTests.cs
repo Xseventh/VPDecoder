@@ -120,6 +120,53 @@ public sealed class Vp9LoopFilterTests
         AssertColumns(plane, stride: 8, columns: 8, row: 0, expected: [100, 100, 101, 101, 101, 101, 102, 102, 102, 103, 103, 103, 103, 104, 104, 104]);
     }
 
+    [Theory]
+    [InlineData(
+        "/tmp/vp9-main-frame-0.vp9",
+        30398,
+        "4c57b8dda880711b174483a27e1691c6c9aa9a6721351d041425f8dafb23b7e9",
+        3)]
+    [InlineData(
+        "/tmp/vp9-alpha-frame-0.vp9",
+        6233,
+        "94079f539a2165b10f5db2d9e9b5d54ca8df534ca3d36e4eaa1234b0b17a7329",
+        10)]
+    public void TryBuildKeyFrameMasks_ForExternalSamples_BuildsAdjustedSuperblockMasks(
+        string path,
+        int expectedLength,
+        string expectedSha256,
+        byte expectedFilterLevel)
+    {
+        var packet = ReadRequiredSample(path, expectedLength, expectedSha256);
+        var header = Vp9FrameHeaderParser.Parse(packet);
+        var state = CreateState(packet, header);
+
+        Assert.True(Vp9TileSyntaxScanner.TryReconstructFullFrameWithSyntax(packet, state, out var reconstructed, out var reconstructionDiagnostic), reconstructionDiagnostic?.Message);
+        Assert.NotNull(reconstructed);
+        Assert.True(Vp9LoopFilterMaskBuilder.TryBuildKeyFrameMasks(header, reconstructed, out var masks, out var diagnostic), diagnostic?.Message);
+
+        Assert.Null(diagnostic);
+        Assert.Equal(924, masks.Count);
+        Assert.All(masks, mask => Assert.Equal(expectedFilterLevel, mask.FilterLevel));
+        Assert.Equal(header.TileInfo.MiRows * header.TileInfo.MiColumns, masks.Sum(mask => mask.ActiveLevelCount));
+        Assert.Contains(masks, mask => mask.HasAnyFilter);
+
+        var first = masks[0];
+        Assert.Equal(0, first.MiRow);
+        Assert.Equal(0, first.MiColumn);
+        for (var tx = 0; tx < (int)Vp9TransformSize.Tx32X32; tx++)
+        {
+            Assert.Equal(0UL, first.LeftY[tx] & 0x0101010101010101UL);
+            Assert.Equal(0, first.LeftUv[tx] & 0x1111);
+        }
+
+        var last = masks[^1];
+        Assert.Equal(168, last.MiRow);
+        Assert.Equal(328, last.MiColumn);
+        Assert.Equal(4, last.ActiveLevelCount);
+        Assert.True(last.HasAnyFilter);
+    }
+
     private static byte[] CreateVerticalEdgePlane(int width, int height, int edgeX, byte left, byte right)
     {
         var plane = new byte[width * height];
@@ -165,6 +212,14 @@ public sealed class Vp9LoopFilterTests
                 Assert.Equal(expected[i], plane[((row + i) * stride) + column]);
             }
         }
+    }
+
+    private static Vp9KeyFrameDecodeState CreateState(byte[] packet, Vp9FrameHeader header)
+    {
+        Assert.True(Vp9CompressedHeaderParser.TryParse(packet, header, out var compressedHeader, out var compressedDiagnostic), compressedDiagnostic?.Message);
+        Assert.True(Vp9FrameLayoutParser.TryReadTileBuffers(packet, header, out var tileBuffers, out var layoutDiagnostic), layoutDiagnostic?.Message);
+        Assert.True(Vp9KeyFrameDecodeState.TryCreate(header, compressedHeader!, tileBuffers, out var state, out var stateDiagnostic), stateDiagnostic?.Message);
+        return state!;
     }
 
     private static byte[] ReadRequiredSample(string path, int expectedLength, string expectedSha256)
