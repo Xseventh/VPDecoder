@@ -23,6 +23,46 @@ public sealed class Vp9ScanTablesTests
     }
 
     [Fact]
+    public void GetScan_ForTx4AdstDct_ReturnsLibvpxRowOrder()
+    {
+        var scan = Vp9ScanTables.GetScan(Vp9TransformSize.Tx4X4, Vp9TransformType.AdstDct);
+
+        Assert.Equal(
+            [0, 1, 4, 2, 5, 3, 6, 8, 9, 7, 12, 10, 13, 11, 14, 15],
+            scan.ToArray());
+    }
+
+    [Fact]
+    public void GetNeighbors_ForTx4AdstDct_ReturnsLibvpxRowNeighbors()
+    {
+        var neighbors = Vp9ScanTables.GetNeighbors(Vp9TransformSize.Tx4X4, Vp9TransformType.AdstDct);
+
+        Assert.Equal(
+            [0, 0, 0, 0, 0, 0, 1, 1, 4, 4, 2, 2, 5, 5, 4, 4, 8, 8, 6, 6, 8, 8, 9, 9, 12, 12, 10, 10, 13, 13, 14, 14, 0, 0],
+            neighbors.ToArray());
+    }
+
+    [Fact]
+    public void GetScan_ForTx4DctAdst_ReturnsLibvpxColumnOrder()
+    {
+        var scan = Vp9ScanTables.GetScan(Vp9TransformSize.Tx4X4, Vp9TransformType.DctAdst);
+
+        Assert.Equal(
+            [0, 4, 8, 1, 12, 5, 9, 2, 13, 6, 10, 3, 7, 14, 11, 15],
+            scan.ToArray());
+    }
+
+    [Fact]
+    public void GetNeighbors_ForTx4DctAdst_ReturnsLibvpxColumnNeighbors()
+    {
+        var neighbors = Vp9ScanTables.GetNeighbors(Vp9TransformSize.Tx4X4, Vp9TransformType.DctAdst);
+
+        Assert.Equal(
+            [0, 0, 0, 0, 4, 4, 0, 0, 8, 8, 1, 1, 5, 5, 1, 1, 9, 9, 2, 2, 6, 6, 2, 2, 3, 3, 10, 10, 7, 7, 11, 11, 0, 0],
+            neighbors.ToArray());
+    }
+
+    [Fact]
     public void GetDefaultScan_ForTx8_ReturnsLibvpxDefaultOrder()
     {
         var scan = Vp9ScanTables.GetDefaultScan(Vp9TransformSize.Tx8X8);
