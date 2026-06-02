@@ -437,6 +437,29 @@ public sealed class Vp9TileSyntaxScannerTests
             Assert.Equal(Vp9TransformType.AdstDct, block.TransformType);
             Assert.Equal(16, block.DequantizedCoefficients.Length);
         });
+        Assert.Equal([1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0], group.Blocks.Select(block => block.InitialCoefficientContext).ToArray());
+        Assert.Equal([0, 0, 0, 0, 0, 0, 0, 0, 7, 0, 0, 0, 4, 0, 0, 0], group.Blocks.Select(block => block.Eob).ToArray());
+        Assert.Equal([0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 2, 0, 0, 0], group.Blocks.Select(block => block.NonZeroCount).ToArray());
+        Assert.Equal(
+            [
+                "f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b",
+                "f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b",
+                "f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b",
+                "f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b",
+                "f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b",
+                "f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b",
+                "f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b",
+                "f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b",
+                "208d57a2642c3854e8e8b459190e2f88e4aeed9fc35c2cb87bae4b1065fa8473",
+                "f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b",
+                "f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b",
+                "f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b",
+                "c98dcbd41ec1e4a6b196644ffd1917d5e53882ecbda34b38f89cb78c6743530b",
+                "f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b",
+                "f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b",
+                "f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b"
+            ],
+            group.Blocks.Select(block => block.CoefficientsSha256).ToArray());
         Assert.Equal(
             group.Blocks.Select(block => block.CoefficientsSha256),
             secondGroup.Blocks.Select(block => block.CoefficientsSha256));
@@ -493,6 +516,29 @@ public sealed class Vp9TileSyntaxScannerTests
             Assert.Equal(Vp9TransformType.DctDct, block.TransformType);
             Assert.Equal(16, block.DequantizedCoefficients.Length);
         });
+        Assert.Equal([1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0], group.Blocks.Select(block => block.InitialCoefficientContext).ToArray());
+        Assert.Equal([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 15], group.Blocks.Select(block => block.Eob).ToArray());
+        Assert.Equal([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 12], group.Blocks.Select(block => block.NonZeroCount).ToArray());
+        Assert.Equal(
+            [
+                "f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b",
+                "f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b",
+                "f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b",
+                "f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b",
+                "f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b",
+                "f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b",
+                "f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b",
+                "f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b",
+                "f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b",
+                "f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b",
+                "f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b",
+                "f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b",
+                "f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b",
+                "f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b",
+                "f5a5fd42d16a20302798ef6ed309979b43003d2320d9f0e8ea9831a92759fb4b",
+                "c0fbd41c36754369f391b1954f17603e0c30da4c00f4a84a55b8b0e3810a0b33"
+            ],
+            group.Blocks.Select(block => block.CoefficientsSha256).ToArray());
         Assert.Equal(
             group.Blocks.Select(block => block.CoefficientsSha256),
             secondGroup.Blocks.Select(block => block.CoefficientsSha256));
