@@ -2,6 +2,35 @@ namespace VPDecoder;
 
 public static class Vp9AlphaComposer
 {
+    public static Vp9DecodedFrame ConvertBgraToRgba(Vp9DecodedFrame frame)
+    {
+        if (frame.PixelFormat != Vp9OutputPixelFormat.Bgra8888)
+        {
+            throw new ArgumentException("VP9 BGRA to RGBA conversion requires a BGRA8888 frame.", nameof(frame));
+        }
+
+        var converted = new byte[frame.Pixels.Length];
+        for (var y = 0; y < frame.Height; y++)
+        {
+            var row = y * frame.Stride;
+            for (var x = 0; x < frame.Width; x++)
+            {
+                var offset = row + (x * 4);
+                converted[offset] = frame.Pixels[offset + 2];
+                converted[offset + 1] = frame.Pixels[offset + 1];
+                converted[offset + 2] = frame.Pixels[offset];
+                converted[offset + 3] = frame.Pixels[offset + 3];
+            }
+        }
+
+        return Vp9DecodedFrame.CreatePacked(
+            frame.Width,
+            frame.Height,
+            Vp9OutputPixelFormat.Rgba8888,
+            converted,
+            frame.Stride);
+    }
+
     public static Vp9DecodedFrame MergeBgraWithBgraAlpha(Vp9DecodedFrame colorFrame, Vp9DecodedFrame alphaFrame)
     {
         if (colorFrame.PixelFormat != Vp9OutputPixelFormat.Bgra8888 || alphaFrame.PixelFormat != Vp9OutputPixelFormat.Bgra8888)

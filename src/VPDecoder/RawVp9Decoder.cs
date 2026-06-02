@@ -122,7 +122,21 @@ public sealed class RawVp9Decoder
     {
         options ??= Vp9DecodeOptions.Default;
 
-        var colorResult = DecodeFrame(colorPacket, options);
+        var diagnostic = ValidateOptions(options);
+        if (diagnostic is not null)
+        {
+            return Vp9DecodeResult.Fail(diagnostic);
+        }
+
+        if (options.OutputFormat == Vp9OutputPixelFormat.Yuv420)
+        {
+            return Vp9DecodeResult.Fail(
+                Vp9DecodeDiagnostic.UnsupportedFeature(
+                    "VP9 alpha composition requires BGRA8888 or RGBA8888 packed output."));
+        }
+
+        var packedOptions = options with { OutputFormat = Vp9OutputPixelFormat.Bgra8888 };
+        var colorResult = DecodeFrame(colorPacket, packedOptions);
         if (!colorResult.Succeeded)
         {
             return colorResult;
@@ -141,7 +155,16 @@ public sealed class RawVp9Decoder
             return alphaResult;
         }
 
-        return MergeAlpha(colorResult, alphaResult);
+        var merged = MergeAlpha(colorResult, alphaResult);
+        if (!merged.Succeeded || options.OutputFormat == Vp9OutputPixelFormat.Bgra8888)
+        {
+            return merged;
+        }
+
+        return Vp9DecodeResult.Success(
+            Vp9AlphaComposer.ConvertBgraToRgba(merged.Frame!),
+            merged.Header!,
+            merged.CompressedHeader);
     }
 
     public void Reset()

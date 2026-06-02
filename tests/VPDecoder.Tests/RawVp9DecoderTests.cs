@@ -172,6 +172,33 @@ public sealed class RawVp9DecoderTests
         Assert.Equal("de5f6cf32681237d0076b8e106c2d8803a54379f639d9f6e7d10a864ad1ff306", Hash(result.Frame.Pixels));
     }
 
+    [Theory]
+    [InlineData(
+        Vp9OutputPixelFormat.Yuv420,
+        5_386_368,
+        "4f276400ec1d63299b4ec18d83da40482b52d9d09b1e3fd4a100537ed63798ff")]
+    [InlineData(
+        Vp9OutputPixelFormat.Rgba8888,
+        14_363_648,
+        "26d00202125b56b944707fdd55051a1365b8795b8512a9b805dea07dc05b41b4")]
+    public void DecodeFrame_ExternalMainFrameSample_SupportsRequestedOutputFormats(
+        Vp9OutputPixelFormat outputFormat,
+        int expectedLength,
+        string expectedHash)
+    {
+        var packet = ReadRequiredSample(MainFrameSamplePath, 30398, MainFrameSampleSha256);
+        var decoder = new RawVp9Decoder();
+
+        var result = decoder.DecodeFrame(packet, new Vp9DecodeOptions(2656, 1352, outputFormat));
+
+        Assert.True(result.Succeeded, result.Diagnostic?.Message);
+        Assert.Null(result.Diagnostic);
+        Assert.NotNull(result.Frame);
+        Assert.Equal(outputFormat, result.Frame.PixelFormat);
+        Assert.Equal(expectedLength, result.Frame.Pixels.Length);
+        Assert.Equal(expectedHash, Hash(result.Frame.Pixels));
+    }
+
     [Fact]
     public void DecodeFrameWithAlpha_ForExternalSamples_MergesAlphaDeterministically()
     {
@@ -192,6 +219,43 @@ public sealed class RawVp9DecoderTests
         Assert.Equal(0, alphaValues.Min());
         Assert.Equal(168, alphaValues.Max());
         Assert.True(alphaValues.Distinct().Count() > 1);
+    }
+
+    [Fact]
+    public void DecodeFrameWithAlpha_WhenOutputFormatIsRgba_ReturnsRgbaFrame()
+    {
+        var colorPacket = ReadRequiredSample(MainFrameSamplePath, 30398, MainFrameSampleSha256);
+        var alphaPacket = ReadRequiredSample(AlphaFrameSamplePath, 6233, AlphaFrameSampleSha256);
+        var decoder = new RawVp9Decoder();
+
+        var result = decoder.DecodeFrameWithAlpha(
+            colorPacket,
+            alphaPacket,
+            new Vp9DecodeOptions(2656, 1352, Vp9OutputPixelFormat.Rgba8888));
+
+        Assert.True(result.Succeeded, result.Diagnostic?.Message);
+        Assert.NotNull(result.Frame);
+        Assert.Equal(Vp9OutputPixelFormat.Rgba8888, result.Frame.PixelFormat);
+        Assert.Equal(2656 * 1352 * 4, result.Frame.Pixels.Length);
+        Assert.Equal("ac9ec4a5bcd706088dee9596536dec008854e0df4453b149e9ff55a2e2d78703", Hash(result.Frame.Pixels));
+    }
+
+    [Fact]
+    public void DecodeFrameWithAlpha_WhenOutputFormatIsYuv420_ReturnsUnsupportedFeature()
+    {
+        var colorPacket = ReadRequiredSample(MainFrameSamplePath, 30398, MainFrameSampleSha256);
+        var alphaPacket = ReadRequiredSample(AlphaFrameSamplePath, 6233, AlphaFrameSampleSha256);
+        var decoder = new RawVp9Decoder();
+
+        var result = decoder.DecodeFrameWithAlpha(
+            colorPacket,
+            alphaPacket,
+            new Vp9DecodeOptions(2656, 1352, Vp9OutputPixelFormat.Yuv420));
+
+        Assert.False(result.Succeeded);
+        Assert.Null(result.Header);
+        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedFeature, result.Diagnostic?.Code);
+        Assert.Contains("alpha composition", result.Diagnostic?.Message);
     }
 
     [Fact]

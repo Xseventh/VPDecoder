@@ -3,6 +3,22 @@ namespace VPDecoder.Tests;
 public sealed class Vp9AlphaComposerTests
 {
     [Fact]
+    public void ConvertBgraToRgba_SwapsRedAndBlueChannels()
+    {
+        var frame = Vp9DecodedFrame.CreatePacked(
+            2,
+            1,
+            Vp9OutputPixelFormat.Bgra8888,
+            [10, 20, 30, 40, 50, 60, 70, 80],
+            8);
+
+        var converted = Vp9AlphaComposer.ConvertBgraToRgba(frame);
+
+        Assert.Equal(Vp9OutputPixelFormat.Rgba8888, converted.PixelFormat);
+        Assert.Equal([30, 20, 10, 40, 70, 60, 50, 80], converted.Pixels);
+    }
+
+    [Fact]
     public void MergeBgraWithBgraAlpha_UsesAlphaRedChannelAsOutputAlpha()
     {
         var color = Vp9DecodedFrame.CreatePacked(
