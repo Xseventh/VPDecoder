@@ -21,6 +21,14 @@ internal sealed class Vp9CoefficientEntropyContext
         return new Vp9CoefficientEntropyContext(header.TileInfo.MiColumns);
     }
 
+    public void ResetLeftContexts()
+    {
+        foreach (var contexts in _leftContexts)
+        {
+            Array.Clear(contexts);
+        }
+    }
+
     public int GetInitialContext(int plane, int x4, int y4, Vp9TransformSize transformSize)
     {
         ValidatePlane(plane);

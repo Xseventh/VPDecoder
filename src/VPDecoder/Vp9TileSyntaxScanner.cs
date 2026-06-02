@@ -310,6 +310,77 @@ internal static class Vp9TileSyntaxScanner
         }
     }
 
+    public static bool TryProbeFullFrameSyntax(
+        ReadOnlyMemory<byte> packet,
+        Vp9KeyFrameDecodeState state,
+        out IReadOnlyList<Vp9SuperblockSyntaxProbe> probes,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
+        var parsed = new List<Vp9SuperblockSyntaxProbe>();
+        probes = parsed;
+        diagnostic = null;
+
+        try
+        {
+            foreach (var geometry in state.TileGeometries)
+            {
+                if (geometry.Buffer.DataOffset + geometry.Buffer.Size > packet.Length)
+                {
+                    diagnostic = Vp9DecodeDiagnostic.TruncatedPacket("VP9 tile buffer extends past the packet boundary.");
+                    return false;
+                }
+
+                var tileBytes = packet.Span.Slice(geometry.Buffer.DataOffset, geometry.Buffer.Size);
+                var reader = new Vp9BoolReader(tileBytes);
+                var syntaxContext = Vp9KeyFrameSyntaxContext.Create(state.Header);
+                var coefficientContext = Vp9CoefficientEntropyContext.Create(state.Header);
+
+                for (var miRow = geometry.MiRowStart; miRow < geometry.MiRowEnd; miRow += SuperblockSizeInMiUnits)
+                {
+                    syntaxContext.ResetLeftPartitionContext();
+                    coefficientContext.ResetLeftContexts();
+
+                    for (var miColumn = geometry.MiColumnStart; miColumn < geometry.MiColumnEnd; miColumn += SuperblockSizeInMiUnits)
+                    {
+                        var modes = new List<Vp9ModeInfoProbe>();
+                        var coefficientGroups = new List<Vp9CoefficientBlockGroupProbe>();
+                        ReadPartitionSyntax(
+                            ref reader,
+                            state,
+                            geometry,
+                            syntaxContext,
+                            coefficientContext,
+                            miRow,
+                            miColumn,
+                            Vp9BlockSize.Block64X64,
+                            [],
+                            modes,
+                            coefficientGroups);
+                        parsed.Add(new Vp9SuperblockSyntaxProbe(geometry.Buffer.Index, modes, coefficientGroups));
+                    }
+                }
+
+                if (reader.HasError)
+                {
+                    diagnostic = Vp9DecodeDiagnostic.TruncatedPacket("VP9 full-frame syntax probe ended unexpectedly.");
+                    return false;
+                }
+            }
+
+            return true;
+        }
+        catch (NotSupportedException ex)
+        {
+            diagnostic = Vp9DecodeDiagnostic.UnsupportedFeature(ex.Message);
+            return false;
+        }
+        catch (Vp9BoolReaderException ex)
+        {
+            diagnostic = ex.Diagnostic;
+            return false;
+        }
+    }
+
     public static bool TryReconstructFirstLeafYDc(
         ReadOnlyMemory<byte> packet,
         Vp9KeyFrameDecodeState state,
@@ -496,7 +567,7 @@ internal static class Vp9TileSyntaxScanner
         var hbs = Vp9ModeInfoSyntax.GetHalfBlockSizeInMiUnits(blockSize);
         if (hbs == 0)
         {
-            throw new NotSupportedException("VP9 first superblock syntax probe does not support sub-8x8 partitions.");
+            throw new NotSupportedException("VP9 key-frame syntax probe does not support sub-8x8 partitions yet.");
         }
 
         var hasRows = miRow + hbs < state.Header.TileInfo.MiRows;
@@ -666,7 +737,7 @@ internal static class Vp9TileSyntaxScanner
         if (blockSize is not (Vp9BlockSize.Block32X32 or Vp9BlockSize.Block64X64))
         {
             throw new NotSupportedException(
-                $"VP9 first superblock syntax probe supports only 32x32 or 64x64 leaf blocks, not {blockSize}.");
+                $"VP9 key-frame syntax probe supports only 32x32 or 64x64 leaf blocks, not {blockSize}.");
         }
 
         var modeInfo = ReadModeInfoAfterPartition(

@@ -342,6 +342,44 @@ public sealed class Vp9TileSyntaxScannerTests
     }
 
     [Fact]
+    public void TryProbeFullFrameSyntax_ForExternalMainFrame_ReturnsConcreteSub8Unsupported()
+    {
+        var packet = ReadRequiredSample(
+            "/tmp/vp9-main-frame-0.vp9",
+            30398,
+            "4c57b8dda880711b174483a27e1691c6c9aa9a6721351d041425f8dafb23b7e9");
+        var state = CreateState(packet);
+
+        Assert.False(Vp9TileSyntaxScanner.TryProbeFullFrameSyntax(packet, state, out var probes, out var diagnostic));
+
+        Assert.NotNull(diagnostic);
+        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedFeature, diagnostic.Code);
+        Assert.Equal("VP9 key-frame syntax probe does not support sub-8x8 partitions yet.", diagnostic.Message);
+        Assert.Equal(7, probes.Count);
+        Assert.Equal(7, probes.SelectMany(probe => probe.ModeInfos).Count());
+        Assert.Equal(21, probes.SelectMany(probe => probe.CoefficientGroups).Count());
+    }
+
+    [Fact]
+    public void TryProbeFullFrameSyntax_ForExternalAlphaFrame_ReturnsConcreteSub8Unsupported()
+    {
+        var packet = ReadRequiredSample(
+            "/tmp/vp9-alpha-frame-0.vp9",
+            6233,
+            "94079f539a2165b10f5db2d9e9b5d54ca8df534ca3d36e4eaa1234b0b17a7329");
+        var state = CreateState(packet);
+
+        Assert.False(Vp9TileSyntaxScanner.TryProbeFullFrameSyntax(packet, state, out var probes, out var diagnostic));
+
+        Assert.NotNull(diagnostic);
+        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedFeature, diagnostic.Code);
+        Assert.Equal("VP9 key-frame syntax probe does not support sub-8x8 partitions yet.", diagnostic.Message);
+        Assert.Equal(5, probes.Count);
+        Assert.Equal(8, probes.SelectMany(probe => probe.ModeInfos).Count());
+        Assert.Equal(24, probes.SelectMany(probe => probe.CoefficientGroups).Count());
+    }
+
+    [Fact]
     public void TryReconstructFirstLeafYDc_ForExternalMainFrame_WritesDeterministicYBlocks()
     {
         var packet = ReadRequiredSample(

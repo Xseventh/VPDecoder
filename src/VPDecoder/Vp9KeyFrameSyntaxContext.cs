@@ -21,6 +21,11 @@ internal sealed class Vp9KeyFrameSyntaxContext
         return new Vp9KeyFrameSyntaxContext(header.TileInfo.MiColumns, header.TileInfo.MiRows);
     }
 
+    public void ResetLeftPartitionContext()
+    {
+        Array.Clear(_leftPartitionContext);
+    }
+
     public int GetPartitionContext(int miRow, int miColumn, Vp9BlockSize blockSize)
     {
         ValidateMiPosition(miRow, miColumn);
