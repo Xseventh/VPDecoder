@@ -605,7 +605,7 @@ internal static class Vp9ResidualSyntax
             transformSize == Vp9TransformSize.Tx4X4)
         {
             throw new NotSupportedException(
-                $"VP9 full-frame residual probe does not yet support continuing past Block16X16 luma Tx4X4 transform grids at MI ({modeInfo.MiRow},{modeInfo.MiColumn}); transform offsets are supported but full-frame context advancement is still gated.");
+                $"VP9 full-frame residual probe does not yet support continuing past Block16X16 luma Tx4X4 transform grids at MI ({modeInfo.MiRow},{modeInfo.MiColumn}) with Y mode {modeInfo.YMode}, UV mode {modeInfo.UvMode}, skip context {modeInfo.SkipContext}, transform context {modeInfo.TransformSizeContext}; transform offsets are supported but full-frame context advancement is still gated.");
         }
     }
 

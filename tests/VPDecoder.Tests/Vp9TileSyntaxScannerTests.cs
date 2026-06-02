@@ -363,7 +363,9 @@ public sealed class Vp9TileSyntaxScannerTests
 
         Assert.NotNull(diagnostic);
         Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedFeature, diagnostic.Code);
-        Assert.Equal("VP9 full-frame residual probe does not yet support continuing past Block16X16 luma Tx4X4 transform grids at MI (22,22); transform offsets are supported but full-frame context advancement is still gated.", diagnostic.Message);
+        Assert.Matches(
+            @"^VP9 full-frame residual probe does not yet support continuing past Block16X16 luma Tx4X4 transform grids at MI \(22,22\) with Y mode Dc, UV mode Dc, skip context \d, transform context \d; transform offsets are supported but full-frame context advancement is still gated\.$",
+            diagnostic.Message);
         Assert.Equal(12, probes.Count);
         Assert.Equal(115, probes.SelectMany(probe => probe.ModeInfos).Count());
         Assert.Equal(345, probes.SelectMany(probe => probe.CoefficientGroups).Count());
@@ -382,7 +384,9 @@ public sealed class Vp9TileSyntaxScannerTests
 
         Assert.NotNull(diagnostic);
         Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedFeature, diagnostic.Code);
-        Assert.Equal("VP9 full-frame residual probe does not yet support continuing past Block16X16 luma Tx4X4 transform grids at MI (10,6); transform offsets are supported but full-frame context advancement is still gated.", diagnostic.Message);
+        Assert.Matches(
+            @"^VP9 full-frame residual probe does not yet support continuing past Block16X16 luma Tx4X4 transform grids at MI \(10,6\) with Y mode Dc, UV mode Dc, skip context \d, transform context \d; transform offsets are supported but full-frame context advancement is still gated\.$",
+            diagnostic.Message);
         Assert.Equal(5, probes.Count);
         Assert.Equal(8, probes.SelectMany(probe => probe.ModeInfos).Count());
         Assert.Equal(24, probes.SelectMany(probe => probe.CoefficientGroups).Count());
