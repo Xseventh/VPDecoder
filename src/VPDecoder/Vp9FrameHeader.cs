@@ -21,6 +21,7 @@ public sealed record Vp9FrameHeader(
     int RenderWidth,
     int RenderHeight,
     bool RefreshFrameContext,
+    int RefreshFrameFlags,
     bool FrameParallelDecodingMode,
     int FrameContextIndex,
     Vp9LoopFilterHeader LoopFilter,

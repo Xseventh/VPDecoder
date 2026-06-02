@@ -5,6 +5,10 @@ namespace VPDecoder;
 /// </summary>
 public sealed class RawVp9Decoder
 {
+    private const int Vp9ReferenceFrameCount = 8;
+
+    private readonly Vp9ReferenceFrame?[] _referenceFrames = new Vp9ReferenceFrame?[Vp9ReferenceFrameCount];
+
     public Vp9DecodeResult DecodeFrame(ReadOnlySpan<byte> packet, Vp9DecodeOptions? options = null)
     {
         options ??= Vp9DecodeOptions.Default;
@@ -30,6 +34,11 @@ public sealed class RawVp9Decoder
         {
             return Vp9DecodeResult.Fail(
                 Vp9DecodeDiagnostic.InternalDecodeFailure("VP9 header parser succeeded without returning a header."));
+        }
+
+        if (header.ShowExistingFrame)
+        {
+            return DecodeShowExistingFrame(header, options, packet.Length);
         }
 
         diagnostic = ValidateHeader(header, options);
@@ -109,6 +118,8 @@ public sealed class RawVp9Decoder
         }
 
         var yuvFrame = reconstructedFrame.Frame;
+        RefreshReferenceFrames(yuvFrame, header.ColorRange);
+
         var outputFrame = options.OutputFormat == Vp9OutputPixelFormat.Yuv420
             ? yuvFrame
             : Vp9ColorConverter.ConvertYuv420ToPacked(yuvFrame, header.ColorRange, options.OutputFormat);
@@ -169,7 +180,57 @@ public sealed class RawVp9Decoder
 
     public void Reset()
     {
-        // Future inter-frame support will clear reference frames and frame contexts here.
+        Array.Clear(_referenceFrames);
+    }
+
+    private Vp9DecodeResult DecodeShowExistingFrame(Vp9FrameHeader header, Vp9DecodeOptions options, int packetLength)
+    {
+        if (header.Profile != 0)
+        {
+            return Vp9DecodeResult.Fail(
+                Vp9DecodeDiagnostic.UnsupportedProfile(
+                    $"VP9 profile {header.Profile} is not supported by this decoder slice."),
+                header);
+        }
+
+        if (header.HeaderSizeInBytes != packetLength)
+        {
+            return Vp9DecodeResult.Fail(
+                Vp9DecodeDiagnostic.InvalidPacket("VP9 show-existing-frame packet contains trailing data."),
+                header);
+        }
+
+        if (header.ExistingFrameIndex is not { } index || index < 0 || index >= _referenceFrames.Length)
+        {
+            return Vp9DecodeResult.Fail(
+                Vp9DecodeDiagnostic.InvalidPacket("VP9 show-existing-frame packet references an invalid slot."),
+                header);
+        }
+
+        var referenceFrame = _referenceFrames[index];
+        if (referenceFrame?.Frame is null)
+        {
+            return Vp9DecodeResult.Fail(
+                Vp9DecodeDiagnostic.MissingReferenceFrame($"VP9 reference frame slot {index} is empty."),
+                header);
+        }
+
+        var diagnostic = ValidateReferenceFrame(referenceFrame.Frame, options);
+        if (diagnostic is not null)
+        {
+            return Vp9DecodeResult.Fail(diagnostic, header);
+        }
+
+        var resultHeader = header with
+        {
+            Width = referenceFrame.Frame.Width,
+            Height = referenceFrame.Frame.Height,
+            RenderWidth = referenceFrame.Frame.Width,
+            RenderHeight = referenceFrame.Frame.Height,
+            ColorRange = referenceFrame.ColorRange
+        };
+
+        return Vp9DecodeResult.Success(ConvertReferenceFrame(referenceFrame, options.OutputFormat), resultHeader);
     }
 
     private static Vp9DecodeResult MergeAlpha(Vp9DecodeResult colorResult, Vp9DecodeResult alphaResult)
@@ -203,6 +264,43 @@ public sealed class RawVp9Decoder
             Vp9AlphaComposer.MergeBgraWithBgraAlpha(colorResult.Frame, alphaResult.Frame),
             colorResult.Header!,
             colorResult.CompressedHeader);
+    }
+
+    private void RefreshReferenceFrames(Vp9DecodedFrame yuvFrame, Vp9ColorRange colorRange)
+    {
+        var referenceFrame = new Vp9ReferenceFrame(CloneFrame(yuvFrame), colorRange);
+        for (var i = 0; i < _referenceFrames.Length; i++)
+        {
+            _referenceFrames[i] = referenceFrame;
+        }
+    }
+
+    private static Vp9DecodedFrame ConvertReferenceFrame(Vp9ReferenceFrame referenceFrame, Vp9OutputPixelFormat outputFormat)
+    {
+        return outputFormat == Vp9OutputPixelFormat.Yuv420
+            ? CloneFrame(referenceFrame.Frame)
+            : Vp9ColorConverter.ConvertYuv420ToPacked(referenceFrame.Frame, referenceFrame.ColorRange, outputFormat);
+    }
+
+    private static Vp9DecodedFrame CloneFrame(Vp9DecodedFrame frame)
+    {
+        var pixels = new byte[frame.Pixels.Length];
+        frame.Pixels.AsSpan().CopyTo(pixels);
+
+        return frame.PixelFormat == Vp9OutputPixelFormat.Yuv420
+            ? Vp9DecodedFrame.CreateYuv420(
+                frame.Width,
+                frame.Height,
+                pixels,
+                frame.Planes[0],
+                frame.Planes[1],
+                frame.Planes[2])
+            : Vp9DecodedFrame.CreatePacked(
+                frame.Width,
+                frame.Height,
+                frame.PixelFormat,
+                pixels,
+                frame.Stride);
     }
 
     private static Vp9DecodeDiagnostic? ValidateOptions(Vp9DecodeOptions options)
@@ -239,6 +337,44 @@ public sealed class RawVp9Decoder
 
         return null;
     }
+
+    private static Vp9DecodeDiagnostic? ValidateReferenceFrame(Vp9DecodedFrame frame, Vp9DecodeOptions options)
+    {
+        if (options.ExpectedWidth is { } expectedWidth && frame.Width != expectedWidth)
+        {
+            return Vp9DecodeDiagnostic.DimensionMismatch(
+                $"Decoded VP9 reference width {frame.Width} does not match expected width {expectedWidth}.");
+        }
+
+        if (options.ExpectedHeight is { } expectedHeight && frame.Height != expectedHeight)
+        {
+            return Vp9DecodeDiagnostic.DimensionMismatch(
+                $"Decoded VP9 reference height {frame.Height} does not match expected height {expectedHeight}.");
+        }
+
+        if (frame.Width > options.MaxWidth)
+        {
+            return Vp9DecodeDiagnostic.AllocationLimitExceeded(
+                $"VP9 reference width {frame.Width} exceeds configured maximum width {options.MaxWidth}.");
+        }
+
+        if (frame.Height > options.MaxHeight)
+        {
+            return Vp9DecodeDiagnostic.AllocationLimitExceeded(
+                $"VP9 reference height {frame.Height} exceeds configured maximum height {options.MaxHeight}.");
+        }
+
+        var pixelCount = checked((long)frame.Width * frame.Height);
+        if (pixelCount > options.MaxPixelCount)
+        {
+            return Vp9DecodeDiagnostic.AllocationLimitExceeded(
+                $"VP9 reference frame has {pixelCount} pixels, exceeding configured maximum {options.MaxPixelCount}.");
+        }
+
+        return null;
+    }
+
+    private sealed record Vp9ReferenceFrame(Vp9DecodedFrame Frame, Vp9ColorRange ColorRange);
 
     private static Vp9DecodeDiagnostic? ValidateHeader(Vp9FrameHeader header, Vp9DecodeOptions options)
     {

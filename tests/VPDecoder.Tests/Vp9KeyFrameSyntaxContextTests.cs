@@ -120,6 +120,7 @@ public sealed class Vp9KeyFrameSyntaxContextTests
             RenderWidth: miColumns * 8,
             RenderHeight: miRows * 8,
             RefreshFrameContext: true,
+            RefreshFrameFlags: 0xff,
             FrameParallelDecodingMode: false,
             FrameContextIndex: 0,
             LoopFilter: new Vp9LoopFilterHeader(0, 0, false, false, [], []),

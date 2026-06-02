@@ -33,6 +33,7 @@ public sealed class Vp9FrameHeaderParserTests
         Assert.Equal(2656, header.RenderWidth);
         Assert.Equal(1352, header.RenderHeight);
         Assert.True(header.RefreshFrameContext);
+        Assert.Equal(0xff, header.RefreshFrameFlags);
         Assert.True(header.FrameParallelDecodingMode);
         Assert.Equal(2, header.LoopFilter.FilterLevel);
         Assert.Equal([1, 0, -1, -1], header.LoopFilter.RefDeltas);
@@ -58,6 +59,31 @@ public sealed class Vp9FrameHeaderParserTests
         Assert.Equal(58, header.Quantization.BaseQIndex);
         Assert.Equal(142, header.FirstPartitionSize);
         Assert.Equal(8, header.TileInfo.TileColumns);
+    }
+
+    [Fact]
+    public void Parse_ShowExistingFrame_ReturnsReferenceIndex()
+    {
+        var header = Vp9FrameHeaderParser.Parse([0x8f]);
+
+        Assert.True(header.ShowExistingFrame);
+        Assert.Equal(7, header.ExistingFrameIndex);
+        Assert.Equal(Vp9FrameType.InterFrame, header.FrameType);
+        Assert.True(header.ShowFrame);
+        Assert.Equal(0, header.RefreshFrameFlags);
+        Assert.Equal(1, header.HeaderSizeInBytes);
+        Assert.Equal(1, header.PacketLength);
+    }
+
+    [Fact]
+    public void TryParse_InterFrame_ReturnsUnsupportedInterFrameFeature()
+    {
+        Assert.False(Vp9FrameHeaderParser.TryParse([0x86], out var header, out var diagnostic));
+
+        Assert.Null(header);
+        Assert.NotNull(diagnostic);
+        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedInterFrameFeature, diagnostic.Code);
+        Assert.Contains("inter-frame header", diagnostic.Message);
     }
 
     [Fact]

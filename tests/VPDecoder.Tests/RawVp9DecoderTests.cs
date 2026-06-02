@@ -15,6 +15,8 @@ public sealed class RawVp9DecoderTests
         0x04, 0x38, 0x24, 0x1c, 0x18, 0x66, 0x1c, 0x02, 0x80
     ];
 
+    private static readonly byte[] ShowExistingFrame0Packet = [0x88];
+
     [Fact]
     public void DecodeFrame_WhenHeaderIsSupportedButSyntaxIsInvalid_ReturnsConcreteSyntaxDiagnosticWithHeader()
     {
@@ -128,6 +130,20 @@ public sealed class RawVp9DecoderTests
     }
 
     [Fact]
+    public void DecodeFrame_WhenOrdinaryInterFrameIsParsed_ReturnsUnsupportedInterFrameFeature()
+    {
+        var decoder = new RawVp9Decoder();
+
+        var result = decoder.DecodeFrame([0x86]);
+
+        Assert.False(result.Succeeded);
+        Assert.Null(result.Frame);
+        Assert.Null(result.Header);
+        Assert.Null(result.CompressedHeader);
+        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedInterFrameFeature, result.Diagnostic?.Code);
+    }
+
+    [Fact]
     public void DecodeFrame_ExternalMainFrameSample_ParsesExpectedHeaderWhenPresent()
     {
         var packet = ReadRequiredSample(MainFrameSamplePath, 30398, MainFrameSampleSha256);
@@ -197,6 +213,120 @@ public sealed class RawVp9DecoderTests
         Assert.Equal(outputFormat, result.Frame.PixelFormat);
         Assert.Equal(expectedLength, result.Frame.Pixels.Length);
         Assert.Equal(expectedHash, Hash(result.Frame.Pixels));
+    }
+
+    [Fact]
+    public void DecodeFrame_WhenShowExistingFrameHasNoReference_ReturnsMissingReferenceFrame()
+    {
+        var decoder = new RawVp9Decoder();
+
+        var result = decoder.DecodeFrame(ShowExistingFrame0Packet, new Vp9DecodeOptions(2656, 1352));
+
+        Assert.False(result.Succeeded);
+        Assert.NotNull(result.Header);
+        Assert.True(result.Header.ShowExistingFrame);
+        Assert.Equal(0, result.Header.ExistingFrameIndex);
+        Assert.Equal(Vp9DecodeDiagnosticCode.MissingReferenceFrame, result.Diagnostic?.Code);
+    }
+
+    [Fact]
+    public void DecodeFrame_WhenShowExistingFrameHasReference_ReturnsDeterministicCopy()
+    {
+        var packet = ReadRequiredSample(MainFrameSamplePath, 30398, MainFrameSampleSha256);
+        var decoder = new RawVp9Decoder();
+        var keyFrame = decoder.DecodeFrame(packet, new Vp9DecodeOptions(2656, 1352));
+
+        var showExisting = decoder.DecodeFrame(ShowExistingFrame0Packet, new Vp9DecodeOptions(2656, 1352));
+
+        Assert.True(keyFrame.Succeeded, keyFrame.Diagnostic?.Message);
+        Assert.True(showExisting.Succeeded, showExisting.Diagnostic?.Message);
+        Assert.Null(showExisting.CompressedHeader);
+        Assert.NotNull(showExisting.Header);
+        Assert.True(showExisting.Header.ShowExistingFrame);
+        Assert.NotNull(showExisting.Frame);
+        Assert.Equal(Vp9OutputPixelFormat.Bgra8888, showExisting.Frame.PixelFormat);
+        Assert.Equal(2656, showExisting.Frame.Width);
+        Assert.Equal(1352, showExisting.Frame.Height);
+        Assert.Equal("bd018f0c6eac5ae58945a2517c96c29a40f703b6c8c0a07c99debb9a8a864902", Hash(showExisting.Frame.Pixels));
+    }
+
+    [Fact]
+    public void DecodeFrame_WhenShowExistingFrameIsReturned_CallerMutationDoesNotChangeReference()
+    {
+        var packet = ReadRequiredSample(MainFrameSamplePath, 30398, MainFrameSampleSha256);
+        var decoder = new RawVp9Decoder();
+        var keyFrame = decoder.DecodeFrame(packet, new Vp9DecodeOptions(2656, 1352));
+
+        Assert.True(keyFrame.Succeeded, keyFrame.Diagnostic?.Message);
+        keyFrame.Frame!.Pixels[0] ^= 0xff;
+        var firstReference = decoder.DecodeFrame(ShowExistingFrame0Packet, new Vp9DecodeOptions(2656, 1352));
+
+        Assert.True(firstReference.Succeeded, firstReference.Diagnostic?.Message);
+        firstReference.Frame!.Pixels[0] ^= 0xff;
+
+        var secondReference = decoder.DecodeFrame(ShowExistingFrame0Packet, new Vp9DecodeOptions(2656, 1352));
+
+        Assert.True(secondReference.Succeeded, secondReference.Diagnostic?.Message);
+        Assert.Equal("bd018f0c6eac5ae58945a2517c96c29a40f703b6c8c0a07c99debb9a8a864902", Hash(secondReference.Frame!.Pixels));
+    }
+
+    [Fact]
+    public void Reset_ClearsShowExistingFrameReferences()
+    {
+        var packet = ReadRequiredSample(MainFrameSamplePath, 30398, MainFrameSampleSha256);
+        var decoder = new RawVp9Decoder();
+        var keyFrame = decoder.DecodeFrame(packet, new Vp9DecodeOptions(2656, 1352));
+
+        decoder.Reset();
+        var showExisting = decoder.DecodeFrame(ShowExistingFrame0Packet, new Vp9DecodeOptions(2656, 1352));
+
+        Assert.True(keyFrame.Succeeded, keyFrame.Diagnostic?.Message);
+        Assert.False(showExisting.Succeeded);
+        Assert.Equal(Vp9DecodeDiagnosticCode.MissingReferenceFrame, showExisting.Diagnostic?.Code);
+    }
+
+    [Fact]
+    public void DecodeFrame_WhenShowExistingFrameExpectedSizeDiffers_ReturnsDimensionMismatch()
+    {
+        var packet = ReadRequiredSample(MainFrameSamplePath, 30398, MainFrameSampleSha256);
+        var decoder = new RawVp9Decoder();
+        var keyFrame = decoder.DecodeFrame(packet, new Vp9DecodeOptions(2656, 1352));
+
+        var showExisting = decoder.DecodeFrame(ShowExistingFrame0Packet, new Vp9DecodeOptions(1, 1352));
+
+        Assert.True(keyFrame.Succeeded, keyFrame.Diagnostic?.Message);
+        Assert.False(showExisting.Succeeded);
+        Assert.NotNull(showExisting.Header);
+        Assert.Equal(Vp9DecodeDiagnosticCode.DimensionMismatch, showExisting.Diagnostic?.Code);
+    }
+
+    [Fact]
+    public void DecodeFrame_WhenShowExistingFramePacketHasTrailingData_ReturnsInvalidPacket()
+    {
+        var decoder = new RawVp9Decoder();
+
+        var result = decoder.DecodeFrame([0x88, 0x00], new Vp9DecodeOptions(2656, 1352));
+
+        Assert.False(result.Succeeded);
+        Assert.NotNull(result.Header);
+        Assert.Equal(Vp9DecodeDiagnosticCode.InvalidPacket, result.Diagnostic?.Code);
+        Assert.Contains("trailing", result.Diagnostic?.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void DecodeFrame_WhenNonDisplayKeyFrameFails_DoesNotRefreshReferences()
+    {
+        var packet = CreatePaddedMainFramePacket();
+        packet[0] = 0x80;
+        var decoder = new RawVp9Decoder();
+
+        var nonDisplay = decoder.DecodeFrame(packet, new Vp9DecodeOptions(2656, 1352));
+        var showExisting = decoder.DecodeFrame(ShowExistingFrame0Packet, new Vp9DecodeOptions(2656, 1352));
+
+        Assert.False(nonDisplay.Succeeded);
+        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedInterFrameFeature, nonDisplay.Diagnostic?.Code);
+        Assert.False(showExisting.Succeeded);
+        Assert.Equal(Vp9DecodeDiagnosticCode.MissingReferenceFrame, showExisting.Diagnostic?.Code);
     }
 
     [Fact]

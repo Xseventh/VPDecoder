@@ -31,6 +31,9 @@ Current status:
 - Runs public raw VP9 decode through filtered YUV420 reconstruction and returns
   deterministic BGRA8888/RGBA8888/YUV420 output for the provided main and alpha
   samples.
+- Maintains decoder-owned VP9 reference slots for decoded key frames, supports
+  `show_existing_frame` replay with copied output, and clears those slots on
+  `Reset()`.
 - Preserves deterministic evidence for the first Block16X16 luma TX4 group
   that previously exposed residual synchronization drift.
 - Converts decoded YUV420 frames to BGRA8888/RGBA8888 and composes alpha from
@@ -42,8 +45,8 @@ Current status:
   2656x1352, 8 tile columns.
 - Fails explicitly for unsupported decode work instead of emitting pixels.
 
-Inter frames/reference state and real VP8 decoding remain follow-up slices. The
-decoder must continue to return explicit unsupported diagnostics until those
+Ordinary inter-frame prediction and real VP8 decoding remain follow-up slices.
+The decoder must continue to return explicit unsupported diagnostics until those
 pieces are complete.
 
 CLI smoke example:
