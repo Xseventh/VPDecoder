@@ -251,6 +251,31 @@ public sealed class Vp9TileSyntaxScannerTests
     }
 
     [Fact]
+    public void TryProbeFirstInterSuperblockModeInfo_WhenNewMvSyntaxIsTruncated_ReturnsTruncatedPacket()
+    {
+        byte[] tilePayload = [0x6f, 0x13];
+        var packet = tilePayload;
+        var header = CreateSyntheticOrdinaryInterHeader(packet.Length);
+        var compressedHeader = CreateSyntheticInterCompressedHeader();
+        IReadOnlyList<Vp9TileBuffer> tileBuffers =
+        [
+            new Vp9TileBuffer(Index: 0, SizeFieldOffset: null, DataOffset: 0, Size: tilePayload.Length)
+        ];
+
+        Assert.False(
+            Vp9TileSyntaxScanner.TryProbeFirstInterSuperblockModeInfo(
+                packet,
+                header,
+                compressedHeader,
+                tileBuffers,
+                out var probes,
+                out var diagnostic));
+
+        Assert.Empty(probes);
+        Assert.Equal(Vp9DecodeDiagnosticCode.TruncatedPacket, diagnostic?.Code);
+    }
+
+    [Fact]
     public void TryPredictFirstInterSuperblockZeroMv_ForSyntheticOrdinaryInterFrame_CopiesReferenceBlock()
     {
         byte[] tilePayload = [0x03, 0x00, 0x00];
