@@ -94,6 +94,37 @@ inputs. It never requires file paths or container wrappers from callers; file
 I/O is limited to the CLI smoke helper. Decode failures are returned as
 structured `Vp9DecodeDiagnostic` values with stable codes and messages.
 
+Cross-frame decode semantics:
+
+- A `RawVp9Decoder` instance represents one VP9 stream state. Feed packets for
+  one video stream to the same instance in display/decode order.
+- Use a fresh `RawVp9Decoder` or call `Reset()` before decoding a different
+  stream, seeking to a point that does not have the required references, or
+  replaying a stream from the beginning.
+- Successful displayed key frames and supported inter frames update
+  decoder-owned reference slots according to VP9 `refresh_frame_flags`.
+  `show_existing_frame` can replay an existing reference without parsing a
+  compressed header.
+- Frame-context probability state is also decoder-owned. Refreshed contexts are
+  committed only after a frame decodes successfully, and `Reset()` restores all
+  frame contexts to defaults.
+- If a packet fails with invalid, truncated, missing-reference, allocation, or
+  unsupported-feature diagnostics before reconstruction completes, the decoder
+  does not emit pixels for that packet. Callers should treat the stream as
+  still positioned at the last successful decode unless a public API documents
+  otherwise for a specific future mode.
+- Returned frames are caller-owned pixel buffers. Mutating a returned frame does
+  not mutate decoder reference slots.
+- `DecodeFrameWithAlpha` is a single-frame convenience helper for one color
+  packet plus one alpha packet. It maintains color state on the current decoder
+  instance, but the alpha packet is decoded with an internal fresh decoder for
+  that call. This is correct for independent alpha key-frame packets such as the
+  current validation sample, but it is not a full color+alpha sequence decoder
+  when alpha packets depend on prior alpha references.
+- A future color+alpha sequence integration should maintain two decoder states:
+  one `RawVp9Decoder` for color and one for alpha, reset both together, decode
+  each packet in order, and merge the two successfully decoded packed frames.
+
 CLI smoke example:
 
 ```bash
