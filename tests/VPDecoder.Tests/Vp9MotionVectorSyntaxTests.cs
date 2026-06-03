@@ -68,7 +68,7 @@ public sealed class Vp9MotionVectorSyntaxTests
     }
 
     [Fact]
-    public void TryReadSupportedInterBlock_WhenPredictionModeIsNewMv_ReturnsUnsupportedDiagnostic()
+    public void TryReadSupportedInterBlock_WhenPredictionModeIsNewMv_ReturnsModeInfo()
     {
         var reader = new Vp9BoolReader([0x0c, 0x24, 0x00]);
         var frameHeader = Vp9FrameHeaderParser.Parse(Vp9TestPackets.CreateOrdinaryInterFramePacket());
@@ -87,17 +87,17 @@ public sealed class Vp9MotionVectorSyntaxTests
             SingleReference1: 0,
             InterMode: 0);
 
-        Assert.False(Vp9InterModeInfoSyntax.TryReadSupportedInterBlock(
+        Assert.True(Vp9InterModeInfoSyntax.TryReadSupportedInterBlock(
             ref reader,
             frameHeader,
             compressedHeader,
             Vp9BlockSize.Block64X64,
             contexts,
             out var probe,
-            out var diagnostic));
+            out var diagnostic), diagnostic?.Message);
 
-        Assert.Null(probe);
-        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedInterFrameFeature, diagnostic?.Code);
-        Assert.Contains("NEWMV", diagnostic?.Message, StringComparison.Ordinal);
+        Assert.NotNull(probe);
+        Assert.Equal(Vp9InterPredictionMode.NewMv, probe.PredictionMode);
+        Assert.Null(diagnostic);
     }
 }

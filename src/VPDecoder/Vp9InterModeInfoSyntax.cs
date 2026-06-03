@@ -134,13 +134,6 @@ internal static class Vp9InterModeInfoSyntax
             return false;
         }
 
-        if (predictionMode == Vp9InterPredictionMode.NewMv)
-        {
-            diagnostic = Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(
-                "VP9 NEWMV inter prediction mode is not supported yet.");
-            return false;
-        }
-
         probe = new Vp9InterModeInfoProbe(
             blockSize,
             skip,

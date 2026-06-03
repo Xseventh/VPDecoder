@@ -1880,12 +1880,25 @@ internal static class Vp9TileSyntaxScanner
             return false;
         }
 
-        modes.Add(new Vp9InterBlockModeInfoProbe(
+        var modeBlock = new Vp9InterBlockModeInfoProbe(
             geometry.Buffer.Index,
             miRow,
             miColumn,
             partitionPath,
-            modeInfo));
+            modeInfo);
+        if (!TryReadInterBlockMotionVector(
+                ref reader,
+                header,
+                compressedHeader,
+                modeBlock,
+                modes,
+                out modeBlock,
+                out diagnostic))
+        {
+            return false;
+        }
+
+        modes.Add(modeBlock);
         syntaxContext.SetModeInfo(miRow, miColumn, modeInfo);
         return true;
     }
@@ -2098,6 +2111,67 @@ internal static class Vp9TileSyntaxScanner
         {
             MotionVector = motionVector
         };
+        return true;
+    }
+
+    private static bool TryReadInterBlockMotionVector(
+        ref Vp9BoolReader reader,
+        Vp9FrameHeader header,
+        Vp9CompressedHeader compressedHeader,
+        Vp9InterBlockModeInfoProbe modeBlock,
+        IReadOnlyList<Vp9InterBlockModeInfoProbe> decodedModeBlocks,
+        out Vp9InterBlockModeInfoProbe resolvedModeBlock,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
+        resolvedModeBlock = modeBlock;
+        var candidates = Vp9InterPredictor.BuildSpatialMotionVectorCandidates(
+            modeBlock,
+            decodedModeBlocks);
+        Vp9MotionVector motionVector;
+        if (modeBlock.ModeInfo.PredictionMode == Vp9InterPredictionMode.NewMv)
+        {
+            if (candidates.Count < 1)
+            {
+                diagnostic = Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(
+                    "VP9 NEWMV requires a same-reference spatial MV candidate; different-reference and previous-frame MV fallback are not supported yet.");
+                return false;
+            }
+
+            var referenceMotionVector = Vp9MotionVectorSyntax.LowerPrecision(
+                candidates[0],
+                header.AllowHighPrecisionMv);
+            motionVector = Vp9MotionVectorSyntax.ReadMotionVector(
+                ref reader,
+                compressedHeader.FrameContext.MotionVectorProbabilities,
+                referenceMotionVector,
+                header.AllowHighPrecisionMv);
+            if (reader.HasError)
+            {
+                diagnostic = Vp9DecodeDiagnostic.TruncatedPacket("VP9 NEWMV motion vector ended unexpectedly.");
+                return false;
+            }
+        }
+        else if (!Vp9InterPredictor.TrySelectMotionVector(
+                     modeBlock.ModeInfo.PredictionMode,
+                     candidates,
+                     out motionVector,
+                     out diagnostic))
+        {
+            return false;
+        }
+
+        if (!Vp9InterPredictor.IsValidMotionVector(motionVector))
+        {
+            diagnostic = Vp9DecodeDiagnostic.InvalidPacket(
+                "VP9 inter mode-info decoded an out-of-range motion vector.");
+            return false;
+        }
+
+        resolvedModeBlock = modeBlock with
+        {
+            MotionVector = motionVector
+        };
+        diagnostic = null;
         return true;
     }
 
