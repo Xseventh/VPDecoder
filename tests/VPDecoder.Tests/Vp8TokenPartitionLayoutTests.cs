@@ -3,6 +3,60 @@ namespace VPDecoder.Tests;
 public sealed class Vp8TokenPartitionLayoutTests
 {
     [Fact]
+    public void GetPartitionIndexForMacroblockRow_WhenMultiplePartitions_ReturnsRoundRobinRowMapping()
+    {
+        Assert.Equal(0, Vp8TokenPartitionLayoutBuilder.GetPartitionIndexForMacroblockRow(row: 0, partitionCount: 4));
+        Assert.Equal(1, Vp8TokenPartitionLayoutBuilder.GetPartitionIndexForMacroblockRow(row: 1, partitionCount: 4));
+        Assert.Equal(2, Vp8TokenPartitionLayoutBuilder.GetPartitionIndexForMacroblockRow(row: 2, partitionCount: 4));
+        Assert.Equal(3, Vp8TokenPartitionLayoutBuilder.GetPartitionIndexForMacroblockRow(row: 3, partitionCount: 4));
+        Assert.Equal(0, Vp8TokenPartitionLayoutBuilder.GetPartitionIndexForMacroblockRow(row: 4, partitionCount: 4));
+    }
+
+    [Fact]
+    public void GetPartitionIndexForMacroblockRow_WhenPartitionCountIsInvalid_Throws()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            Vp8TokenPartitionLayoutBuilder.GetPartitionIndexForMacroblockRow(row: 0, partitionCount: 3));
+    }
+
+    [Fact]
+    public void TryValidateUsedPartitions_WhenEmptyPartitionIsUnused_ReturnsTrue()
+    {
+        var layout = new Vp8TokenPartitionLayout(
+        [
+            new Vp8TokenPartition(0, Offset: 12, Size: 4),
+            new Vp8TokenPartition(1, Offset: 16, Size: 0)
+        ]);
+
+        var valid = Vp8TokenPartitionLayoutBuilder.TryValidateUsedPartitions(
+            layout,
+            macroblockRows: 1,
+            out var diagnostic);
+
+        Assert.True(valid);
+        Assert.Null(diagnostic);
+    }
+
+    [Fact]
+    public void TryValidateUsedPartitions_WhenUsedPartitionIsEmpty_ReturnsTruncatedPacket()
+    {
+        var layout = new Vp8TokenPartitionLayout(
+        [
+            new Vp8TokenPartition(0, Offset: 12, Size: 4),
+            new Vp8TokenPartition(1, Offset: 16, Size: 0)
+        ]);
+
+        var valid = Vp8TokenPartitionLayoutBuilder.TryValidateUsedPartitions(
+            layout,
+            macroblockRows: 2,
+            out var diagnostic);
+
+        Assert.False(valid);
+        Assert.Equal(Vp8DecodeDiagnosticCode.TruncatedPacket, diagnostic?.Code);
+        Assert.Contains("partition 1", diagnostic?.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void TryCreate_WhenSinglePartition_ReturnsRemainingPayload()
     {
         var packet = new byte[15];

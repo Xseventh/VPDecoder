@@ -183,7 +183,7 @@ public sealed class RawVp8DecoderTests
         Assert.False(result.Succeeded);
         Assert.NotNull(result.Header);
         Assert.Equal(Vp8DecodeDiagnosticCode.TruncatedPacket, result.Diagnostic?.Code);
-        Assert.Contains("token partition is empty", result.Diagnostic?.Message, StringComparison.Ordinal);
+        Assert.Contains("token partition 0 is empty", result.Diagnostic?.Message, StringComparison.Ordinal);
     }
 
     [Fact]

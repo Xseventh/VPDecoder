@@ -66,14 +66,15 @@ Current status:
   VP8 surface accepts `ReadOnlySpan<byte>` and `ReadOnlyMemory<byte>` and uses
   the same displayed/no-display/failed result shape expected by sequence
   callers.
-- Reconstructs a strictly gated VP8 key-frame subset: one token partition,
+- Reconstructs a strictly gated VP8 key-frame subset: 1/2/4/8 token
+  partitions with VP8 row round-robin token-reader assignment,
   visible macroblocks including clipped right/bottom edge
   macroblocks, supported intra predictors, VP8 Y2 inverse Walsh luma DC
   propagation for non-B_PRED macroblocks, and 4x4 inverse DCT residual add for
   Y1/UV blocks. Uniform simple/normal VP8 key-frame loop filtering is applied
   after full-frame reconstruction. VP8 loop-filter deltas, segmentation
-  loop-filter feature data, multi-token partitions, and inter frames remain
-  explicit unsupported diagnostics.
+  loop-filter feature data, and inter frames remain explicit unsupported
+  diagnostics.
 - Validates the current sample shape: VP9 profile 0, 8-bit, YUV420,
   2656x1352, 8 tile columns.
 - Fails explicitly for unsupported decode work instead of emitting pixels.

@@ -6,6 +6,50 @@ internal readonly record struct Vp8TokenPartition(int Index, int Offset, int Siz
 
 internal static class Vp8TokenPartitionLayoutBuilder
 {
+    public static int GetPartitionIndexForMacroblockRow(int row, int partitionCount)
+    {
+        if (row < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(row));
+        }
+
+        if (partitionCount is not (1 or 2 or 4 or 8))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(partitionCount),
+                partitionCount,
+                "VP8 token partition count must be 1, 2, 4, or 8.");
+        }
+
+        return row & (partitionCount - 1);
+    }
+
+    public static bool TryValidateUsedPartitions(
+        Vp8TokenPartitionLayout layout,
+        int macroblockRows,
+        out Vp8DecodeDiagnostic? diagnostic)
+    {
+        diagnostic = null;
+        if (macroblockRows <= 0)
+        {
+            diagnostic = Vp8DecodeDiagnostic.InvalidPacket("VP8 macroblock row count must be positive.");
+            return false;
+        }
+
+        var usedPartitionCount = Math.Min(layout.Partitions.Count, macroblockRows);
+        for (var partitionIndex = 0; partitionIndex < usedPartitionCount; partitionIndex++)
+        {
+            if (layout.Partitions[partitionIndex].Size == 0)
+            {
+                diagnostic = Vp8DecodeDiagnostic.TruncatedPacket(
+                    $"VP8 token partition {partitionIndex} is empty.");
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     public static bool TryCreate(
         ReadOnlySpan<byte> packet,
         Vp8FrameHeader header,

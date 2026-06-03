@@ -196,35 +196,96 @@ public sealed class RawVp8Decoder
             return false;
         }
 
-        if (tokenLayout.Partitions.Count != 1)
+        var macroblockColumns = (header.Width + 15) >> 4;
+        var macroblockRows = (header.Height + 15) >> 4;
+        if (!Vp8TokenPartitionLayoutBuilder.TryValidateUsedPartitions(tokenLayout, macroblockRows, out diagnostic))
         {
-            diagnostic = Vp8DecodeDiagnostic.UnsupportedFeature("VP8 multi-token-partition reconstruction is not implemented yet.");
-            return false;
-        }
-
-        var tokenPartition = tokenLayout.Partitions[0];
-        if (tokenPartition.Size == 0)
-        {
-            diagnostic = Vp8DecodeDiagnostic.TruncatedPacket("VP8 token partition is empty.");
             return false;
         }
 
         try
         {
-            var tokenReader = new Vp8BoolReader(packet.Slice(tokenPartition.Offset, tokenPartition.Size));
+            var fallbackPartition = tokenLayout.Partitions[0];
+            var usedPartitionCount = Math.Min(tokenLayout.Partitions.Count, macroblockRows);
+            var tokenReader0 = CreateTokenReader(packet, fallbackPartition);
+            var tokenReader1 = CreateTokenReader(packet, usedPartitionCount > 1 ? tokenLayout.Partitions[1] : fallbackPartition);
+            var tokenReader2 = CreateTokenReader(packet, usedPartitionCount > 2 ? tokenLayout.Partitions[2] : fallbackPartition);
+            var tokenReader3 = CreateTokenReader(packet, usedPartitionCount > 3 ? tokenLayout.Partitions[3] : fallbackPartition);
+            var tokenReader4 = CreateTokenReader(packet, usedPartitionCount > 4 ? tokenLayout.Partitions[4] : fallbackPartition);
+            var tokenReader5 = CreateTokenReader(packet, usedPartitionCount > 5 ? tokenLayout.Partitions[5] : fallbackPartition);
+            var tokenReader6 = CreateTokenReader(packet, usedPartitionCount > 6 ? tokenLayout.Partitions[6] : fallbackPartition);
+            var tokenReader7 = CreateTokenReader(packet, usedPartitionCount > 7 ? tokenLayout.Partitions[7] : fallbackPartition);
             var probabilities = Vp8CoefficientProbabilityContext.Create(syntax.Header);
-            var macroblockColumns = (header.Width + 15) >> 4;
             var residualContext = Vp8ResidualEntropyContext.Create(macroblockColumns);
             var buffer = Vp8ReconstructionBuffer.Create(header.Width, header.Height);
             var loopFilterMacroblocks = new List<Vp8LoopFilterMacroblock>(syntax.MacroblockModes.Count);
 
             foreach (var mode in syntax.MacroblockModes)
             {
-                var residual = Vp8MacroblockResidualSyntax.ReadMacroblock(
-                    ref tokenReader,
-                    probabilities,
-                    residualContext,
-                    mode);
+                Vp8MacroblockResidual residual;
+                var partitionIndex = Vp8TokenPartitionLayoutBuilder.GetPartitionIndexForMacroblockRow(
+                    mode.Row,
+                    tokenLayout.Partitions.Count);
+                switch (partitionIndex)
+                {
+                    case 0:
+                        residual = Vp8MacroblockResidualSyntax.ReadMacroblock(
+                            ref tokenReader0,
+                            probabilities,
+                            residualContext,
+                            mode);
+                        break;
+                    case 1:
+                        residual = Vp8MacroblockResidualSyntax.ReadMacroblock(
+                            ref tokenReader1,
+                            probabilities,
+                            residualContext,
+                            mode);
+                        break;
+                    case 2:
+                        residual = Vp8MacroblockResidualSyntax.ReadMacroblock(
+                            ref tokenReader2,
+                            probabilities,
+                            residualContext,
+                            mode);
+                        break;
+                    case 3:
+                        residual = Vp8MacroblockResidualSyntax.ReadMacroblock(
+                            ref tokenReader3,
+                            probabilities,
+                            residualContext,
+                            mode);
+                        break;
+                    case 4:
+                        residual = Vp8MacroblockResidualSyntax.ReadMacroblock(
+                            ref tokenReader4,
+                            probabilities,
+                            residualContext,
+                            mode);
+                        break;
+                    case 5:
+                        residual = Vp8MacroblockResidualSyntax.ReadMacroblock(
+                            ref tokenReader5,
+                            probabilities,
+                            residualContext,
+                            mode);
+                        break;
+                    case 6:
+                        residual = Vp8MacroblockResidualSyntax.ReadMacroblock(
+                            ref tokenReader6,
+                            probabilities,
+                            residualContext,
+                            mode);
+                        break;
+                    default:
+                        residual = Vp8MacroblockResidualSyntax.ReadMacroblock(
+                            ref tokenReader7,
+                            probabilities,
+                            residualContext,
+                            mode);
+                        break;
+                }
+
                 var dequantFactors = Vp8Quantizer.CreateDequantFactors(
                     syntax.Header.Quantization,
                     syntax.Header.Segmentation,
@@ -248,7 +309,14 @@ public sealed class RawVp8Decoder
                     Vp8LoopFilter.ShouldFilterSubblocks(mode, residual)));
             }
 
-            if (tokenReader.HasError)
+            if (tokenReader0.HasError ||
+                (usedPartitionCount > 1 && tokenReader1.HasError) ||
+                (usedPartitionCount > 2 && tokenReader2.HasError) ||
+                (usedPartitionCount > 3 && tokenReader3.HasError) ||
+                (usedPartitionCount > 4 && tokenReader4.HasError) ||
+                (usedPartitionCount > 5 && tokenReader5.HasError) ||
+                (usedPartitionCount > 6 && tokenReader6.HasError) ||
+                (usedPartitionCount > 7 && tokenReader7.HasError))
             {
                 diagnostic = Vp8DecodeDiagnostic.TruncatedPacket("VP8 token partition syntax extends past the packet boundary.");
                 return false;
@@ -270,6 +338,11 @@ public sealed class RawVp8Decoder
             diagnostic = ex.Diagnostic;
             return false;
         }
+    }
+
+    private static Vp8BoolReader CreateTokenReader(ReadOnlySpan<byte> packet, Vp8TokenPartition partition)
+    {
+        return new Vp8BoolReader(packet.Slice(partition.Offset, partition.Size));
     }
 }
 
