@@ -65,7 +65,8 @@ Current status:
   strict unsupported diagnostics until VP8 pixel reconstruction is implemented.
   The VP8 surface accepts `ReadOnlySpan<byte>` and `ReadOnlyMemory<byte>` and
   uses the same displayed/no-display/failed result shape expected by sequence
-  callers.
+  callers. VP8 key-frame first partitions are initialized with a VP8 bool
+  reader before the current pixel-reconstruction gate.
 - Validates the current sample shape: VP9 profile 0, 8-bit, YUV420,
   2656x1352, 8 tile columns.
 - Fails explicitly for unsupported decode work instead of emitting pixels.

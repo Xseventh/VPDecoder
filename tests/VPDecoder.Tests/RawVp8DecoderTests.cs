@@ -146,4 +146,25 @@ public sealed class RawVp8DecoderTests
         Assert.Equal(2, result.Header.FirstPartitionSize);
         Assert.Equal(Vp8DecodeDiagnosticCode.TruncatedPacket, result.Diagnostic?.Code);
     }
+
+    [Fact]
+    public void DecodeFrame_WhenKeyFrameFirstPartitionIsEmpty_ReturnsTruncatedPacketWithHeader()
+    {
+        var packet = new byte[]
+        {
+            0x10, 0x00, 0x00,
+            0x9d, 0x01, 0x2a,
+            0x10, 0x00,
+            0x08, 0x00
+        };
+        var decoder = new RawVp8Decoder();
+
+        var result = decoder.DecodeFrame(packet, new Vp8DecodeOptions(16, 8));
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(Vp8DecodeResultStatus.Failed, result.Status);
+        Assert.NotNull(result.Header);
+        Assert.Equal(0, result.Header.FirstPartitionSize);
+        Assert.Equal(Vp8DecodeDiagnosticCode.TruncatedPacket, result.Diagnostic?.Code);
+    }
 }

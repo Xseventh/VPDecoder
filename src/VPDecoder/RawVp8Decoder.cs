@@ -44,6 +44,12 @@ public sealed class RawVp8Decoder
                 header);
         }
 
+        diagnostic = ValidateKeyFrameFirstPartition(packet, header);
+        if (diagnostic is not null)
+        {
+            return Vp8DecodeResult.Fail(diagnostic, header);
+        }
+
         return Vp8DecodeResult.Fail(
             Vp8DecodeDiagnostic.UnsupportedFeature("VP8 key-frame pixel reconstruction is not implemented yet."),
             header);
@@ -132,6 +138,19 @@ public sealed class RawVp8Decoder
         }
 
         return null;
+    }
+
+    private static Vp8DecodeDiagnostic? ValidateKeyFrameFirstPartition(ReadOnlySpan<byte> packet, Vp8FrameHeader header)
+    {
+        try
+        {
+            _ = new Vp8BoolReader(packet.Slice(header.HeaderSizeInBytes, header.FirstPartitionSize));
+            return null;
+        }
+        catch (Vp8BoolReaderException ex)
+        {
+            return ex.Diagnostic;
+        }
     }
 }
 
