@@ -142,14 +142,30 @@ public sealed class RawVp8Decoder
 
     private static Vp8DecodeDiagnostic? ValidateKeyFrameSyntax(ReadOnlySpan<byte> packet, Vp8FrameHeader header)
     {
-        return Vp8KeyFrameSyntaxHeaderParser.TryParseFrameSyntax(
+        if (!Vp8KeyFrameSyntaxHeaderParser.TryParseFrameSyntax(
             packet.Slice(header.HeaderSizeInBytes, header.FirstPartitionSize),
             header.Width,
             header.Height,
+            out var syntax,
+            out var diagnostic))
+        {
+            return diagnostic ?? Vp8DecodeDiagnostic.InternalDecodeFailure("VP8 key-frame syntax parser failed without a diagnostic.");
+        }
+
+        if (syntax is null)
+        {
+            return Vp8DecodeDiagnostic.InternalDecodeFailure("VP8 key-frame syntax parser succeeded without returning syntax.");
+        }
+
+        return Vp8TokenPartitionLayoutBuilder.TryCreate(
+            packet,
+            header,
+            syntax.Header,
             out _,
-            out var diagnostic)
+            out diagnostic)
             ? null
-            : diagnostic ?? Vp8DecodeDiagnostic.InternalDecodeFailure("VP8 key-frame syntax parser failed without a diagnostic.");
+            : diagnostic ?? Vp8DecodeDiagnostic.InternalDecodeFailure(
+                "VP8 token partition layout builder failed without a diagnostic.");
     }
 }
 
