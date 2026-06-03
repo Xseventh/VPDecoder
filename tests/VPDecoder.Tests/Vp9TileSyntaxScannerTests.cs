@@ -837,6 +837,57 @@ public sealed class Vp9TileSyntaxScannerTests
     }
 
     [Fact]
+    public void TryReconstructInterFrameFromProbes_WhenNearestCandidateIsInOtherTile_ReturnsUnsupportedDiagnostic()
+    {
+        var header = CreateSyntheticOrdinaryInterHeader(packetLength: 0) with
+        {
+            Width = 16,
+            Height = 8,
+            RenderWidth = 16,
+            RenderHeight = 8,
+            TileInfo = new Vp9TileInfo(
+                MiColumns: 2,
+                MiRows: 1,
+                SuperblockColumns: 1,
+                MinLog2TileColumns: 0,
+                MaxLog2TileColumns: 0,
+                Log2TileColumns: 0,
+                Log2TileRows: 0)
+        };
+        var referenceFrame = CreatePatternYuvFrame(width: 16, height: 8);
+        var referenceFrames = new Vp9ReferenceFrameStore();
+        referenceFrames.Refresh(referenceFrame, Vp9ColorRange.Studio, refreshFrameFlags: 0x01);
+        var otherTileCandidate = CreateInterModeBlock(0, 0, Vp9InterPredictionMode.ZeroMv, tileIndex: 1);
+        var nearest = CreateInterModeBlock(0, 1, Vp9InterPredictionMode.NearestMv, tileIndex: 0);
+        IReadOnlyList<Vp9InterSuperblockSyntaxProbe> probes =
+        [
+            new Vp9InterSuperblockSyntaxProbe(
+                TileIndex: 1,
+                Partitions: [],
+                ModeInfos: [otherTileCandidate],
+                CoefficientGroups: [.. CreateEmptyInterTx4Groups(otherTileCandidate.ModeInfo.BlockSize)]),
+            new Vp9InterSuperblockSyntaxProbe(
+                TileIndex: 0,
+                Partitions: [],
+                ModeInfos: [nearest],
+                CoefficientGroups: [.. CreateEmptyInterTx4Groups(nearest.ModeInfo.BlockSize)])
+        ];
+
+        Assert.False(Vp9TileSyntaxScanner.TryReconstructInterFrameFromProbes(
+            header,
+            probes,
+            referenceFrames,
+            out var reconstructedFrame,
+            out var predictedProbes,
+            out var diagnostic));
+
+        Assert.Null(reconstructedFrame);
+        Assert.Empty(predictedProbes);
+        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedInterFrameFeature, diagnostic?.Code);
+        Assert.Contains("NEARESTMV", diagnostic?.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void TryProbeFirstLeafCoefficientToken_ForExternalMainFrame_ReadsExpectedFirstToken()
     {
         var packet = ReadRequiredSample(
@@ -1607,7 +1658,8 @@ public sealed class Vp9TileSyntaxScannerTests
     private static Vp9InterBlockModeInfoProbe CreateInterModeBlock(
         int miRow,
         int miColumn,
-        Vp9InterPredictionMode predictionMode)
+        Vp9InterPredictionMode predictionMode,
+        int tileIndex = 0)
     {
         var modeInfo = new Vp9InterModeInfoProbe(
             Vp9BlockSize.Block8X8,
@@ -1626,7 +1678,7 @@ public sealed class Vp9TileSyntaxScannerTests
             Vp9InterpolationFilter.EightTap);
 
         return new Vp9InterBlockModeInfoProbe(
-            TileIndex: 0,
+            TileIndex: tileIndex,
             miRow,
             miColumn,
             PartitionPath: [Vp9PartitionType.None],
