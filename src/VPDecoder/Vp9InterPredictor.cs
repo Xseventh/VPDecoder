@@ -80,9 +80,112 @@ internal static class Vp9InterPredictor
         }
     }
 
+    public static IReadOnlyList<Vp9MotionVector> BuildSpatialMotionVectorCandidates(
+        Vp9InterBlockModeInfoProbe currentBlock,
+        IReadOnlyList<Vp9InterBlockModeInfoProbe> decodedBlocks)
+    {
+        var candidates = new List<Vp9MotionVector>(capacity: 2);
+        AddCandidate(
+            candidates,
+            FindLeftCandidate(currentBlock, decodedBlocks));
+        AddCandidate(
+            candidates,
+            FindAboveCandidate(currentBlock, decodedBlocks));
+        return candidates;
+    }
+
     public static bool IsWholePixelMotionVector(Vp9MotionVector motionVector)
     {
         return (motionVector.Row & 7) == 0 && (motionVector.Column & 7) == 0;
+    }
+
+    private static void AddCandidate(List<Vp9MotionVector> candidates, Vp9MotionVector? candidate)
+    {
+        if (candidate is not { } motionVector || candidates.Contains(motionVector))
+        {
+            return;
+        }
+
+        candidates.Add(motionVector);
+    }
+
+    private static Vp9MotionVector? FindLeftCandidate(
+        Vp9InterBlockModeInfoProbe currentBlock,
+        IReadOnlyList<Vp9InterBlockModeInfoProbe> decodedBlocks)
+    {
+        Vp9InterBlockModeInfoProbe? best = null;
+        foreach (var block in decodedBlocks)
+        {
+            if (!CanUseCandidate(block, currentBlock))
+            {
+                continue;
+            }
+
+            var rightEdge = block.MiColumn + Vp9ModeInfoSyntax.GetBlockWidthInMiUnits(block.ModeInfo.BlockSize);
+            if (rightEdge != currentBlock.MiColumn ||
+                !Overlaps(
+                    block.MiRow,
+                    Vp9ModeInfoSyntax.GetBlockHeightInMiUnits(block.ModeInfo.BlockSize),
+                    currentBlock.MiRow,
+                    Vp9ModeInfoSyntax.GetBlockHeightInMiUnits(currentBlock.ModeInfo.BlockSize)))
+            {
+                continue;
+            }
+
+            if (best is null || block.MiColumn > best.MiColumn || block.MiRow > best.MiRow)
+            {
+                best = block;
+            }
+        }
+
+        return best?.MotionVector;
+    }
+
+    private static Vp9MotionVector? FindAboveCandidate(
+        Vp9InterBlockModeInfoProbe currentBlock,
+        IReadOnlyList<Vp9InterBlockModeInfoProbe> decodedBlocks)
+    {
+        Vp9InterBlockModeInfoProbe? best = null;
+        foreach (var block in decodedBlocks)
+        {
+            if (!CanUseCandidate(block, currentBlock))
+            {
+                continue;
+            }
+
+            var bottomEdge = block.MiRow + Vp9ModeInfoSyntax.GetBlockHeightInMiUnits(block.ModeInfo.BlockSize);
+            if (bottomEdge != currentBlock.MiRow ||
+                !Overlaps(
+                    block.MiColumn,
+                    Vp9ModeInfoSyntax.GetBlockWidthInMiUnits(block.ModeInfo.BlockSize),
+                    currentBlock.MiColumn,
+                    Vp9ModeInfoSyntax.GetBlockWidthInMiUnits(currentBlock.ModeInfo.BlockSize)))
+            {
+                continue;
+            }
+
+            if (best is null || block.MiRow > best.MiRow || block.MiColumn > best.MiColumn)
+            {
+                best = block;
+            }
+        }
+
+        return best?.MotionVector;
+    }
+
+    private static bool CanUseCandidate(
+        Vp9InterBlockModeInfoProbe candidate,
+        Vp9InterBlockModeInfoProbe currentBlock)
+    {
+        return candidate.MotionVector.HasValue &&
+            candidate.ModeInfo.IsInterBlock &&
+            candidate.ModeInfo.ReferenceMode == Vp9ReferenceMode.Single &&
+            candidate.ModeInfo.ReferenceFrame == currentBlock.ModeInfo.ReferenceFrame;
+    }
+
+    private static bool Overlaps(int firstStart, int firstSize, int secondStart, int secondSize)
+    {
+        return firstStart < secondStart + secondSize && secondStart < firstStart + firstSize;
     }
 
     private static int GetReferenceFrameIndex(Vp9InterReferenceFrame referenceFrame)

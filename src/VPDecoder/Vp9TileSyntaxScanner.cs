@@ -21,7 +21,8 @@ internal sealed record Vp9InterBlockModeInfoProbe(
     int MiRow,
     int MiColumn,
     IReadOnlyList<Vp9PartitionType> PartitionPath,
-    Vp9InterModeInfoProbe ModeInfo);
+    Vp9InterModeInfoProbe ModeInfo,
+    Vp9MotionVector? MotionVector = null);
 
 internal static class Vp9TileSyntaxScanner
 {
@@ -857,6 +858,8 @@ internal static class Vp9TileSyntaxScanner
         try
         {
             var destination = Vp9YuvFrameBuffer.Create(header.Width, header.Height);
+            var predictedProbes = new List<Vp9InterSuperblockSyntaxProbe>(probes.Count);
+            var predictedModeBlocks = new List<Vp9InterBlockModeInfoProbe>();
             foreach (var probe in probes)
             {
                 var expectedGroupCount = checked(probe.ModeInfos.Count * 3);
@@ -867,6 +870,7 @@ internal static class Vp9TileSyntaxScanner
                     return false;
                 }
 
+                var predictedProbeModeBlocks = new List<Vp9InterBlockModeInfoProbe>(probe.ModeInfos.Count);
                 for (var modeIndex = 0; modeIndex < probe.ModeInfos.Count; modeIndex++)
                 {
                     var modeBlock = probe.ModeInfos[modeIndex];
@@ -887,9 +891,12 @@ internal static class Vp9TileSyntaxScanner
                         return false;
                     }
 
+                    var candidates = Vp9InterPredictor.BuildSpatialMotionVectorCandidates(
+                        modeBlock,
+                        predictedModeBlocks);
                     if (!Vp9InterPredictor.TrySelectMotionVector(
                             modeBlock.ModeInfo.PredictionMode,
-                            Array.Empty<Vp9MotionVector>(),
+                            candidates,
                             out var motionVector,
                             out diagnostic))
                     {
@@ -907,6 +914,13 @@ internal static class Vp9TileSyntaxScanner
                         return false;
                     }
 
+                    var predictedModeBlock = modeBlock with
+                    {
+                        MotionVector = motionVector
+                    };
+                    predictedModeBlocks.Add(predictedModeBlock);
+                    predictedProbeModeBlocks.Add(predictedModeBlock);
+
                     var groupOffset = modeIndex * 3;
                     for (var plane = 0; plane < 3; plane++)
                     {
@@ -917,11 +931,17 @@ internal static class Vp9TileSyntaxScanner
                             plane);
                     }
                 }
+
+                predictedProbes.Add(probe with
+                {
+                    ModeInfos = predictedProbeModeBlocks
+                });
             }
 
+            probes = predictedProbes;
             reconstructedFrame = Vp9ReconstructedFrame.FromInter(
                 destination.ToDecodedFrame(),
-                probes,
+                predictedProbes,
                 header.TileInfo.MiRows,
                 header.TileInfo.MiColumns);
             return true;

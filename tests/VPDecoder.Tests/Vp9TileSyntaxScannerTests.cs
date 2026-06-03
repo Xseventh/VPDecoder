@@ -638,6 +638,9 @@ public sealed class Vp9TileSyntaxScannerTests
         Assert.Equal(128, frame.Width);
         Assert.Equal(64, frame.Height);
         Assert.Equal(Hash(referenceFrame.Pixels), Hash(frame.Pixels));
+        Assert.All(
+            probes.SelectMany(probe => probe.ModeInfos),
+            modeInfo => Assert.Equal(new Vp9MotionVector(0, 0), modeInfo.MotionVector));
     }
 
     [Fact]
