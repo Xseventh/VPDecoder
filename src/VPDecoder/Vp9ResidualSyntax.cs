@@ -298,6 +298,62 @@ internal static class Vp9ResidualSyntax
         return Vp9TransformType.DctDct;
     }
 
+    public static Vp9CoefficientBlockGroupProbe CreateSkippedInterPlaneCoefficientBlocks(
+        Vp9FrameHeader header,
+        Vp9InterBlockModeInfoProbe modeBlock,
+        int plane)
+    {
+        if (plane is < 0 or > 2)
+        {
+            throw new ArgumentOutOfRangeException(nameof(plane), plane, "VP9 plane index must be 0, 1, or 2.");
+        }
+
+        var modeInfo = modeBlock.ModeInfo;
+        if (!modeInfo.IsInterBlock)
+        {
+            throw new NotSupportedException("VP9 inter residual syntax requires an inter-predicted block.");
+        }
+
+        if (!modeInfo.Skip)
+        {
+            throw new NotSupportedException(
+                "VP9 inter residual scaffold currently supports only skipped inter blocks; non-skipped inter residual decoding is not supported yet.");
+        }
+
+        var transformSize = plane == 0
+            ? modeInfo.TransformSize
+            : GetUvTransformSize(modeInfo.BlockSize, modeInfo.TransformSize);
+        var width4 = GetVisiblePlaneWidthIn4x4Blocks(header, modeInfo.BlockSize, modeBlock.MiColumn, plane);
+        var height4 = GetVisiblePlaneHeightIn4x4Blocks(header, modeInfo.BlockSize, modeBlock.MiRow, plane);
+        var step = Vp9CoefficientEntropyContext.GetTransformSizeIn4x4Blocks(transformSize);
+        var transformType = GetInterTransformType(modeInfo, plane);
+        var planeType = plane == 0 ? 0 : 1;
+        var blocks = new List<Vp9CoefficientBlockProbe>();
+        for (var row = 0; row < height4; row += step)
+        {
+            for (var column = 0; column < width4; column += step)
+            {
+                blocks.Add(CreateBlockProbe(
+                    modeBlock.TileIndex,
+                    transformSize,
+                    transformType,
+                    row,
+                    column,
+                    planeType,
+                    InterBlockReferenceType,
+                    initialCoefficientContext: 0,
+                    eob: 0,
+                    new int[Vp9ScanTables.GetMaximumEob(transformSize)]));
+            }
+        }
+
+        return new Vp9CoefficientBlockGroupProbe(
+            modeBlock.TileIndex,
+            modeInfo.BlockSize,
+            transformSize,
+            blocks);
+    }
+
     private static Vp9CoefficientBlockProbe ReadCoefficientBlock(
         ref Vp9BoolReader reader,
         Vp9KeyFrameDecodeState state,
@@ -725,6 +781,31 @@ internal static class Vp9ResidualSyntax
         int eob,
         int[] coefficients)
     {
+        return CreateBlockProbe(
+            modeInfo.TileIndex,
+            transformSize,
+            transformType,
+            row4,
+            column4,
+            planeType,
+            referenceType,
+            initialCoefficientContext,
+            eob,
+            coefficients);
+    }
+
+    private static Vp9CoefficientBlockProbe CreateBlockProbe(
+        int tileIndex,
+        Vp9TransformSize transformSize,
+        Vp9TransformType transformType,
+        int row4,
+        int column4,
+        int planeType,
+        int referenceType,
+        int initialCoefficientContext,
+        int eob,
+        int[] coefficients)
+    {
         var nonZeroCount = 0;
         var firstNonZero = -1;
         var lastNonZero = -1;
@@ -745,7 +826,7 @@ internal static class Vp9ResidualSyntax
         }
 
         return new Vp9CoefficientBlockProbe(
-            modeInfo.TileIndex,
+            tileIndex,
             transformSize,
             transformType,
             row4,
