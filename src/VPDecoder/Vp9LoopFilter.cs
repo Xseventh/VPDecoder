@@ -60,6 +60,40 @@ internal static class Vp9LoopFilter
         return Math.Clamp(level, 0, 63);
     }
 
+    public static int GetInterFrameFilterLevel(
+        Vp9LoopFilterHeader header,
+        Vp9InterReferenceFrame referenceFrame,
+        Vp9InterPredictionMode predictionMode)
+    {
+        if (header.FilterLevel == 0)
+        {
+            return 0;
+        }
+
+        if (!header.ModeRefDeltaEnabled)
+        {
+            return header.FilterLevel;
+        }
+
+        var referenceIndex = GetReferenceLoopFilterDeltaIndex(referenceFrame);
+        if (header.RefDeltas.Count <= referenceIndex)
+        {
+            throw new ArgumentException("VP9 loop filter ref delta table must include inter reference frames.", nameof(header));
+        }
+
+        var modeIndex = GetInterModeLoopFilterDeltaIndex(predictionMode);
+        if (header.ModeDeltas.Count <= modeIndex)
+        {
+            throw new ArgumentException("VP9 loop filter mode delta table must include inter mode deltas.", nameof(header));
+        }
+
+        var scale = 1 << (header.FilterLevel >> 5);
+        var level = header.FilterLevel +
+            (header.RefDeltas[referenceIndex] * scale) +
+            (header.ModeDeltas[modeIndex] * scale);
+        return Math.Clamp(level, 0, 63);
+    }
+
     public static Vp9LoopFilterThresholds GetThresholds(int filterLevel, int sharpnessLevel)
     {
         if (filterLevel is < 0 or > 63)
@@ -91,6 +125,29 @@ internal static class Vp9LoopFilter
             (byte)blockInsideLimit,
             (byte)macroblockLimit,
             (byte)(filterLevel >> 4));
+    }
+
+    private static int GetReferenceLoopFilterDeltaIndex(Vp9InterReferenceFrame referenceFrame)
+    {
+        return referenceFrame switch
+        {
+            Vp9InterReferenceFrame.Last => 1,
+            Vp9InterReferenceFrame.Golden => 2,
+            Vp9InterReferenceFrame.AltRef => 3,
+            _ => throw new ArgumentOutOfRangeException(nameof(referenceFrame), referenceFrame, "Unsupported VP9 inter reference frame.")
+        };
+    }
+
+    private static int GetInterModeLoopFilterDeltaIndex(Vp9InterPredictionMode predictionMode)
+    {
+        return predictionMode switch
+        {
+            Vp9InterPredictionMode.ZeroMv => 0,
+            Vp9InterPredictionMode.NearestMv or
+            Vp9InterPredictionMode.NearMv or
+            Vp9InterPredictionMode.NewMv => 1,
+            _ => throw new ArgumentOutOfRangeException(nameof(predictionMode), predictionMode, "Unsupported VP9 inter prediction mode.")
+        };
     }
 
     private static void ApplyLumaPlane(

@@ -54,6 +54,84 @@ public sealed class Vp9LoopFilterTests
         Assert.Equal(0, Vp9LoopFilter.GetKeyFrameFilterLevel(header));
     }
 
+    [Theory]
+    [InlineData((int)Vp9InterReferenceFrame.Last, (int)Vp9InterPredictionMode.ZeroMv, 17)]
+    [InlineData((int)Vp9InterReferenceFrame.Last, (int)Vp9InterPredictionMode.NearestMv, 28)]
+    [InlineData((int)Vp9InterReferenceFrame.Last, (int)Vp9InterPredictionMode.NearMv, 28)]
+    [InlineData((int)Vp9InterReferenceFrame.Golden, (int)Vp9InterPredictionMode.ZeroMv, 12)]
+    [InlineData((int)Vp9InterReferenceFrame.AltRef, (int)Vp9InterPredictionMode.NewMv, 30)]
+    public void GetInterFrameFilterLevel_WhenModeRefDeltaIsEnabled_AppliesReferenceAndModeDeltas(
+        int referenceFrame,
+        int predictionMode,
+        int expectedLevel)
+    {
+        var header = new Vp9LoopFilterHeader(
+            FilterLevel: 20,
+            SharpnessLevel: 0,
+            ModeRefDeltaEnabled: true,
+            ModeRefDeltaUpdate: false,
+            RefDeltas: [1, 2, -3, 4],
+            ModeDeltas: [-5, 6]);
+
+        Assert.Equal(
+            expectedLevel,
+            Vp9LoopFilter.GetInterFrameFilterLevel(
+                header,
+                (Vp9InterReferenceFrame)referenceFrame,
+                (Vp9InterPredictionMode)predictionMode));
+    }
+
+    [Fact]
+    public void GetInterFrameFilterLevel_WhenBaseLevelIsHigh_ScalesDeltasAndClamps()
+    {
+        var header = new Vp9LoopFilterHeader(
+            FilterLevel: 40,
+            SharpnessLevel: 0,
+            ModeRefDeltaEnabled: true,
+            ModeRefDeltaUpdate: false,
+            RefDeltas: [0, 20, -20, 0],
+            ModeDeltas: [20, -20]);
+
+        Assert.Equal(63, Vp9LoopFilter.GetInterFrameFilterLevel(header, Vp9InterReferenceFrame.Last, Vp9InterPredictionMode.ZeroMv));
+        Assert.Equal(0, Vp9LoopFilter.GetInterFrameFilterLevel(header, Vp9InterReferenceFrame.Golden, Vp9InterPredictionMode.NewMv));
+    }
+
+    [Fact]
+    public void GetInterFrameFilterLevel_WhenModeRefDeltaIsDisabled_UsesBaseLevel()
+    {
+        var header = new Vp9LoopFilterHeader(
+            FilterLevel: 20,
+            SharpnessLevel: 0,
+            ModeRefDeltaEnabled: false,
+            ModeRefDeltaUpdate: false,
+            RefDeltas: [],
+            ModeDeltas: []);
+
+        Assert.Equal(20, Vp9LoopFilter.GetInterFrameFilterLevel(header, Vp9InterReferenceFrame.Last, Vp9InterPredictionMode.ZeroMv));
+    }
+
+    [Fact]
+    public void GetInterFrameFilterLevel_WhenDeltaTablesAreIncomplete_ThrowsArgumentDiagnostic()
+    {
+        var missingRefDeltas = new Vp9LoopFilterHeader(
+            FilterLevel: 20,
+            SharpnessLevel: 0,
+            ModeRefDeltaEnabled: true,
+            ModeRefDeltaUpdate: false,
+            RefDeltas: [0],
+            ModeDeltas: [0, 0]);
+        var missingModeDeltas = missingRefDeltas with
+        {
+            RefDeltas = [0, 0, 0, 0],
+            ModeDeltas = [0]
+        };
+
+        Assert.Throws<ArgumentException>(
+            () => Vp9LoopFilter.GetInterFrameFilterLevel(missingRefDeltas, Vp9InterReferenceFrame.Last, Vp9InterPredictionMode.ZeroMv));
+        Assert.Throws<ArgumentException>(
+            () => Vp9LoopFilter.GetInterFrameFilterLevel(missingModeDeltas, Vp9InterReferenceFrame.Last, Vp9InterPredictionMode.NewMv));
+    }
+
     [Fact]
     public void ApplyVertical4_ForSmoothEdge_AppliesFourTapFilter()
     {
