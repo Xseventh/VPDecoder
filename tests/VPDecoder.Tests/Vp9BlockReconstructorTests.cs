@@ -239,6 +239,42 @@ public sealed class Vp9BlockReconstructorTests
             () => Vp9BlockReconstructor.AddInterResidualGroup(frameBuffer, modeBlock, group, plane: 0));
     }
 
+    [Fact]
+    public void AddInterResidualGroup_ForClippedEmptyBlocks_AcceptsVisibleBlockCount()
+    {
+        var frameBuffer = Vp9YuvFrameBuffer.Create(16, 8);
+        Array.Fill(frameBuffer.Pixels, (byte)100, frameBuffer.YPlane.Offset, frameBuffer.YPlane.Length);
+        var beforeHash = Hash(frameBuffer.Pixels);
+        var modeBlock = CreateInterModeBlock(Vp9BlockSize.Block64X64, Vp9TransformSize.Tx4X4);
+        var group = CreateInterTx4Group(Vp9BlockSize.Block64X64, width4: 4, height4: 2, dc: 0);
+
+        Vp9BlockReconstructor.AddInterResidualGroup(frameBuffer, modeBlock, group, plane: 0);
+
+        Assert.Equal(beforeHash, Hash(frameBuffer.Pixels));
+    }
+
+    [Fact]
+    public void AddInterResidualGroup_ForClippedNonEmptyTransform_ThrowsUnsupportedDiagnostic()
+    {
+        var frameBuffer = Vp9YuvFrameBuffer.Create(16, 6);
+        Array.Fill(frameBuffer.Pixels, (byte)100, frameBuffer.YPlane.Offset, frameBuffer.YPlane.Length);
+        var modeBlock = CreateInterModeBlock(Vp9BlockSize.Block64X64, Vp9TransformSize.Tx4X4);
+        var group = CreateInterTx4Group(Vp9BlockSize.Block64X64, width4: 4, height4: 2, dc: 0);
+        group = group with
+        {
+            Blocks =
+            [
+                .. group.Blocks.Take(4),
+                CreateInterTx4Block(row4: 1, column4: 0, dc: 512),
+                .. group.Blocks.Skip(5)
+            ]
+        };
+
+        var exception = Assert.Throws<NotSupportedException>(
+            () => Vp9BlockReconstructor.AddInterResidualGroup(frameBuffer, modeBlock, group, plane: 0));
+        Assert.Contains("clipped transform", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static Vp9CoefficientBlockProbe CreateTx4Block(int row4, int column4, int dc)
     {
         var coefficients = new int[16];
@@ -261,15 +297,17 @@ public sealed class Vp9BlockReconstructorTests
             CoefficientsSha256: "synthetic");
     }
 
-    private static Vp9InterBlockModeInfoProbe CreateInterModeBlock()
+    private static Vp9InterBlockModeInfoProbe CreateInterModeBlock(
+        Vp9BlockSize blockSize = Vp9BlockSize.Block16X16,
+        Vp9TransformSize transformSize = Vp9TransformSize.Tx8X8)
     {
         var modeInfo = new Vp9InterModeInfoProbe(
-            Vp9BlockSize.Block16X16,
+            blockSize,
             Skip: false,
             SkipContext: 0,
             IsInterBlock: true,
             IntraInterContext: 0,
-            Vp9TransformSize.Tx8X8,
+            transformSize,
             TransformSizeContext: 1,
             Vp9ReferenceMode.Single,
             Vp9InterReferenceFrame.Last,
@@ -285,6 +323,36 @@ public sealed class Vp9BlockReconstructorTests
             MiColumn: 0,
             PartitionPath: [Vp9PartitionType.None],
             modeInfo);
+    }
+
+    private static Vp9CoefficientBlockGroupProbe CreateInterTx4Group(
+        Vp9BlockSize blockSize,
+        int width4,
+        int height4,
+        int dc)
+    {
+        var blocks = new List<Vp9CoefficientBlockProbe>();
+        for (var row4 = 0; row4 < height4; row4++)
+        {
+            for (var column4 = 0; column4 < width4; column4++)
+            {
+                blocks.Add(CreateInterTx4Block(row4, column4, dc: row4 == 0 && column4 == 0 ? dc : 0));
+            }
+        }
+
+        return new Vp9CoefficientBlockGroupProbe(
+            TileIndex: 0,
+            blockSize,
+            Vp9TransformSize.Tx4X4,
+            blocks);
+    }
+
+    private static Vp9CoefficientBlockProbe CreateInterTx4Block(int row4, int column4, int dc)
+    {
+        return CreateTx4Block(row4, column4, dc) with
+        {
+            ReferenceType = Vp9ResidualSyntax.InterBlockReferenceType
+        };
     }
 
     private static Vp9CoefficientBlockGroupProbe CreateInterTx8Group(int dc)

@@ -1,6 +1,7 @@
 namespace VPDecoder.Tests;
 
 using System.Diagnostics;
+using System.Reflection;
 
 public sealed class RawVp9DecoderTests
 {
@@ -146,25 +147,24 @@ public sealed class RawVp9DecoderTests
     }
 
     [Fact]
-    public void DecodeFrame_WhenOrdinaryInterFrameHasReferences_ReturnsUnsupportedInterFrameFeature()
+    public void DecodeFrame_WhenOrdinaryInterFrameHasMismatchedReferenceSize_ReturnsReferenceScalingUnsupported()
     {
-        var packet = ReadRequiredSample(MainFrameSamplePath, 30398, MainFrameSampleSha256);
         var decoder = new RawVp9Decoder();
-        var keyFrame = decoder.DecodeFrame(packet, new Vp9DecodeOptions(2656, 1352));
+        var reference = CreatePatternYuvFrame(width: 32, height: 16);
+        SeedReferenceFrame(decoder, reference, Vp9ColorRange.Studio, refreshFrameFlags: 0xff);
 
         var result = decoder.DecodeFrame(CreatePaddedOrdinaryInterFramePacket(), new Vp9DecodeOptions(16, 8));
 
-        Assert.True(keyFrame.Succeeded, keyFrame.Diagnostic?.Message);
         Assert.False(result.Succeeded);
         Assert.Null(result.Frame);
         Assert.NotNull(result.Header);
         Assert.NotNull(result.CompressedHeader);
         Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedInterFrameFeature, result.Diagnostic?.Code);
-        Assert.Contains("full pixel decode", result.Diagnostic?.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("scaling", result.Diagnostic?.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
-    public void DecodeFrame_WhenInterFrameUsesReferenceSize_ParsesReferenceDimensionsBeforeUnsupported()
+    public void DecodeFrame_WhenInterFrameUsesReferenceSize_ParsesReferenceDimensionsBeforeTileDiagnostic()
     {
         var packet = ReadRequiredSample(MainFrameSamplePath, 30398, MainFrameSampleSha256);
         var decoder = new RawVp9Decoder();
@@ -184,7 +184,30 @@ public sealed class RawVp9DecoderTests
         Assert.Equal(0, result.Header.FrameSizeReferenceIndex);
         Assert.Equal(2656, result.Header.Width);
         Assert.Equal(1352, result.Header.Height);
-        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedInterFrameFeature, result.Diagnostic?.Code);
+        Assert.Equal(Vp9DecodeDiagnosticCode.TruncatedPacket, result.Diagnostic?.Code);
+    }
+
+    [Fact]
+    public void DecodeFrame_WhenRestrictedOrdinaryInterFrameHasReference_DecodesAndRefreshesReference()
+    {
+        var decoder = new RawVp9Decoder();
+        var reference = CreatePatternYuvFrame(width: 16, height: 8);
+        SeedReferenceFrame(decoder, reference, Vp9ColorRange.Studio, refreshFrameFlags: 0xff);
+
+        var result = decoder.DecodeFrame(CreatePaddedOrdinaryInterFramePacket(), new Vp9DecodeOptions(16, 8, Vp9OutputPixelFormat.Yuv420));
+        var showExisting = decoder.DecodeFrame(ShowExistingFrame0Packet, new Vp9DecodeOptions(16, 8, Vp9OutputPixelFormat.Yuv420));
+
+        Assert.True(result.Succeeded, result.Diagnostic?.Message);
+        Assert.NotNull(result.Header);
+        Assert.NotNull(result.CompressedHeader);
+        Assert.Equal(Vp9FrameType.InterFrame, result.Header.FrameType);
+        Assert.NotNull(result.Frame);
+        Assert.Equal(Vp9OutputPixelFormat.Yuv420, result.Frame.PixelFormat);
+        Assert.Equal(16, result.Frame.Width);
+        Assert.Equal(8, result.Frame.Height);
+        Assert.Equal(Hash(reference.Pixels), Hash(result.Frame.Pixels));
+        Assert.True(showExisting.Succeeded, showExisting.Diagnostic?.Message);
+        Assert.Equal(Hash(reference.Pixels), Hash(showExisting.Frame!.Pixels));
     }
 
     [Fact]
@@ -482,15 +505,49 @@ public sealed class RawVp9DecoderTests
         int tileInfoWidth = 16)
     {
         const int firstPartitionSize = 64;
+        byte[] tilePayload = [0x06, 0x00, 0x00];
         var headerPacket = Vp9TestPackets.CreateOrdinaryInterFramePacket(
             sizeFromReference: sizeFromReference,
             stopAfterSizeReference: false,
             tileInfoWidth: tileInfoWidth,
             firstPartitionSize: firstPartitionSize);
-        var packet = new byte[headerPacket.Length + firstPartitionSize + 1];
+        var packet = new byte[headerPacket.Length + firstPartitionSize + tilePayload.Length];
         headerPacket.CopyTo(packet, 0);
-        packet[^1] = 0x80;
+        tilePayload.CopyTo(packet.AsSpan(headerPacket.Length + firstPartitionSize));
         return packet;
+    }
+
+    private static Vp9DecodedFrame CreatePatternYuvFrame(int width, int height)
+    {
+        var buffer = Vp9YuvFrameBuffer.Create(width, height);
+        for (var i = 0; i < buffer.YPlane.Length; i++)
+        {
+            buffer.Pixels[buffer.YPlane.Offset + i] = (byte)i;
+        }
+
+        for (var i = 0; i < buffer.UPlane.Length; i++)
+        {
+            buffer.Pixels[buffer.UPlane.Offset + i] = (byte)(100 + i);
+        }
+
+        for (var i = 0; i < buffer.VPlane.Length; i++)
+        {
+            buffer.Pixels[buffer.VPlane.Offset + i] = (byte)(200 + i);
+        }
+
+        return buffer.ToDecodedFrame();
+    }
+
+    private static void SeedReferenceFrame(
+        RawVp9Decoder decoder,
+        Vp9DecodedFrame frame,
+        Vp9ColorRange colorRange,
+        int refreshFrameFlags)
+    {
+        var field = typeof(RawVp9Decoder).GetField("_referenceFrames", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(field);
+        var referenceFrames = Assert.IsType<Vp9ReferenceFrameStore>(field.GetValue(decoder));
+        referenceFrames.Refresh(frame, colorRange, refreshFrameFlags);
     }
 
     private static byte[] ReadRequiredSample(string path, int expectedLength, string expectedSha256)

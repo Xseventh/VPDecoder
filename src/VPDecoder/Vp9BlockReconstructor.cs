@@ -165,29 +165,30 @@ internal static class Vp9BlockReconstructor
         }
 
         var transformSize = GetTransformSizeInPixels(group.TransformSize);
-        var width = GetPlaneBlockWidthInPixels(modeInfo.BlockSize, plane);
-        var height = GetPlaneBlockHeightInPixels(modeInfo.BlockSize, plane);
-        if (width % transformSize != 0 || height % transformSize != 0)
-        {
-            throw new NotSupportedException(
-                $"VP9 inter residual reconstruction cannot split {modeInfo.BlockSize} plane {plane} into {group.TransformSize} blocks.");
-        }
-
-        var blocksWide = width / transformSize;
-        var blocksHigh = height / transformSize;
-        var expectedBlockCount = checked(blocksWide * blocksHigh);
-        if (group.Blocks.Count != expectedBlockCount)
-        {
-            throw new ArgumentException("VP9 inter coefficient block count does not match the block geometry.", nameof(group));
-        }
-
+        var fullWidth = GetPlaneBlockWidthInPixels(modeInfo.BlockSize, plane);
+        var fullHeight = GetPlaneBlockHeightInPixels(modeInfo.BlockSize, plane);
         var transformStep4 = Vp9CoefficientEntropyContext.GetTransformSizeIn4x4Blocks(group.TransformSize);
-        var width4 = width / 4;
-        var height4 = height / 4;
-        var seenBlocks = new bool[expectedBlockCount];
         var planeInfo = GetPlaneInfo(frameBuffer, plane);
         var originX = plane == 0 ? modeBlock.MiColumn * 8 : modeBlock.MiColumn * 4;
         var originY = plane == 0 ? modeBlock.MiRow * 8 : modeBlock.MiRow * 4;
+        var visibleWidth = Math.Min(fullWidth, planeInfo.Metadata.Width - originX);
+        var visibleHeight = Math.Min(fullHeight, planeInfo.Metadata.Height - originY);
+        if (visibleWidth <= 0 || visibleHeight <= 0)
+        {
+            throw new ArgumentException("VP9 inter residual block lies outside the visible frame.", nameof(modeBlock));
+        }
+
+        var blocksWide = DivideRoundUp(visibleWidth, transformSize);
+        var blocksHigh = DivideRoundUp(visibleHeight, transformSize);
+        var expectedBlockCount = checked(blocksWide * blocksHigh);
+        if (group.Blocks.Count != expectedBlockCount)
+        {
+            throw new ArgumentException("VP9 inter coefficient block count does not match the visible block geometry.", nameof(group));
+        }
+
+        var width4 = DivideRoundUp(visibleWidth, 4);
+        var height4 = DivideRoundUp(visibleHeight, 4);
+        var seenBlocks = new bool[expectedBlockCount];
         var planePixels = frameBuffer.Pixels.AsSpan(planeInfo.Metadata.Offset, planeInfo.Metadata.Length);
 
         foreach (var coefficients in group.Blocks)
@@ -228,14 +229,14 @@ internal static class Vp9BlockReconstructor
 
             var x = originX + (coefficients.Column4 * 4);
             var y = originY + (coefficients.Row4 * 4);
-            var visibleWidth = Math.Min(transformSize, planeInfo.Metadata.Width - x);
-            var visibleHeight = Math.Min(transformSize, planeInfo.Metadata.Height - y);
-            if (visibleWidth <= 0 || visibleHeight <= 0)
+            var visibleTransformWidth = Math.Min(transformSize, planeInfo.Metadata.Width - x);
+            var visibleTransformHeight = Math.Min(transformSize, planeInfo.Metadata.Height - y);
+            if (visibleTransformWidth <= 0 || visibleTransformHeight <= 0)
             {
                 continue;
             }
 
-            if (visibleWidth != transformSize || visibleHeight != transformSize)
+            if (visibleTransformWidth != transformSize || visibleTransformHeight != transformSize)
             {
                 throw new NotSupportedException(
                     "VP9 inter residual reconstruction for clipped transform blocks is not supported yet.");
@@ -251,6 +252,11 @@ internal static class Vp9BlockReconstructor
                 coefficients.DequantizedCoefficients,
                 coefficients.Eob);
         }
+    }
+
+    private static int DivideRoundUp(int value, int divisor)
+    {
+        return checked((value + divisor - 1) / divisor);
     }
 
     private static Vp9PlaneInfo GetPlaneInfo(Vp9YuvFrameBuffer frameBuffer, int plane)

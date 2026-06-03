@@ -87,13 +87,7 @@ public sealed class RawVp9Decoder
 
         if (header.FrameType != Vp9FrameType.KeyFrame)
         {
-            return Vp9DecodeResult.Fail(
-                Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(
-                    header.IntraOnly
-                        ? "VP9 intra-only inter-frame pixel decode is not supported yet."
-                        : "VP9 ordinary inter-frame full pixel decode is not supported yet."),
-                header,
-                compressedHeader);
+            return DecodeOrdinaryInterFrame(packet, header, compressedHeader, tileBuffers, options);
         }
 
         if (!Vp9KeyFrameDecodeState.TryCreate(header, compressedHeader, tileBuffers, out var state, out diagnostic))
@@ -284,6 +278,66 @@ public sealed class RawVp9Decoder
             Vp9AlphaComposer.MergeBgraWithBgraAlpha(colorResult.Frame, alphaResult.Frame),
             colorResult.Header!,
             colorResult.CompressedHeader);
+    }
+
+    private Vp9DecodeResult DecodeOrdinaryInterFrame(
+        ReadOnlySpan<byte> packet,
+        Vp9FrameHeader header,
+        Vp9CompressedHeader compressedHeader,
+        IReadOnlyList<Vp9TileBuffer> tileBuffers,
+        Vp9DecodeOptions options)
+    {
+        if (header.IntraOnly)
+        {
+            return Vp9DecodeResult.Fail(
+                Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(
+                    "VP9 intra-only inter-frame pixel decode is not supported yet."),
+                header,
+                compressedHeader);
+        }
+
+        if (!Vp9TileSyntaxScanner.TryReconstructFullInterFrameZeroMvWithResidual(
+                packet.ToArray(),
+                header,
+                compressedHeader,
+                tileBuffers,
+                _referenceFrames,
+                out var yuvFrame,
+                out _,
+                out var diagnostic))
+        {
+            return Vp9DecodeResult.Fail(
+                diagnostic ?? Vp9DecodeDiagnostic.InternalDecodeFailure(
+                    "VP9 ordinary inter-frame reconstruction failed without a diagnostic."),
+                header,
+                compressedHeader);
+        }
+
+        if (yuvFrame is null)
+        {
+            return Vp9DecodeResult.Fail(
+                Vp9DecodeDiagnostic.InternalDecodeFailure(
+                    "VP9 ordinary inter-frame reconstruction succeeded without returning a frame."),
+                header,
+                compressedHeader);
+        }
+
+        if (header.LoopFilter.FilterLevel != 0)
+        {
+            return Vp9DecodeResult.Fail(
+                Vp9DecodeDiagnostic.UnsupportedLoopFilter(
+                    "VP9 inter-frame loop filter is not supported yet."),
+                header,
+                compressedHeader);
+        }
+
+        RefreshFrameContext(header, compressedHeader.FrameContext);
+        _referenceFrames.Refresh(yuvFrame, header.ColorRange, header.RefreshFrameFlags);
+
+        var outputFrame = options.OutputFormat == Vp9OutputPixelFormat.Yuv420
+            ? yuvFrame
+            : Vp9ColorConverter.ConvertYuv420ToPacked(yuvFrame, header.ColorRange, options.OutputFormat);
+        return Vp9DecodeResult.Success(outputFrame, header, compressedHeader);
     }
 
     private static Vp9FrameContext[] CreateDefaultFrameContexts()
