@@ -246,49 +246,37 @@ internal static class Vp9TileSyntaxScanner
         try
         {
             var destination = Vp9YuvFrameBuffer.Create(header.Width, header.Height);
-            foreach (var probe in probes)
+            var parsedProbes = probes;
+            var predictedProbes = new List<Vp9InterSuperblockModeInfoProbe>(parsedProbes.Count);
+            var predictedModeBlocks = new List<Vp9InterBlockModeInfoProbe>();
+            foreach (var probe in parsedProbes)
             {
+                var predictedProbeModeBlocks = new List<Vp9InterBlockModeInfoProbe>(probe.ModeInfos.Count);
                 foreach (var modeBlock in probe.ModeInfos)
                 {
-                    if (!Vp9InterPredictor.TryResolveReferenceFrame(
+                    if (!TryPredictInterBlock(
                             referenceFrames,
                             header,
-                            modeBlock.ModeInfo.ReferenceFrame,
-                            out var referenceFrame,
-                            out diagnostic))
-                    {
-                        return false;
-                    }
-
-                    if (referenceFrame is null)
-                    {
-                        diagnostic = Vp9DecodeDiagnostic.InternalDecodeFailure(
-                            "VP9 inter reference lookup succeeded without returning a reference frame.");
-                        return false;
-                    }
-
-                    if (!Vp9InterPredictor.TrySelectMotionVector(
-                            modeBlock.ModeInfo.PredictionMode,
-                            Array.Empty<Vp9MotionVector>(),
-                            out var motionVector,
-                            out diagnostic))
-                    {
-                        return false;
-                    }
-
-                    if (!TryCopyInterPredictionBlock(
-                            referenceFrame.Frame,
                             destination,
-                            header,
                             modeBlock,
-                            motionVector,
+                            predictedModeBlocks,
+                            out var predictedModeBlock,
                             out diagnostic))
                     {
                         return false;
                     }
+
+                    predictedModeBlocks.Add(predictedModeBlock);
+                    predictedProbeModeBlocks.Add(predictedModeBlock);
                 }
+
+                predictedProbes.Add(probe with
+                {
+                    ModeInfos = predictedProbeModeBlocks
+                });
             }
 
+            probes = predictedProbes;
             frame = destination.ToDecodedFrame();
             return true;
         }
@@ -347,8 +335,12 @@ internal static class Vp9TileSyntaxScanner
         {
             var destination = Vp9YuvFrameBuffer.Create(header.Width, header.Height);
             var parsedResidualGroups = new List<Vp9CoefficientBlockGroupProbe>();
-            foreach (var probe in probes)
+            var parsedProbes = probes;
+            var predictedProbes = new List<Vp9InterSuperblockModeInfoProbe>(parsedProbes.Count);
+            var predictedModeBlocks = new List<Vp9InterBlockModeInfoProbe>();
+            foreach (var probe in parsedProbes)
             {
+                var predictedProbeModeBlocks = new List<Vp9InterBlockModeInfoProbe>(probe.ModeInfos.Count);
                 foreach (var modeBlock in probe.ModeInfos)
                 {
                     if (!modeBlock.ModeInfo.Skip)
@@ -358,42 +350,20 @@ internal static class Vp9TileSyntaxScanner
                         return false;
                     }
 
-                    if (!Vp9InterPredictor.TryResolveReferenceFrame(
+                    if (!TryPredictInterBlock(
                             referenceFrames,
                             header,
-                            modeBlock.ModeInfo.ReferenceFrame,
-                            out var referenceFrame,
-                            out diagnostic))
-                    {
-                        return false;
-                    }
-
-                    if (referenceFrame is null)
-                    {
-                        diagnostic = Vp9DecodeDiagnostic.InternalDecodeFailure(
-                            "VP9 inter reference lookup succeeded without returning a reference frame.");
-                        return false;
-                    }
-
-                    if (!Vp9InterPredictor.TrySelectMotionVector(
-                            modeBlock.ModeInfo.PredictionMode,
-                            Array.Empty<Vp9MotionVector>(),
-                            out var motionVector,
-                            out diagnostic))
-                    {
-                        return false;
-                    }
-
-                    if (!TryCopyInterPredictionBlock(
-                            referenceFrame.Frame,
                             destination,
-                            header,
                             modeBlock,
-                            motionVector,
+                            predictedModeBlocks,
+                            out var predictedModeBlock,
                             out diagnostic))
                     {
                         return false;
                     }
+
+                    predictedModeBlocks.Add(predictedModeBlock);
+                    predictedProbeModeBlocks.Add(predictedModeBlock);
 
                     for (var plane = 0; plane < 3; plane++)
                     {
@@ -401,8 +371,14 @@ internal static class Vp9TileSyntaxScanner
                             Vp9ResidualSyntax.CreateSkippedInterPlaneCoefficientBlocks(header, modeBlock, plane));
                     }
                 }
+
+                predictedProbes.Add(probe with
+                {
+                    ModeInfos = predictedProbeModeBlocks
+                });
             }
 
+            probes = predictedProbes;
             residualGroups = parsedResidualGroups;
             frame = destination.ToDecodedFrame();
             return true;
@@ -705,46 +681,28 @@ internal static class Vp9TileSyntaxScanner
         {
             var destination = Vp9YuvFrameBuffer.Create(header.Width, header.Height);
             var residualGroupIndex = 0;
-            foreach (var probe in probes)
+            var parsedProbes = probes;
+            var predictedProbes = new List<Vp9InterSuperblockModeInfoProbe>(parsedProbes.Count);
+            var predictedModeBlocks = new List<Vp9InterBlockModeInfoProbe>();
+            foreach (var probe in parsedProbes)
             {
+                var predictedProbeModeBlocks = new List<Vp9InterBlockModeInfoProbe>(probe.ModeInfos.Count);
                 foreach (var modeBlock in probe.ModeInfos)
                 {
-                    if (!Vp9InterPredictor.TryResolveReferenceFrame(
+                    if (!TryPredictInterBlock(
                             referenceFrames,
                             header,
-                            modeBlock.ModeInfo.ReferenceFrame,
-                            out var referenceFrame,
-                            out diagnostic))
-                    {
-                        return false;
-                    }
-
-                    if (referenceFrame is null)
-                    {
-                        diagnostic = Vp9DecodeDiagnostic.InternalDecodeFailure(
-                            "VP9 inter reference lookup succeeded without returning a reference frame.");
-                        return false;
-                    }
-
-                    if (!Vp9InterPredictor.TrySelectMotionVector(
-                            modeBlock.ModeInfo.PredictionMode,
-                            Array.Empty<Vp9MotionVector>(),
-                            out var motionVector,
-                            out diagnostic))
-                    {
-                        return false;
-                    }
-
-                    if (!TryCopyInterPredictionBlock(
-                            referenceFrame.Frame,
                             destination,
-                            header,
                             modeBlock,
-                            motionVector,
+                            predictedModeBlocks,
+                            out var predictedModeBlock,
                             out diagnostic))
                     {
                         return false;
                     }
+
+                    predictedModeBlocks.Add(predictedModeBlock);
+                    predictedProbeModeBlocks.Add(predictedModeBlock);
 
                     for (var plane = 0; plane < 3; plane++)
                     {
@@ -763,6 +721,11 @@ internal static class Vp9TileSyntaxScanner
                         residualGroupIndex++;
                     }
                 }
+
+                predictedProbes.Add(probe with
+                {
+                    ModeInfos = predictedProbeModeBlocks
+                });
             }
 
             if (residualGroupIndex != residualGroups.Count)
@@ -772,6 +735,7 @@ internal static class Vp9TileSyntaxScanner
                 return false;
             }
 
+            probes = predictedProbes;
             frame = destination.ToDecodedFrame();
             return true;
         }
@@ -2078,6 +2042,63 @@ internal static class Vp9TileSyntaxScanner
             chromaHeight,
             chromaMotionVector,
             out diagnostic);
+    }
+
+    private static bool TryPredictInterBlock(
+        Vp9ReferenceFrameStore referenceFrames,
+        Vp9FrameHeader header,
+        Vp9YuvFrameBuffer destination,
+        Vp9InterBlockModeInfoProbe modeBlock,
+        IReadOnlyList<Vp9InterBlockModeInfoProbe> predictedModeBlocks,
+        out Vp9InterBlockModeInfoProbe predictedModeBlock,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
+        predictedModeBlock = modeBlock;
+        if (!Vp9InterPredictor.TryResolveReferenceFrame(
+                referenceFrames,
+                header,
+                modeBlock.ModeInfo.ReferenceFrame,
+                out var referenceFrame,
+                out diagnostic))
+        {
+            return false;
+        }
+
+        if (referenceFrame is null)
+        {
+            diagnostic = Vp9DecodeDiagnostic.InternalDecodeFailure(
+                "VP9 inter reference lookup succeeded without returning a reference frame.");
+            return false;
+        }
+
+        var candidates = Vp9InterPredictor.BuildSpatialMotionVectorCandidates(
+            modeBlock,
+            predictedModeBlocks);
+        if (!Vp9InterPredictor.TrySelectMotionVector(
+                modeBlock.ModeInfo.PredictionMode,
+                candidates,
+                out var motionVector,
+                out diagnostic))
+        {
+            return false;
+        }
+
+        if (!TryCopyInterPredictionBlock(
+                referenceFrame.Frame,
+                destination,
+                header,
+                modeBlock,
+                motionVector,
+                out diagnostic))
+        {
+            return false;
+        }
+
+        predictedModeBlock = modeBlock with
+        {
+            MotionVector = motionVector
+        };
+        return true;
     }
 
     private static void ReadPartitionSyntax(

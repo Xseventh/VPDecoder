@@ -235,6 +235,7 @@ public sealed class Vp9TileSyntaxScannerTests
         Assert.NotNull(secondFrame);
         Assert.Single(probes);
         Assert.Single(probes[0].ModeInfos);
+        Assert.Equal(new Vp9MotionVector(0, 0), probes[0].ModeInfos[0].MotionVector);
         Assert.Equal(Vp9OutputPixelFormat.Yuv420, frame.PixelFormat);
         Assert.Equal(64, frame.Width);
         Assert.Equal(64, frame.Height);
@@ -337,6 +338,7 @@ public sealed class Vp9TileSyntaxScannerTests
         Assert.Single(probes[0].ModeInfos);
         Assert.True(probes[0].ModeInfos[0].ModeInfo.Skip);
         Assert.Equal(Vp9InterPredictionMode.ZeroMv, probes[0].ModeInfos[0].ModeInfo.PredictionMode);
+        Assert.Equal(new Vp9MotionVector(0, 0), probes[0].ModeInfos[0].MotionVector);
         Assert.Equal(Hash(referenceFrame.Pixels), Hash(frame.Pixels));
         Assert.Equal([256, 64, 64], residualGroups.Select(group => group.Blocks.Count).ToArray());
         Assert.All(residualGroups, group =>
@@ -510,6 +512,7 @@ public sealed class Vp9TileSyntaxScannerTests
         Assert.NotNull(frame);
         Assert.Single(probes);
         Assert.False(probes[0].ModeInfos[0].ModeInfo.Skip);
+        Assert.Equal(new Vp9MotionVector(0, 0), probes[0].ModeInfos[0].MotionVector);
         Assert.Equal([256, 64, 64], residualGroups.Select(group => group.Blocks.Count).ToArray());
         Assert.Equal(Hash(referenceFrame.Pixels), Hash(frame.Pixels));
     }
@@ -545,6 +548,7 @@ public sealed class Vp9TileSyntaxScannerTests
         Assert.NotNull(frame);
         Assert.Single(probes);
         Assert.Equal(4, probes[0].ModeInfos.Count);
+        Assert.All(probes[0].ModeInfos, modeInfo => Assert.Equal(new Vp9MotionVector(0, 0), modeInfo.MotionVector));
         Assert.Equal(12, residualGroups.Count);
         Assert.Equal(Hash(referenceFrame.Pixels), Hash(frame.Pixels));
     }
