@@ -171,6 +171,94 @@ public sealed class Vp9ResidualSyntaxTests
         Assert.Contains("non-skipped", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void ReadInterPlaneCoefficientBlocks_ForNonSkippedLumaBlock_UsesInterReferenceType()
+    {
+        var header = CreateInterHeader(miColumns: 2, miRows: 2);
+        var compressedHeader = CreateCompressedHeader();
+        var dequantTables = Vp9DequantTables.Create(header.Quantization, header.BitDepth);
+        var modeBlock = CreateInterModeBlock(skip: false);
+        var entropyContext = Vp9CoefficientEntropyContext.Create(header);
+        var reader = new Vp9BoolReader([0x00, 0x00, 0x00]);
+
+        var group = Vp9ResidualSyntax.ReadInterPlaneCoefficientBlocks(
+            ref reader,
+            header,
+            compressedHeader,
+            dequantTables,
+            modeBlock,
+            entropyContext,
+            plane: 0);
+
+        Assert.Equal(modeBlock.TileIndex, group.TileIndex);
+        Assert.Equal(Vp9BlockSize.Block16X16, group.BlockSize);
+        Assert.Equal(Vp9TransformSize.Tx8X8, group.TransformSize);
+        Assert.Equal(4, group.Blocks.Count);
+        Assert.False(reader.HasError);
+        Assert.All(group.Blocks, block =>
+        {
+            Assert.Equal(0, block.PlaneType);
+            Assert.Equal(Vp9ResidualSyntax.InterBlockReferenceType, block.ReferenceType);
+            Assert.Equal(Vp9TransformType.DctDct, block.TransformType);
+            Assert.Equal(0, block.Eob);
+            Assert.Equal(0, block.NonZeroCount);
+            Assert.All(block.DequantizedCoefficients, coefficient => Assert.Equal(0, coefficient));
+        });
+    }
+
+    [Fact]
+    public void ReadInterPlaneCoefficientBlocks_ForNonSkippedChromaBlock_UsesInterReferenceType()
+    {
+        var header = CreateInterHeader(miColumns: 2, miRows: 2);
+        var compressedHeader = CreateCompressedHeader();
+        var dequantTables = Vp9DequantTables.Create(header.Quantization, header.BitDepth);
+        var modeBlock = CreateInterModeBlock(skip: false);
+        var entropyContext = Vp9CoefficientEntropyContext.Create(header);
+        var reader = new Vp9BoolReader([0x00, 0x00]);
+
+        var group = Vp9ResidualSyntax.ReadInterPlaneCoefficientBlocks(
+            ref reader,
+            header,
+            compressedHeader,
+            dequantTables,
+            modeBlock,
+            entropyContext,
+            plane: 2);
+
+        Assert.Equal(Vp9TransformSize.Tx8X8, group.TransformSize);
+        Assert.Single(group.Blocks);
+        var block = group.Blocks[0];
+        Assert.Equal(1, block.PlaneType);
+        Assert.Equal(Vp9ResidualSyntax.InterBlockReferenceType, block.ReferenceType);
+        Assert.Equal(Vp9TransformType.DctDct, block.TransformType);
+        Assert.Equal(0, block.Eob);
+        Assert.False(reader.HasError);
+    }
+
+    [Fact]
+    public void ReadInterPlaneCoefficientBlocks_ForSkippedBlock_DoesNotReadCoefficientBits()
+    {
+        var header = CreateInterHeader(miColumns: 2, miRows: 2);
+        var compressedHeader = CreateCompressedHeader();
+        var dequantTables = Vp9DequantTables.Create(header.Quantization, header.BitDepth);
+        var modeBlock = CreateInterModeBlock(skip: true);
+        var entropyContext = Vp9CoefficientEntropyContext.Create(header);
+        var reader = new Vp9BoolReader([0x00]);
+
+        var group = Vp9ResidualSyntax.ReadInterPlaneCoefficientBlocks(
+            ref reader,
+            header,
+            compressedHeader,
+            dequantTables,
+            modeBlock,
+            entropyContext,
+            plane: 0);
+
+        Assert.Equal(4, group.Blocks.Count);
+        Assert.False(reader.HasError);
+        Assert.All(group.Blocks, block => Assert.Equal(0, block.Eob));
+    }
+
     private static Vp9InterModeInfoProbe CreateInterModeInfo(bool isInterBlock)
     {
         return new Vp9InterModeInfoProbe(
@@ -234,5 +322,16 @@ public sealed class Vp9ResidualSyntaxTests
                 Log2TileColumns: 0,
                 Log2TileRows: 0)
         };
+    }
+
+    private static Vp9CompressedHeader CreateCompressedHeader()
+    {
+        return new Vp9CompressedHeader(
+            Vp9TransformMode.Only4X4,
+            Vp9FrameContext.CreateDefault(),
+            TxProbabilityUpdateCount: 0,
+            CoefficientProbabilityUpdateCount: 0,
+            SkipProbabilityUpdateCount: 0,
+            ReferenceMode: Vp9ReferenceMode.Single);
     }
 }
