@@ -1959,14 +1959,7 @@ internal static class Vp9TileSyntaxScanner
             return false;
         }
 
-        if (modes.Count != 1)
-        {
-            diagnostic = Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(
-                "VP9 inter residual probe currently supports only single-leaf inter superblocks; split inter residual ordering is not supported yet.");
-            return false;
-        }
-
-        var coefficientGroups = new List<Vp9CoefficientBlockGroupProbe>(3);
+        var coefficientGroups = new List<Vp9CoefficientBlockGroupProbe>(checked(modes.Count * 3));
         foreach (var modeBlock in modes)
         {
             for (var plane = 0; plane < 3; plane++)

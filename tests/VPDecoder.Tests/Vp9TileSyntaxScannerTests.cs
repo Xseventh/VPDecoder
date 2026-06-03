@@ -406,6 +406,52 @@ public sealed class Vp9TileSyntaxScannerTests
     }
 
     [Fact]
+    public void TryProbeFirstInterSuperblockResidualSyntax_ForSplitSkippedInterFrame_ReadsAllInterResidualGroups()
+    {
+        byte[] tilePayload = [0x79, 0xdb, 0x98, 0xba, 0xe0, 0x00];
+        var packet = tilePayload;
+        var header = CreateSyntheticOrdinaryInterHeader(packet.Length);
+        var compressedHeader = CreateSyntheticInterCompressedHeader();
+        IReadOnlyList<Vp9TileBuffer> tileBuffers =
+        [
+            new Vp9TileBuffer(Index: 0, SizeFieldOffset: null, DataOffset: 0, Size: tilePayload.Length)
+        ];
+
+        Assert.True(
+            Vp9TileSyntaxScanner.TryProbeFirstInterSuperblockResidualSyntax(
+                packet,
+                header,
+                compressedHeader,
+                tileBuffers,
+                out var probes,
+                out var residualGroups,
+                out var diagnostic),
+            diagnostic?.Message);
+
+        Assert.Single(probes);
+        Assert.Equal(5, probes[0].Partitions.Count);
+        Assert.Equal(
+            [Vp9PartitionType.Split, Vp9PartitionType.None, Vp9PartitionType.None, Vp9PartitionType.None, Vp9PartitionType.None],
+            probes[0].Partitions.Select(partition => partition.PartitionType).ToArray());
+        Assert.Equal(4, probes[0].ModeInfos.Count);
+        Assert.Equal(12, residualGroups.Count);
+        Assert.Equal([0, 1, 1, 2], probes[0].ModeInfos.Select(mode => mode.ModeInfo.SkipContext).ToArray());
+        Assert.Equal([2, 1, 1, 0], probes[0].ModeInfos.Select(mode => mode.ModeInfo.InterModeContext).ToArray());
+        Assert.All(probes[0].ModeInfos, mode =>
+        {
+            Assert.True(mode.ModeInfo.Skip);
+            Assert.Equal(Vp9BlockSize.Block32X32, mode.ModeInfo.BlockSize);
+            Assert.Equal(Vp9InterReferenceFrame.Last, mode.ModeInfo.ReferenceFrame);
+            Assert.Equal(Vp9InterPredictionMode.ZeroMv, mode.ModeInfo.PredictionMode);
+        });
+        Assert.All(residualGroups, group =>
+        {
+            Assert.Equal(Vp9TransformSize.Tx4X4, group.TransformSize);
+            Assert.All(group.Blocks, block => Assert.Equal(0, block.Eob));
+        });
+    }
+
+    [Fact]
     public void TryProbeFirstInterSuperblockResidualSyntax_WhenNonSkippedResidualIsTruncated_ReturnsTruncatedPacket()
     {
         byte[] tilePayload = [0x03, 0x00, 0x00];
@@ -465,6 +511,41 @@ public sealed class Vp9TileSyntaxScannerTests
         Assert.Single(probes);
         Assert.False(probes[0].ModeInfos[0].ModeInfo.Skip);
         Assert.Equal([256, 64, 64], residualGroups.Select(group => group.Blocks.Count).ToArray());
+        Assert.Equal(Hash(referenceFrame.Pixels), Hash(frame.Pixels));
+    }
+
+    [Fact]
+    public void TryReconstructFirstInterSuperblockZeroMvWithResidual_ForSplitSkippedInterFrame_CopiesReferenceAndAppliesZeroResiduals()
+    {
+        byte[] tilePayload = [0x79, 0xdb, 0x98, 0xba, 0xe0, 0x00];
+        var packet = tilePayload;
+        var header = CreateSyntheticOrdinaryInterHeader(packet.Length);
+        var compressedHeader = CreateSyntheticInterCompressedHeader();
+        IReadOnlyList<Vp9TileBuffer> tileBuffers =
+        [
+            new Vp9TileBuffer(Index: 0, SizeFieldOffset: null, DataOffset: 0, Size: tilePayload.Length)
+        ];
+        var referenceFrame = CreatePatternYuvFrame(width: 64, height: 64);
+        var referenceFrames = new Vp9ReferenceFrameStore();
+        referenceFrames.Refresh(referenceFrame, Vp9ColorRange.Studio, refreshFrameFlags: 0x01);
+
+        Assert.True(
+            Vp9TileSyntaxScanner.TryReconstructFirstInterSuperblockZeroMvWithResidual(
+                packet,
+                header,
+                compressedHeader,
+                tileBuffers,
+                referenceFrames,
+                out var frame,
+                out var probes,
+                out var residualGroups,
+                out var diagnostic),
+            diagnostic?.Message);
+
+        Assert.NotNull(frame);
+        Assert.Single(probes);
+        Assert.Equal(4, probes[0].ModeInfos.Count);
+        Assert.Equal(12, residualGroups.Count);
         Assert.Equal(Hash(referenceFrame.Pixels), Hash(frame.Pixels));
     }
 
