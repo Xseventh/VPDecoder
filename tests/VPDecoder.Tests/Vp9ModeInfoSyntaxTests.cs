@@ -205,6 +205,7 @@ public sealed class Vp9ModeInfoSyntaxTests
         return new Vp9InterModeInfoContexts(
             Skip: 0,
             IntraInter: 0,
+            TransformSize: 0,
             SingleReference0: 0,
             SingleReference1: 1,
             InterMode: 0);

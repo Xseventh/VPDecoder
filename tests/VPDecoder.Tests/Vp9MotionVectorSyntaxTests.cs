@@ -62,6 +62,7 @@ public sealed class Vp9MotionVectorSyntaxTests
         var contexts = new Vp9InterModeInfoContexts(
             Skip: 0,
             IntraInter: 0,
+            TransformSize: 0,
             SingleReference0: 0,
             SingleReference1: 0,
             InterMode: 0);

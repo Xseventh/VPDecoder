@@ -20,6 +20,7 @@ internal readonly record struct Vp9MotionVector(int Row, int Column);
 internal readonly record struct Vp9InterModeInfoContexts(
     int Skip,
     int IntraInter,
+    int TransformSize,
     int SingleReference0,
     int SingleReference1,
     int InterMode);
@@ -91,12 +92,18 @@ internal static class Vp9InterModeInfoSyntax
 
         var skip = Vp9ModeInfoSyntax.ReadSkip(ref reader, compressedHeader.FrameContext, contexts.Skip);
         var isInterBlock = ReadIsInterBlock(ref reader, compressedHeader.FrameContext, contexts.IntraInter);
+        var allowTransformSelect = !skip || !isInterBlock;
+        var transformSizeContext = allowTransformSelect &&
+            compressedHeader.TransformMode == Vp9TransformMode.Select &&
+            blockSize >= Vp9BlockSize.Block8X8
+            ? contexts.TransformSize
+            : 0;
         var transformSize = Vp9ModeInfoSyntax.ReadTransformSize(
             ref reader,
             compressedHeader,
             blockSize,
-            allowSelect: !skip || !isInterBlock,
-            out var transformSizeContext);
+            transformSizeContext,
+            allowSelect: allowTransformSelect);
 
         if (reader.HasError)
         {

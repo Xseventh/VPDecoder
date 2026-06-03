@@ -162,6 +162,7 @@ internal static class Vp9TileSyntaxScanner
 
                 var tileBytes = packet.Span.Slice(geometry.Buffer.DataOffset, geometry.Buffer.Size);
                 var reader = new Vp9BoolReader(tileBytes);
+                var syntaxContext = Vp9InterFrameSyntaxContext.Create(header);
                 var partitions = new List<Vp9PartitionProbe>();
                 var modes = new List<Vp9InterBlockModeInfoProbe>();
                 if (!TryReadInterPartitionModeInfo(
@@ -169,6 +170,7 @@ internal static class Vp9TileSyntaxScanner
                         header,
                         compressedHeader,
                         geometry,
+                        syntaxContext,
                         geometry.MiRowStart,
                         geometry.MiColumnStart,
                         Vp9BlockSize.Block64X64,
@@ -471,6 +473,7 @@ internal static class Vp9TileSyntaxScanner
 
                 var tileBytes = packet.Span.Slice(geometry.Buffer.DataOffset, geometry.Buffer.Size);
                 var reader = new Vp9BoolReader(tileBytes);
+                var syntaxContext = Vp9InterFrameSyntaxContext.Create(header);
                 var entropyContext = Vp9CoefficientEntropyContext.Create(header);
                 if (!TryReadInterSuperblockResidualSyntax(
                         ref reader,
@@ -478,6 +481,7 @@ internal static class Vp9TileSyntaxScanner
                         compressedHeader,
                         dequantTables,
                         geometry,
+                        syntaxContext,
                         entropyContext,
                         geometry.MiRowStart,
                         geometry.MiColumnStart,
@@ -582,10 +586,12 @@ internal static class Vp9TileSyntaxScanner
 
                 var tileBytes = packet.Span.Slice(geometry.Buffer.DataOffset, geometry.Buffer.Size);
                 var reader = new Vp9BoolReader(tileBytes);
+                var syntaxContext = Vp9InterFrameSyntaxContext.Create(header);
                 var entropyContext = Vp9CoefficientEntropyContext.Create(header);
 
                 for (var miRow = geometry.MiRowStart; miRow < geometry.MiRowEnd; miRow += SuperblockSizeInMiUnits)
                 {
+                    syntaxContext.ResetLeftPartitionContext();
                     entropyContext.ResetLeftContexts();
 
                     for (var miColumn = geometry.MiColumnStart; miColumn < geometry.MiColumnEnd; miColumn += SuperblockSizeInMiUnits)
@@ -596,6 +602,7 @@ internal static class Vp9TileSyntaxScanner
                                 compressedHeader,
                                 dequantTables,
                                 geometry,
+                                syntaxContext,
                                 entropyContext,
                                 miRow,
                                 miColumn,
@@ -1613,6 +1620,7 @@ internal static class Vp9TileSyntaxScanner
         Vp9FrameHeader header,
         Vp9CompressedHeader compressedHeader,
         Vp9TileGeometry geometry,
+        Vp9InterFrameSyntaxContext syntaxContext,
         int miRow,
         int miColumn,
         Vp9BlockSize blockSize,
@@ -1630,10 +1638,7 @@ internal static class Vp9TileSyntaxScanner
         var hbs = Vp9ModeInfoSyntax.GetHalfBlockSizeInMiUnits(blockSize);
         var hasRows = miRow + hbs < header.TileInfo.MiRows;
         var hasColumns = miColumn + hbs < header.TileInfo.MiColumns;
-        var partitionContext = Vp9PartitionSyntax.GetPartitionContext(
-            aboveContext: 0,
-            leftContext: 0,
-            Vp9ModeInfoSyntax.GetPartitionContextLog2(blockSize));
+        var partitionContext = syntaxContext.GetPartitionContext(miRow, miColumn, blockSize);
         var partition = Vp9PartitionSyntax.ReadPartition(
             ref reader,
             compressedHeader.FrameContext,
@@ -1657,33 +1662,46 @@ internal static class Vp9TileSyntaxScanner
         var childPath = partitionPath.Concat([partition]).ToArray();
         if (hbs == 0)
         {
-            return TryReadInterBlockModeInfo(
-                ref reader,
-                header,
-                compressedHeader,
-                geometry,
-                miRow,
-                miColumn,
-                subsize,
-                childPath,
-                modes,
-                out diagnostic);
-        }
-
-        switch (partition)
-        {
-            case Vp9PartitionType.None:
-                return TryReadInterBlockModeInfo(
+            if (!TryReadInterBlockModeInfo(
                     ref reader,
                     header,
                     compressedHeader,
                     geometry,
+                    syntaxContext,
                     miRow,
                     miColumn,
                     subsize,
                     childPath,
                     modes,
-                    out diagnostic);
+                    out diagnostic))
+            {
+                return false;
+            }
+
+            syntaxContext.UpdatePartitionContext(miRow, miColumn, blockSize, subsize);
+            return true;
+        }
+
+        switch (partition)
+        {
+            case Vp9PartitionType.None:
+                if (!TryReadInterBlockModeInfo(
+                        ref reader,
+                        header,
+                        compressedHeader,
+                        geometry,
+                        syntaxContext,
+                        miRow,
+                        miColumn,
+                        subsize,
+                        childPath,
+                        modes,
+                        out diagnostic))
+                {
+                    return false;
+                }
+
+                break;
 
             case Vp9PartitionType.Horizontal:
                 if (!TryReadInterBlockModeInfo(
@@ -1691,6 +1709,7 @@ internal static class Vp9TileSyntaxScanner
                         header,
                         compressedHeader,
                         geometry,
+                        syntaxContext,
                         miRow,
                         miColumn,
                         subsize,
@@ -1703,20 +1722,24 @@ internal static class Vp9TileSyntaxScanner
 
                 if (hasRows)
                 {
-                    return TryReadInterBlockModeInfo(
-                        ref reader,
-                        header,
-                        compressedHeader,
-                        geometry,
-                        miRow + hbs,
-                        miColumn,
-                        subsize,
-                        childPath,
-                        modes,
-                        out diagnostic);
+                    if (!TryReadInterBlockModeInfo(
+                            ref reader,
+                            header,
+                            compressedHeader,
+                            geometry,
+                            syntaxContext,
+                            miRow + hbs,
+                            miColumn,
+                            subsize,
+                            childPath,
+                            modes,
+                            out diagnostic))
+                    {
+                        return false;
+                    }
                 }
 
-                return true;
+                break;
 
             case Vp9PartitionType.Vertical:
                 if (!TryReadInterBlockModeInfo(
@@ -1724,6 +1747,7 @@ internal static class Vp9TileSyntaxScanner
                         header,
                         compressedHeader,
                         geometry,
+                        syntaxContext,
                         miRow,
                         miColumn,
                         subsize,
@@ -1736,20 +1760,24 @@ internal static class Vp9TileSyntaxScanner
 
                 if (hasColumns)
                 {
-                    return TryReadInterBlockModeInfo(
-                        ref reader,
-                        header,
-                        compressedHeader,
-                        geometry,
-                        miRow,
-                        miColumn + hbs,
-                        subsize,
-                        childPath,
-                        modes,
-                        out diagnostic);
+                    if (!TryReadInterBlockModeInfo(
+                            ref reader,
+                            header,
+                            compressedHeader,
+                            geometry,
+                            syntaxContext,
+                            miRow,
+                            miColumn + hbs,
+                            subsize,
+                            childPath,
+                            modes,
+                            out diagnostic))
+                    {
+                        return false;
+                    }
                 }
 
-                return true;
+                break;
 
             case Vp9PartitionType.Split:
                 if (!TryReadInterPartitionModeInfo(
@@ -1757,6 +1785,7 @@ internal static class Vp9TileSyntaxScanner
                         header,
                         compressedHeader,
                         geometry,
+                        syntaxContext,
                         miRow,
                         miColumn,
                         subsize,
@@ -1774,6 +1803,7 @@ internal static class Vp9TileSyntaxScanner
                         header,
                         compressedHeader,
                         geometry,
+                        syntaxContext,
                         miRow,
                         miColumn + hbs,
                         subsize,
@@ -1791,6 +1821,7 @@ internal static class Vp9TileSyntaxScanner
                         header,
                         compressedHeader,
                         geometry,
+                        syntaxContext,
                         miRow + hbs,
                         miColumn,
                         subsize,
@@ -1804,25 +1835,37 @@ internal static class Vp9TileSyntaxScanner
 
                 if (hasRows && hasColumns)
                 {
-                    return TryReadInterPartitionModeInfo(
-                        ref reader,
-                        header,
-                        compressedHeader,
-                        geometry,
-                        miRow + hbs,
-                        miColumn + hbs,
-                        subsize,
-                        childPath,
-                        partitions,
-                        modes,
-                        out diagnostic);
+                    if (!TryReadInterPartitionModeInfo(
+                            ref reader,
+                            header,
+                            compressedHeader,
+                            geometry,
+                            syntaxContext,
+                            miRow + hbs,
+                            miColumn + hbs,
+                            subsize,
+                            childPath,
+                            partitions,
+                            modes,
+                            out diagnostic))
+                    {
+                        return false;
+                    }
                 }
 
-                return true;
+                break;
 
             default:
                 throw new ArgumentOutOfRangeException(nameof(partition), partition, "Unsupported VP9 partition type.");
         }
+
+        if (blockSize >= Vp9BlockSize.Block8X8 &&
+            (blockSize == Vp9BlockSize.Block8X8 || partition != Vp9PartitionType.Split))
+        {
+            syntaxContext.UpdatePartitionContext(miRow, miColumn, blockSize, subsize);
+        }
+
+        return true;
     }
 
     private static bool TryReadInterBlockModeInfo(
@@ -1830,6 +1873,7 @@ internal static class Vp9TileSyntaxScanner
         Vp9FrameHeader header,
         Vp9CompressedHeader compressedHeader,
         Vp9TileGeometry geometry,
+        Vp9InterFrameSyntaxContext syntaxContext,
         int miRow,
         int miColumn,
         Vp9BlockSize blockSize,
@@ -1838,8 +1882,9 @@ internal static class Vp9TileSyntaxScanner
         out Vp9DecodeDiagnostic? diagnostic)
     {
         var contexts = new Vp9InterModeInfoContexts(
-            Skip: 0,
+            Skip: syntaxContext.GetSkipContext(miRow, miColumn, geometry.MiColumnStart),
             IntraInter: 0,
+            TransformSize: syntaxContext.GetTransformSizeContext(miRow, miColumn, geometry.MiColumnStart, blockSize),
             SingleReference0: 0,
             SingleReference1: 0,
             InterMode: 0);
@@ -1868,6 +1913,7 @@ internal static class Vp9TileSyntaxScanner
             miColumn,
             partitionPath,
             modeInfo));
+        syntaxContext.SetModeInfo(miRow, miColumn, modeInfo);
         return true;
     }
 
@@ -1877,6 +1923,7 @@ internal static class Vp9TileSyntaxScanner
         Vp9CompressedHeader compressedHeader,
         Vp9DequantTables dequantTables,
         Vp9TileGeometry geometry,
+        Vp9InterFrameSyntaxContext syntaxContext,
         Vp9CoefficientEntropyContext entropyContext,
         int miRow,
         int miColumn,
@@ -1891,6 +1938,7 @@ internal static class Vp9TileSyntaxScanner
                 header,
                 compressedHeader,
                 geometry,
+                syntaxContext,
                 miRow,
                 miColumn,
                 Vp9BlockSize.Block64X64,
