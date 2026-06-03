@@ -61,17 +61,21 @@ Current status:
   `DecodeFrame(ReadOnlySpan<byte>)`, `DecodeFrame(ReadOnlyMemory<byte>)`,
   `DecodeFrameWithAlpha(...)`, and `Reset()`.
 - Provides a small raw VP9 CLI smoke workflow in `src/VPDecoder.Cli`.
-- Parses raw VP8 frame tags and key-frame uncompressed headers, then returns
-  strict unsupported diagnostics until VP8 pixel reconstruction is implemented.
-  The VP8 surface accepts `ReadOnlySpan<byte>` and `ReadOnlyMemory<byte>` and
-  uses the same displayed/no-display/failed result shape expected by sequence
-  callers. VP8 key-frame first partitions are initialized with a VP8 bool
-  reader before the current pixel-reconstruction gate.
+- Parses raw VP8 frame tags, key-frame uncompressed headers, mode syntax, token
+  partition layout, residual token syntax, and coefficient probabilities. The
+  VP8 surface accepts `ReadOnlySpan<byte>` and `ReadOnlyMemory<byte>` and uses
+  the same displayed/no-display/failed result shape expected by sequence
+  callers.
+- Reconstructs a strictly gated VP8 key-frame subset: one token partition,
+  loop-filter level 0, visible full macroblocks, supported intra predictors,
+  and DC-only residual paths. VP8 Y2/WHT, AC reconstruction, clipped edge
+  macroblocks, multi-token partitions, and inter frames remain explicit
+  unsupported diagnostics.
 - Validates the current sample shape: VP9 profile 0, 8-bit, YUV420,
   2656x1352, 8 tile columns.
 - Fails explicitly for unsupported decode work instead of emitting pixels.
 
-Broader ordinary inter-frame prediction and VP8 pixel reconstruction remain
+Broader ordinary inter-frame prediction and full VP8 pixel reconstruction remain
 follow-up slices. The decoder must continue to return explicit unsupported
 diagnostics until those pieces are complete.
 

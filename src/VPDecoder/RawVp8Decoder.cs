@@ -44,15 +44,21 @@ public sealed class RawVp8Decoder
                 header);
         }
 
-        diagnostic = ValidateKeyFrameSyntax(packet, header);
-        if (diagnostic is not null)
+        if (!TryDecodeKeyFrame(packet, header, options, out var frame, out var decodeDiagnostic))
         {
-            return Vp8DecodeResult.Fail(diagnostic, header);
+            return Vp8DecodeResult.Fail(
+                decodeDiagnostic ?? Vp8DecodeDiagnostic.InternalDecodeFailure("VP8 key-frame decoder failed without a diagnostic."),
+                header);
         }
 
-        return Vp8DecodeResult.Fail(
-            Vp8DecodeDiagnostic.UnsupportedFeature("VP8 key-frame pixel reconstruction is not implemented yet."),
-            header);
+        if (frame is null)
+        {
+            return Vp8DecodeResult.Fail(
+                Vp8DecodeDiagnostic.InternalDecodeFailure("VP8 key-frame decoder succeeded without returning a frame."),
+                header);
+        }
+
+        return Vp8DecodeResult.Success(frame, header);
     }
 
     public void Reset()
@@ -140,32 +146,123 @@ public sealed class RawVp8Decoder
         return null;
     }
 
-    private static Vp8DecodeDiagnostic? ValidateKeyFrameSyntax(ReadOnlySpan<byte> packet, Vp8FrameHeader header)
+    private static bool TryDecodeKeyFrame(
+        ReadOnlySpan<byte> packet,
+        Vp8FrameHeader header,
+        Vp8DecodeOptions options,
+        out Vp9DecodedFrame? frame,
+        out Vp8DecodeDiagnostic? diagnostic)
     {
+        frame = null;
+        diagnostic = null;
         if (!Vp8KeyFrameSyntaxHeaderParser.TryParseFrameSyntax(
             packet.Slice(header.HeaderSizeInBytes, header.FirstPartitionSize),
             header.Width,
             header.Height,
             out var syntax,
-            out var diagnostic))
+            out diagnostic))
         {
-            return diagnostic ?? Vp8DecodeDiagnostic.InternalDecodeFailure("VP8 key-frame syntax parser failed without a diagnostic.");
+            diagnostic ??= Vp8DecodeDiagnostic.InternalDecodeFailure("VP8 key-frame syntax parser failed without a diagnostic.");
+            return false;
         }
 
         if (syntax is null)
         {
-            return Vp8DecodeDiagnostic.InternalDecodeFailure("VP8 key-frame syntax parser succeeded without returning syntax.");
+            diagnostic = Vp8DecodeDiagnostic.InternalDecodeFailure("VP8 key-frame syntax parser succeeded without returning syntax.");
+            return false;
         }
 
-        return Vp8TokenPartitionLayoutBuilder.TryCreate(
+        if (syntax.Header.ColorSpace != Vp8KeyFrameColorSpace.Bt601)
+        {
+            diagnostic = Vp8DecodeDiagnostic.UnsupportedFeature("VP8 reserved key-frame color space is not supported.");
+            return false;
+        }
+
+        if (syntax.Header.LoopFilter.Level != 0)
+        {
+            diagnostic = Vp8DecodeDiagnostic.UnsupportedFeature("VP8 loop filter reconstruction is not implemented yet.");
+            return false;
+        }
+
+        if (!Vp8TokenPartitionLayoutBuilder.TryCreate(
             packet,
             header,
             syntax.Header,
-            out _,
-            out diagnostic)
-            ? null
-            : diagnostic ?? Vp8DecodeDiagnostic.InternalDecodeFailure(
+            out var tokenLayout,
+            out diagnostic))
+        {
+            diagnostic ??= Vp8DecodeDiagnostic.InternalDecodeFailure(
                 "VP8 token partition layout builder failed without a diagnostic.");
+            return false;
+        }
+
+        if (tokenLayout is null)
+        {
+            diagnostic = Vp8DecodeDiagnostic.InternalDecodeFailure("VP8 token partition layout builder succeeded without returning a layout.");
+            return false;
+        }
+
+        if (tokenLayout.Partitions.Count != 1)
+        {
+            diagnostic = Vp8DecodeDiagnostic.UnsupportedFeature("VP8 multi-token-partition reconstruction is not implemented yet.");
+            return false;
+        }
+
+        var tokenPartition = tokenLayout.Partitions[0];
+        if (tokenPartition.Size == 0)
+        {
+            diagnostic = Vp8DecodeDiagnostic.TruncatedPacket("VP8 token partition is empty.");
+            return false;
+        }
+
+        try
+        {
+            var tokenReader = new Vp8BoolReader(packet.Slice(tokenPartition.Offset, tokenPartition.Size));
+            var probabilities = Vp8CoefficientProbabilityContext.Create(syntax.Header);
+            var macroblockColumns = (header.Width + 15) >> 4;
+            var residualContext = Vp8ResidualEntropyContext.Create(macroblockColumns);
+            var buffer = Vp8ReconstructionBuffer.Create(header.Width, header.Height);
+
+            foreach (var mode in syntax.MacroblockModes)
+            {
+                var residual = Vp8MacroblockResidualSyntax.ReadMacroblock(
+                    ref tokenReader,
+                    probabilities,
+                    residualContext,
+                    mode);
+                var dequantFactors = Vp8Quantizer.CreateDequantFactors(
+                    syntax.Header.Quantization,
+                    syntax.Header.Segmentation,
+                    mode.SegmentId);
+
+                if (!Vp8MacroblockReconstructor.TryReconstruct(
+                    buffer,
+                    mode,
+                    residual,
+                    dequantFactors,
+                    out diagnostic))
+                {
+                    diagnostic ??= Vp8DecodeDiagnostic.InternalDecodeFailure(
+                        "VP8 macroblock reconstructor failed without a diagnostic.");
+                    return false;
+                }
+            }
+
+            if (tokenReader.HasError)
+            {
+                diagnostic = Vp8DecodeDiagnostic.TruncatedPacket("VP8 token partition syntax extends past the packet boundary.");
+                return false;
+            }
+
+            frame = buffer.ToDecodedFrame(options);
+            diagnostic = null;
+            return true;
+        }
+        catch (Vp8BoolReaderException ex)
+        {
+            diagnostic = ex.Diagnostic;
+            return false;
+        }
     }
 }
 

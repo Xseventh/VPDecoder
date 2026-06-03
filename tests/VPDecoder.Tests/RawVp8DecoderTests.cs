@@ -4,42 +4,51 @@ public sealed class RawVp8DecoderTests
 {
     private const int ValidFirstPartitionSize = 160;
 
-    private static readonly byte[] ValidKeyFramePacket = CreateValidKeyFramePacket(ValidFirstPartitionSize);
+    private static readonly byte[] ValidKeyFramePacket = CreateValidKeyFramePacket(
+        ValidFirstPartitionSize,
+        width: 16,
+        height: 16,
+        tokenPartitionBytes: 32);
 
     [Fact]
-    public void DecodeFrame_WhenKeyFrameHeaderIsValid_ReturnsUnsupportedFeatureWithHeader()
+    public void DecodeFrame_WhenKeyFrameUsesSupportedDcOnlySubset_ReturnsDecodedFrameWithHeader()
     {
         var decoder = new RawVp8Decoder();
 
-        var result = decoder.DecodeFrame(ValidKeyFramePacket, new Vp8DecodeOptions(16, 8));
+        var result = decoder.DecodeFrame(ValidKeyFramePacket, new Vp8DecodeOptions(16, 16));
 
-        Assert.False(result.Succeeded);
-        Assert.Equal(Vp8DecodeResultStatus.Failed, result.Status);
-        Assert.False(result.HasDisplayFrame);
+        Assert.True(result.Succeeded);
+        Assert.Equal(Vp8DecodeResultStatus.DecodedFrame, result.Status);
+        Assert.True(result.HasDisplayFrame);
         Assert.False(result.NoDisplayFrame);
-        Assert.Null(result.Frame);
+        Assert.NotNull(result.Frame);
         Assert.NotNull(result.Header);
         Assert.Equal(16, result.Header.Width);
-        Assert.Equal(8, result.Header.Height);
-        Assert.Equal(Vp8DecodeDiagnosticCode.UnsupportedFeature, result.Diagnostic?.Code);
-        Assert.Contains("pixel reconstruction", result.Diagnostic?.Message, StringComparison.Ordinal);
+        Assert.Equal(16, result.Header.Height);
+        Assert.Null(result.Diagnostic);
+        Assert.Equal(Vp9OutputPixelFormat.Bgra8888, result.Frame.PixelFormat);
+        Assert.Equal(16 * 16 * 4, result.Frame.Pixels.Length);
+        for (var i = 3; i < result.Frame.Pixels.Length; i += 4)
+        {
+            Assert.Equal(255, result.Frame.Pixels[i]);
+        }
     }
 
     [Fact]
-    public void DecodeFrame_ReadOnlyMemoryInput_ReturnsStructuredUnsupportedFeatureWithHeader()
+    public void DecodeFrame_ReadOnlyMemoryInput_ReturnsDecodedFrameWithHeader()
     {
         ReadOnlyMemory<byte> packet = ValidKeyFramePacket;
         var decoder = new RawVp8Decoder();
 
-        var result = decoder.DecodeFrame(packet, new Vp8DecodeOptions(16, 8));
+        var result = decoder.DecodeFrame(packet, new Vp8DecodeOptions(16, 16));
 
-        Assert.False(result.Succeeded);
-        Assert.Equal(Vp8DecodeResultStatus.Failed, result.Status);
-        Assert.Null(result.Frame);
+        Assert.True(result.Succeeded);
+        Assert.Equal(Vp8DecodeResultStatus.DecodedFrame, result.Status);
+        Assert.NotNull(result.Frame);
         Assert.NotNull(result.Header);
         Assert.Equal(16, result.Header.Width);
-        Assert.Equal(8, result.Header.Height);
-        Assert.Equal(Vp8DecodeDiagnosticCode.UnsupportedFeature, result.Diagnostic?.Code);
+        Assert.Equal(16, result.Header.Height);
+        Assert.Null(result.Diagnostic);
     }
 
     [Fact]
@@ -109,7 +118,7 @@ public sealed class RawVp8DecoderTests
     {
         var decoder = new RawVp8Decoder();
 
-        var result = decoder.DecodeFrame(ValidKeyFramePacket, new Vp8DecodeOptions(1, 8));
+        var result = decoder.DecodeFrame(ValidKeyFramePacket, new Vp8DecodeOptions(1, 16));
 
         Assert.False(result.Succeeded);
         Assert.NotNull(result.Header);
@@ -121,7 +130,7 @@ public sealed class RawVp8DecoderTests
     {
         var decoder = new RawVp8Decoder();
 
-        var result = decoder.DecodeFrame(ValidKeyFramePacket, new Vp8DecodeOptions(16, 8, MaxPixelCount: 1));
+        var result = decoder.DecodeFrame(ValidKeyFramePacket, new Vp8DecodeOptions(16, 16, MaxPixelCount: 1));
 
         Assert.False(result.Succeeded);
         Assert.NotNull(result.Header);
@@ -163,10 +172,47 @@ public sealed class RawVp8DecoderTests
         Assert.Equal(Vp8DecodeDiagnosticCode.TruncatedPacket, result.Diagnostic?.Code);
     }
 
-    private static byte[] CreateValidKeyFramePacket(int firstPartitionSize, int? emittedFirstPartitionBytes = null)
+    [Fact]
+    public void DecodeFrame_WhenTokenPartitionIsEmpty_ReturnsTruncatedPacketWithHeader()
+    {
+        var packet = CreateValidKeyFramePacket(ValidFirstPartitionSize, width: 16, height: 16);
+        var decoder = new RawVp8Decoder();
+
+        var result = decoder.DecodeFrame(packet, new Vp8DecodeOptions(16, 16));
+
+        Assert.False(result.Succeeded);
+        Assert.NotNull(result.Header);
+        Assert.Equal(Vp8DecodeDiagnosticCode.TruncatedPacket, result.Diagnostic?.Code);
+        Assert.Contains("token partition is empty", result.Diagnostic?.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void DecodeFrame_WhenKeyFrameMacroblockIsClipped_ReturnsUnsupportedFeatureWithHeader()
+    {
+        var packet = CreateValidKeyFramePacket(
+            ValidFirstPartitionSize,
+            width: 16,
+            height: 8,
+            tokenPartitionBytes: 32);
+        var decoder = new RawVp8Decoder();
+
+        var result = decoder.DecodeFrame(packet, new Vp8DecodeOptions(16, 8));
+
+        Assert.False(result.Succeeded);
+        Assert.NotNull(result.Header);
+        Assert.Equal(Vp8DecodeDiagnosticCode.UnsupportedFeature, result.Diagnostic?.Code);
+        Assert.Contains("clipped edge macroblock", result.Diagnostic?.Message, StringComparison.Ordinal);
+    }
+
+    private static byte[] CreateValidKeyFramePacket(
+        int firstPartitionSize,
+        int width = 16,
+        int height = 8,
+        int tokenPartitionBytes = 0,
+        int? emittedFirstPartitionBytes = null)
     {
         var firstPartitionBytes = emittedFirstPartitionBytes ?? firstPartitionSize;
-        var packet = new byte[10 + firstPartitionBytes];
+        var packet = new byte[10 + firstPartitionBytes + tokenPartitionBytes];
         var frameTag = (firstPartitionSize << 5) | 0x10;
         packet[0] = (byte)frameTag;
         packet[1] = (byte)(frameTag >> 8);
@@ -174,10 +220,10 @@ public sealed class RawVp8DecoderTests
         packet[3] = 0x9d;
         packet[4] = 0x01;
         packet[5] = 0x2a;
-        packet[6] = 0x10;
-        packet[7] = 0x00;
-        packet[8] = 0x08;
-        packet[9] = 0x00;
+        packet[6] = (byte)width;
+        packet[7] = (byte)(width >> 8);
+        packet[8] = (byte)height;
+        packet[9] = (byte)(height >> 8);
         return packet;
     }
 }
