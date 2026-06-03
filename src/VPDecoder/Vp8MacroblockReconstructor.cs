@@ -105,17 +105,26 @@ internal static class Vp8MacroblockReconstructor
             return false;
         }
 
-        if (!IsEmpty(residualBlocks[24]?.Block))
+        Span<int> yDcCoefficients = stackalloc int[16];
+        if (!TryBuildY2DcCoefficients(residualBlocks[24], dequantFactors, yDcCoefficients, out diagnostic))
         {
-            diagnostic = Vp8DecodeDiagnostic.UnsupportedFeature("VP8 Y2 inverse Walsh reconstruction is not implemented yet.");
             return false;
         }
 
         for (var block = 0; block < 16; block++)
         {
-            if (!IsEmpty(residualBlocks[block]?.Block))
+            var localX = (block & 3) * 4;
+            var localY = (block >> 2) * 4;
+            if (!TryAddNonBPredYResidual(
+                predicted,
+                stride: 16,
+                localX,
+                localY,
+                residualBlocks[block],
+                yDcCoefficients[block],
+                dequantFactors.Y1Ac,
+                out diagnostic))
             {
-                diagnostic = Vp8DecodeDiagnostic.UnsupportedFeature("VP8 non-B_PRED Y1 AC reconstruction is not implemented yet.");
                 return false;
             }
         }
@@ -341,6 +350,86 @@ internal static class Vp8MacroblockReconstructor
         return true;
     }
 
+    private static bool TryBuildY2DcCoefficients(
+        Vp8ResidualBlockProbe? y2Residual,
+        Vp8DequantFactors dequantFactors,
+        Span<int> output,
+        out Vp8DecodeDiagnostic? diagnostic)
+    {
+        diagnostic = null;
+        output.Clear();
+        if (y2Residual is null)
+        {
+            return true;
+        }
+
+        if (y2Residual.BlockType != 1 || y2Residual.StartCoefficient != 0)
+        {
+            diagnostic = Vp8DecodeDiagnostic.InvalidPacket("VP8 Y2 residual must use block type 1 and start at coefficient 0.");
+            return false;
+        }
+
+        if (IsEmpty(y2Residual.Block))
+        {
+            return true;
+        }
+
+        Span<int> dequantized = stackalloc int[16];
+        dequantized[0] = y2Residual.Block.Coefficients[0] * dequantFactors.Y2Dc;
+        for (var i = 1; i < dequantized.Length; i++)
+        {
+            dequantized[i] = y2Residual.Block.Coefficients[i] * dequantFactors.Y2Ac;
+        }
+
+        Vp8InverseWalshTransform.Transform(dequantized, output);
+        return true;
+    }
+
+    private static bool TryAddNonBPredYResidual(
+        Span<byte> plane,
+        int stride,
+        int x,
+        int y,
+        Vp8ResidualBlockProbe? residual,
+        int y2DcCoefficient,
+        int acQuant,
+        out Vp8DecodeDiagnostic? diagnostic)
+    {
+        diagnostic = null;
+        Span<int> dequantized = stackalloc int[16];
+        dequantized[0] = y2DcCoefficient;
+
+        if (residual is not null)
+        {
+            if (residual.BlockType != 0 || residual.StartCoefficient != 1 || residual.Block.Coefficients[0] != 0)
+            {
+                diagnostic = Vp8DecodeDiagnostic.InvalidPacket("VP8 non-B_PRED Y1 residual must use block type 0, start at coefficient 1, and not carry an explicit DC coefficient.");
+                return false;
+            }
+
+            if (!IsEmpty(residual.Block))
+            {
+                for (var i = 1; i < dequantized.Length; i++)
+                {
+                    dequantized[i] = residual.Block.Coefficients[i] * acQuant;
+                }
+            }
+        }
+
+        if (IsEmptyDequantizedBlock(dequantized))
+        {
+            return true;
+        }
+
+        Vp8InverseTransform.AddBlock(
+            plane,
+            stride,
+            x,
+            y,
+            dequantized);
+        return true;
+    }
+
     private static bool TryBuildBlockMap(
         Vp8MacroblockResidual residual,
         out Vp8ResidualBlockProbe?[] residualBlocks,
@@ -517,6 +606,19 @@ internal static class Vp8MacroblockReconstructor
     private static bool IsEmpty(Vp8CoefficientBlock? block)
     {
         return block is null || block.Coefficients.All(coefficient => coefficient == 0);
+    }
+
+    private static bool IsEmptyDequantizedBlock(ReadOnlySpan<int> block)
+    {
+        foreach (var coefficient in block)
+        {
+            if (coefficient != 0)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
 }

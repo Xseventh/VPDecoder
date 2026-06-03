@@ -104,12 +104,12 @@ public sealed class Vp8MacroblockReconstructorTests
     }
 
     [Fact]
-    public void TryReconstruct_WhenY2BlockIsNonZero_ReturnsUnsupportedFeature()
+    public void TryReconstruct_ForNonBPredY2Dc_AddsLumaDcFromWalshTransform()
     {
         var buffer = Vp8ReconstructionBuffer.Create(16, 16);
         var mode = CreateMode(Vp8MacroblockPredictionMode.Dc, Vp8MacroblockPredictionMode.Dc);
         var residual = CreateResidual(
-            CreateBlockProbe(blockIndex: 24, coefficientIndex: 0, coefficient: 1));
+            CreateBlockProbe(blockIndex: 24, coefficientIndex: 0, coefficient: 80));
 
         var succeeded = Vp8MacroblockReconstructor.TryReconstruct(
             buffer,
@@ -118,9 +118,38 @@ public sealed class Vp8MacroblockReconstructorTests
             DequantFactors,
             out var diagnostic);
 
-        Assert.False(succeeded);
-        Assert.Equal(Vp8DecodeDiagnosticCode.UnsupportedFeature, diagnostic?.Code);
-        Assert.Contains("Y2 inverse Walsh", diagnostic?.Message, StringComparison.Ordinal);
+        Assert.True(succeeded);
+        Assert.Null(diagnostic);
+        var yPlane = buffer.Pixels.AsSpan(buffer.YPlane.Offset, buffer.YPlane.Length);
+        Assert.All(yPlane.ToArray(), value => Assert.Equal(138, value));
+    }
+
+    [Fact]
+    public void TryReconstruct_ForNonBPredY2Ac_DistributesLumaDcBySubblock()
+    {
+        var buffer = Vp8ReconstructionBuffer.Create(16, 16);
+        var mode = CreateMode(Vp8MacroblockPredictionMode.Dc, Vp8MacroblockPredictionMode.Dc);
+        var residual = CreateResidual(
+            CreateBlockProbeWithCoefficients(
+                blockIndex: 24,
+                eob: 2,
+                (0, 80),
+                (1, 10)));
+
+        var succeeded = Vp8MacroblockReconstructor.TryReconstruct(
+            buffer,
+            mode,
+            residual,
+            DequantFactors,
+            out var diagnostic);
+
+        Assert.True(succeeded);
+        Assert.Null(diagnostic);
+        var yPlane = buffer.Pixels.AsSpan(buffer.YPlane.Offset, buffer.YPlane.Length);
+        Assert.Equal(139, yPlane[0]);
+        Assert.Equal(139, yPlane[4]);
+        Assert.Equal(137, yPlane[8]);
+        Assert.Equal(137, yPlane[12]);
     }
 
     [Fact]
@@ -147,7 +176,7 @@ public sealed class Vp8MacroblockReconstructorTests
     }
 
     [Fact]
-    public void TryReconstruct_WhenNonBPredY1AcIsNonZero_ReturnsUnsupportedFeature()
+    public void TryReconstruct_ForNonBPredY1AcResidual_AppliesInverseTransform()
     {
         var buffer = Vp8ReconstructionBuffer.Create(16, 16);
         var mode = CreateMode(Vp8MacroblockPredictionMode.Dc, Vp8MacroblockPredictionMode.Dc);
@@ -161,9 +190,57 @@ public sealed class Vp8MacroblockReconstructorTests
             DequantFactors,
             out var diagnostic);
 
+        Assert.True(succeeded);
+        Assert.Null(diagnostic);
+        var yPlane = buffer.Pixels.AsSpan(buffer.YPlane.Offset, buffer.YPlane.Length);
+        Assert.True(yPlane.Slice(0, 4).ToArray().Distinct().Count() > 1);
+    }
+
+    [Fact]
+    public void TryReconstruct_WhenNonBPredY1ResidualCarriesDc_ReturnsInvalidPacket()
+    {
+        var buffer = Vp8ReconstructionBuffer.Create(16, 16);
+        var mode = CreateMode(Vp8MacroblockPredictionMode.Dc, Vp8MacroblockPredictionMode.Dc);
+        var residual = CreateResidual(
+            CreateBlockProbe(blockIndex: 0, coefficientIndex: 0, coefficient: 80));
+
+        var succeeded = Vp8MacroblockReconstructor.TryReconstruct(
+            buffer,
+            mode,
+            residual,
+            DequantFactors,
+            out var diagnostic);
+
         Assert.False(succeeded);
-        Assert.Equal(Vp8DecodeDiagnosticCode.UnsupportedFeature, diagnostic?.Code);
-        Assert.Contains("non-B_PRED Y1 AC", diagnostic?.Message, StringComparison.Ordinal);
+        Assert.Equal(Vp8DecodeDiagnosticCode.InvalidPacket, diagnostic?.Code);
+        Assert.Contains("explicit DC", diagnostic?.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TryReconstruct_WhenY2ResidualHasWrongSyntaxShape_ReturnsInvalidPacket()
+    {
+        var buffer = Vp8ReconstructionBuffer.Create(16, 16);
+        var mode = CreateMode(Vp8MacroblockPredictionMode.Dc, Vp8MacroblockPredictionMode.Dc);
+        var coefficients = new int[16];
+        coefficients[0] = 80;
+        var residual = CreateResidual(new Vp8ResidualBlockProbe(
+            BlockIndex: 24,
+            BlockType: 0,
+            StartCoefficient: 1,
+            InitialContext: 0,
+            EffectiveEob: 1,
+            new Vp8CoefficientBlock(Eob: 1, coefficients)));
+
+        var succeeded = Vp8MacroblockReconstructor.TryReconstruct(
+            buffer,
+            mode,
+            residual,
+            DequantFactors,
+            out var diagnostic);
+
+        Assert.False(succeeded);
+        Assert.Equal(Vp8DecodeDiagnosticCode.InvalidPacket, diagnostic?.Code);
+        Assert.Contains("Y2 residual", diagnostic?.Message, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -298,12 +375,24 @@ public sealed class Vp8MacroblockReconstructorTests
         int coefficient,
         int eob = 1)
     {
+        return CreateBlockProbeWithCoefficients(blockIndex, eob, (coefficientIndex, coefficient));
+    }
+
+    private static Vp8ResidualBlockProbe CreateBlockProbeWithCoefficients(
+        int blockIndex,
+        int eob,
+        params (int CoefficientIndex, int Coefficient)[] coefficientValues)
+    {
         var coefficients = new int[16];
-        coefficients[coefficientIndex] = coefficient;
+        foreach (var coefficient in coefficientValues)
+        {
+            coefficients[coefficient.CoefficientIndex] = coefficient.Coefficient;
+        }
+
         return new Vp8ResidualBlockProbe(
             blockIndex,
-            BlockType: blockIndex is >= 16 and < 24 ? 2 : 0,
-            StartCoefficient: coefficientIndex == 0 ? 0 : 1,
+            BlockType: blockIndex == 24 ? 1 : blockIndex is >= 16 and < 24 ? 2 : 0,
+            StartCoefficient: coefficientValues.All(coefficient => coefficient.CoefficientIndex != 0) ? 1 : 0,
             InitialContext: 0,
             EffectiveEob: eob,
             new Vp8CoefficientBlock(eob, coefficients));
