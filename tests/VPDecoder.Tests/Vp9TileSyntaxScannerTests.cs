@@ -433,6 +433,106 @@ public sealed class Vp9TileSyntaxScannerTests
     }
 
     [Fact]
+    public void TryReconstructFirstInterSuperblockZeroMvWithResidual_ForSyntheticNonSkippedInterFrame_CopiesReferenceAndAppliesZeroResiduals()
+    {
+        var tilePayload = new byte[64];
+        tilePayload[0] = 0x03;
+        var packet = tilePayload;
+        var header = CreateSyntheticOrdinaryInterHeader(packet.Length);
+        var compressedHeader = CreateSyntheticInterCompressedHeader();
+        IReadOnlyList<Vp9TileBuffer> tileBuffers =
+        [
+            new Vp9TileBuffer(Index: 0, SizeFieldOffset: null, DataOffset: 0, Size: tilePayload.Length)
+        ];
+        var referenceFrame = CreatePatternYuvFrame(width: 64, height: 64);
+        var referenceFrames = new Vp9ReferenceFrameStore();
+        referenceFrames.Refresh(referenceFrame, Vp9ColorRange.Studio, refreshFrameFlags: 0x01);
+
+        Assert.True(
+            Vp9TileSyntaxScanner.TryReconstructFirstInterSuperblockZeroMvWithResidual(
+                packet,
+                header,
+                compressedHeader,
+                tileBuffers,
+                referenceFrames,
+                out var frame,
+                out var probes,
+                out var residualGroups,
+                out var diagnostic),
+            diagnostic?.Message);
+
+        Assert.NotNull(frame);
+        Assert.Single(probes);
+        Assert.False(probes[0].ModeInfos[0].ModeInfo.Skip);
+        Assert.Equal([256, 64, 64], residualGroups.Select(group => group.Blocks.Count).ToArray());
+        Assert.Equal(Hash(referenceFrame.Pixels), Hash(frame.Pixels));
+    }
+
+    [Fact]
+    public void TryReconstructFirstInterSuperblockZeroMvWithResidual_WhenReferenceIsMissing_ReturnsMissingReferenceFrame()
+    {
+        var tilePayload = new byte[64];
+        tilePayload[0] = 0x03;
+        var packet = tilePayload;
+        var header = CreateSyntheticOrdinaryInterHeader(packet.Length);
+        var compressedHeader = CreateSyntheticInterCompressedHeader();
+        IReadOnlyList<Vp9TileBuffer> tileBuffers =
+        [
+            new Vp9TileBuffer(Index: 0, SizeFieldOffset: null, DataOffset: 0, Size: tilePayload.Length)
+        ];
+
+        Assert.False(
+            Vp9TileSyntaxScanner.TryReconstructFirstInterSuperblockZeroMvWithResidual(
+                packet,
+                header,
+                compressedHeader,
+                tileBuffers,
+                new Vp9ReferenceFrameStore(),
+                out var frame,
+                out var probes,
+                out var residualGroups,
+                out var diagnostic));
+
+        Assert.Null(frame);
+        Assert.Single(probes);
+        Assert.NotEmpty(residualGroups);
+        Assert.Equal(Vp9DecodeDiagnosticCode.MissingReferenceFrame, diagnostic?.Code);
+    }
+
+    [Fact]
+    public void TryReconstructFirstInterSuperblockZeroMvWithResidual_WhenResidualIsTruncated_ReturnsTruncatedPacket()
+    {
+        byte[] tilePayload = [0x03, 0x00, 0x00];
+        var packet = tilePayload;
+        var header = CreateSyntheticOrdinaryInterHeader(packet.Length);
+        var compressedHeader = CreateSyntheticInterCompressedHeader();
+        IReadOnlyList<Vp9TileBuffer> tileBuffers =
+        [
+            new Vp9TileBuffer(Index: 0, SizeFieldOffset: null, DataOffset: 0, Size: tilePayload.Length)
+        ];
+        var referenceFrame = CreatePatternYuvFrame(width: 64, height: 64);
+        var referenceFrames = new Vp9ReferenceFrameStore();
+        referenceFrames.Refresh(referenceFrame, Vp9ColorRange.Studio, refreshFrameFlags: 0x01);
+
+        Assert.False(
+            Vp9TileSyntaxScanner.TryReconstructFirstInterSuperblockZeroMvWithResidual(
+                packet,
+                header,
+                compressedHeader,
+                tileBuffers,
+                referenceFrames,
+                out var frame,
+                out var probes,
+                out var residualGroups,
+                out var diagnostic));
+
+        Assert.Null(frame);
+        Assert.Empty(probes);
+        Assert.Empty(residualGroups);
+        Assert.Equal(Vp9DecodeDiagnosticCode.TruncatedPacket, diagnostic?.Code);
+    }
+
+    [Fact]
     public void TryProbeFirstLeafCoefficientToken_ForExternalMainFrame_ReadsExpectedFirstToken()
     {
         var packet = ReadRequiredSample(

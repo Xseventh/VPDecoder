@@ -147,6 +147,112 @@ internal static class Vp9BlockReconstructor
         };
     }
 
+    public static void AddInterResidualGroup(
+        Vp9YuvFrameBuffer frameBuffer,
+        Vp9InterBlockModeInfoProbe modeBlock,
+        Vp9CoefficientBlockGroupProbe group,
+        int plane)
+    {
+        var modeInfo = modeBlock.ModeInfo;
+        if (!modeInfo.IsInterBlock)
+        {
+            throw new NotSupportedException("VP9 inter residual reconstruction requires an inter-predicted block.");
+        }
+
+        if (group.BlockSize != modeInfo.BlockSize)
+        {
+            throw new ArgumentException("VP9 inter coefficient group block size does not match its mode info.", nameof(group));
+        }
+
+        var transformSize = GetTransformSizeInPixels(group.TransformSize);
+        var width = GetPlaneBlockWidthInPixels(modeInfo.BlockSize, plane);
+        var height = GetPlaneBlockHeightInPixels(modeInfo.BlockSize, plane);
+        if (width % transformSize != 0 || height % transformSize != 0)
+        {
+            throw new NotSupportedException(
+                $"VP9 inter residual reconstruction cannot split {modeInfo.BlockSize} plane {plane} into {group.TransformSize} blocks.");
+        }
+
+        var blocksWide = width / transformSize;
+        var blocksHigh = height / transformSize;
+        var expectedBlockCount = checked(blocksWide * blocksHigh);
+        if (group.Blocks.Count != expectedBlockCount)
+        {
+            throw new ArgumentException("VP9 inter coefficient block count does not match the block geometry.", nameof(group));
+        }
+
+        var transformStep4 = Vp9CoefficientEntropyContext.GetTransformSizeIn4x4Blocks(group.TransformSize);
+        var width4 = width / 4;
+        var height4 = height / 4;
+        var seenBlocks = new bool[expectedBlockCount];
+        var planeInfo = GetPlaneInfo(frameBuffer, plane);
+        var originX = plane == 0 ? modeBlock.MiColumn * 8 : modeBlock.MiColumn * 4;
+        var originY = plane == 0 ? modeBlock.MiRow * 8 : modeBlock.MiRow * 4;
+        var planePixels = frameBuffer.Pixels.AsSpan(planeInfo.Metadata.Offset, planeInfo.Metadata.Length);
+
+        foreach (var coefficients in group.Blocks)
+        {
+            if (coefficients.TransformSize != group.TransformSize)
+            {
+                throw new ArgumentException("VP9 inter coefficient block transform size does not match its group.", nameof(group));
+            }
+
+            if (coefficients.ReferenceType != Vp9ResidualSyntax.InterBlockReferenceType)
+            {
+                throw new ArgumentException("VP9 inter residual reconstruction requires inter-reference coefficient blocks.", nameof(group));
+            }
+
+            if (coefficients.Row4 < 0 ||
+                coefficients.Column4 < 0 ||
+                coefficients.Row4 + transformStep4 > height4 ||
+                coefficients.Column4 + transformStep4 > width4 ||
+                coefficients.Row4 % transformStep4 != 0 ||
+                coefficients.Column4 % transformStep4 != 0)
+            {
+                throw new ArgumentException("VP9 inter coefficient block transform offset does not fit the block geometry.", nameof(group));
+            }
+
+            var blockRow = coefficients.Row4 / transformStep4;
+            var blockColumn = coefficients.Column4 / transformStep4;
+            var blockIndex = (blockRow * blocksWide) + blockColumn;
+            if (seenBlocks[blockIndex])
+            {
+                throw new ArgumentException("VP9 inter coefficient block transform offsets must be unique within a group.", nameof(group));
+            }
+
+            seenBlocks[blockIndex] = true;
+            if (coefficients.Eob == 0)
+            {
+                continue;
+            }
+
+            var x = originX + (coefficients.Column4 * 4);
+            var y = originY + (coefficients.Row4 * 4);
+            var visibleWidth = Math.Min(transformSize, planeInfo.Metadata.Width - x);
+            var visibleHeight = Math.Min(transformSize, planeInfo.Metadata.Height - y);
+            if (visibleWidth <= 0 || visibleHeight <= 0)
+            {
+                continue;
+            }
+
+            if (visibleWidth != transformSize || visibleHeight != transformSize)
+            {
+                throw new NotSupportedException(
+                    "VP9 inter residual reconstruction for clipped transform blocks is not supported yet.");
+            }
+
+            Vp9InverseTransform.AddBlock(
+                planePixels,
+                planeInfo.Stride,
+                x,
+                y,
+                group.TransformSize,
+                coefficients.TransformType,
+                coefficients.DequantizedCoefficients,
+                coefficients.Eob);
+        }
+    }
+
     private static Vp9PlaneInfo GetPlaneInfo(Vp9YuvFrameBuffer frameBuffer, int plane)
     {
         return plane switch

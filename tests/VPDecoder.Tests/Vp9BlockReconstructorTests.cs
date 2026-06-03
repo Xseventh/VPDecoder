@@ -173,6 +173,72 @@ public sealed class Vp9BlockReconstructorTests
         }
     }
 
+    [Fact]
+    public void AddInterResidualGroup_WhenBlocksAreEmpty_LeavesPredictionPixelsUnchanged()
+    {
+        var frameBuffer = Vp9YuvFrameBuffer.Create(16, 16);
+        Array.Fill(frameBuffer.Pixels, (byte)100, frameBuffer.YPlane.Offset, frameBuffer.YPlane.Length);
+        var beforeHash = Hash(frameBuffer.Pixels);
+        var modeBlock = CreateInterModeBlock();
+        var group = CreateInterTx8Group(dc: 0);
+
+        Vp9BlockReconstructor.AddInterResidualGroup(frameBuffer, modeBlock, group, plane: 0);
+
+        Assert.Equal(beforeHash, Hash(frameBuffer.Pixels));
+    }
+
+    [Fact]
+    public void AddInterResidualGroup_WhenBlockHasDc_AddsResidualToPredictionPixels()
+    {
+        var frameBuffer = Vp9YuvFrameBuffer.Create(16, 16);
+        Array.Fill(frameBuffer.Pixels, (byte)100, frameBuffer.YPlane.Offset, frameBuffer.YPlane.Length);
+        var modeBlock = CreateInterModeBlock();
+        var group = CreateInterTx8Group(dc: 512);
+
+        Vp9BlockReconstructor.AddInterResidualGroup(frameBuffer, modeBlock, group, plane: 0);
+
+        var yPlane = frameBuffer.Pixels.AsSpan(frameBuffer.YPlane.Offset, frameBuffer.YPlane.Length);
+        Assert.Equal(108, yPlane[0]);
+        Assert.Equal(108, yPlane[7]);
+        Assert.Equal(108, yPlane[(7 * frameBuffer.YStride) + 7]);
+        Assert.Equal(100, yPlane[8]);
+        Assert.Equal(100, yPlane[8 * frameBuffer.YStride]);
+        Assert.Equal(100, yPlane[(12 * frameBuffer.YStride) + 12]);
+    }
+
+    [Fact]
+    public void AddInterResidualGroup_WhenGroupGeometryDoesNotMatchMode_ThrowsArgumentDiagnostic()
+    {
+        var frameBuffer = Vp9YuvFrameBuffer.Create(16, 16);
+        var modeBlock = CreateInterModeBlock();
+        var group = CreateInterTx8Group(dc: 0) with
+        {
+            BlockSize = Vp9BlockSize.Block8X8
+        };
+
+        Assert.Throws<ArgumentException>(
+            () => Vp9BlockReconstructor.AddInterResidualGroup(frameBuffer, modeBlock, group, plane: 0));
+    }
+
+    [Fact]
+    public void AddInterResidualGroup_WhenCoefficientReferenceTypeIsIntra_ThrowsArgumentDiagnostic()
+    {
+        var frameBuffer = Vp9YuvFrameBuffer.Create(16, 16);
+        var modeBlock = CreateInterModeBlock();
+        var group = CreateInterTx8Group(dc: 0);
+        var firstBlock = group.Blocks[0] with
+        {
+            ReferenceType = Vp9ResidualSyntax.IntraBlockReferenceType
+        };
+        group = group with
+        {
+            Blocks = [firstBlock, group.Blocks[1], group.Blocks[2], group.Blocks[3]]
+        };
+
+        Assert.Throws<ArgumentException>(
+            () => Vp9BlockReconstructor.AddInterResidualGroup(frameBuffer, modeBlock, group, plane: 0));
+    }
+
     private static Vp9CoefficientBlockProbe CreateTx4Block(int row4, int column4, int dc)
     {
         var coefficients = new int[16];
@@ -186,6 +252,68 @@ public sealed class Vp9BlockReconstructorTests
             column4,
             PlaneType: 0,
             ReferenceType: 0,
+            InitialCoefficientContext: 0,
+            Eob: hasDc ? 1 : 0,
+            NonZeroCount: hasDc ? 1 : 0,
+            FirstNonZeroRasterIndex: hasDc ? 0 : -1,
+            LastNonZeroRasterIndex: hasDc ? 0 : -1,
+            coefficients,
+            CoefficientsSha256: "synthetic");
+    }
+
+    private static Vp9InterBlockModeInfoProbe CreateInterModeBlock()
+    {
+        var modeInfo = new Vp9InterModeInfoProbe(
+            Vp9BlockSize.Block16X16,
+            Skip: false,
+            SkipContext: 0,
+            IsInterBlock: true,
+            IntraInterContext: 0,
+            Vp9TransformSize.Tx8X8,
+            TransformSizeContext: 1,
+            Vp9ReferenceMode.Single,
+            Vp9InterReferenceFrame.Last,
+            SingleReferenceContext0: 0,
+            SingleReferenceContext1: null,
+            Vp9InterPredictionMode.ZeroMv,
+            InterModeContext: 0,
+            Vp9InterpolationFilter.EightTap);
+
+        return new Vp9InterBlockModeInfoProbe(
+            TileIndex: 0,
+            MiRow: 0,
+            MiColumn: 0,
+            PartitionPath: [Vp9PartitionType.None],
+            modeInfo);
+    }
+
+    private static Vp9CoefficientBlockGroupProbe CreateInterTx8Group(int dc)
+    {
+        return new Vp9CoefficientBlockGroupProbe(
+            TileIndex: 0,
+            Vp9BlockSize.Block16X16,
+            Vp9TransformSize.Tx8X8,
+            [
+                CreateTx8Block(row4: 0, column4: 0, dc),
+                CreateTx8Block(row4: 0, column4: 2, dc: 0),
+                CreateTx8Block(row4: 2, column4: 0, dc: 0),
+                CreateTx8Block(row4: 2, column4: 2, dc: 0)
+            ]);
+    }
+
+    private static Vp9CoefficientBlockProbe CreateTx8Block(int row4, int column4, int dc)
+    {
+        var coefficients = new int[64];
+        coefficients[0] = dc;
+        var hasDc = dc != 0;
+        return new Vp9CoefficientBlockProbe(
+            TileIndex: 0,
+            Vp9TransformSize.Tx8X8,
+            Vp9TransformType.DctDct,
+            row4,
+            column4,
+            PlaneType: 0,
+            ReferenceType: Vp9ResidualSyntax.InterBlockReferenceType,
             InitialCoefficientContext: 0,
             Eob: hasDc ? 1 : 0,
             NonZeroCount: hasDc ? 1 : 0,
