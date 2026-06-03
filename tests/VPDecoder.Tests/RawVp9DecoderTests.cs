@@ -500,6 +500,26 @@ public sealed class RawVp9DecoderTests
     }
 
     [Fact]
+    public void DecodeFrameWithAlpha_WhenAlphaDimensionsDiffer_ReturnsDimensionMismatch()
+    {
+        var colorPacket = ReadRequiredSample(MainFrameSamplePath, 30398, MainFrameSampleSha256);
+        var mismatchedAlphaPacket = Vp9TestPackets.CreateHiddenProfile0IntraOnlyFramePacket();
+        var decoder = new RawVp9Decoder();
+
+        var result = decoder.DecodeFrameWithAlpha(
+            colorPacket,
+            mismatchedAlphaPacket,
+            new Vp9DecodeOptions(2656, 1352));
+
+        Assert.False(result.Succeeded);
+        Assert.Null(result.Frame);
+        Assert.NotNull(result.Header);
+        Assert.Equal(16, result.Header.Width);
+        Assert.Equal(8, result.Header.Height);
+        Assert.Equal(Vp9DecodeDiagnosticCode.DimensionMismatch, result.Diagnostic?.Code);
+    }
+
+    [Fact]
     public void DecodeFrame_ExternalSamples_CompletesWithinBoundedTime()
     {
         var colorPacket = ReadRequiredSample(MainFrameSamplePath, 30398, MainFrameSampleSha256);
