@@ -477,6 +477,66 @@ public sealed class RawVp9DecoderTests
     }
 
     [Fact]
+    public void DecodeFrameWithAlpha_WhenColorAndAlphaReferencesExist_DecodesShowExistingSequence()
+    {
+        var colorPacket = ReadRequiredSample(MainFrameSamplePath, 30398, MainFrameSampleSha256);
+        var alphaPacket = ReadRequiredSample(AlphaFrameSamplePath, 6233, AlphaFrameSampleSha256);
+        var decoder = new RawVp9Decoder();
+
+        var keyFrame = decoder.DecodeFrameWithAlpha(colorPacket, alphaPacket, new Vp9DecodeOptions(2656, 1352));
+        var showExisting = decoder.DecodeFrameWithAlpha(
+            ShowExistingFrame0Packet,
+            ShowExistingFrame0Packet,
+            new Vp9DecodeOptions(2656, 1352));
+
+        Assert.True(keyFrame.Succeeded, keyFrame.Diagnostic?.Message);
+        Assert.True(showExisting.Succeeded, showExisting.Diagnostic?.Message);
+        Assert.NotNull(showExisting.Header);
+        Assert.True(showExisting.Header.ShowExistingFrame);
+        Assert.NotNull(showExisting.Frame);
+        Assert.Equal(Vp9OutputPixelFormat.Bgra8888, showExisting.Frame.PixelFormat);
+        Assert.Equal("c8095ee5e4b760a8a6f7c18d10b357b9f579c6864bb1cd815061d8d6e930a2ff", Hash(showExisting.Frame.Pixels));
+    }
+
+    [Fact]
+    public void DecodeFrameWithAlpha_AfterReset_ClearsAlphaReferenceState()
+    {
+        var colorPacket = ReadRequiredSample(MainFrameSamplePath, 30398, MainFrameSampleSha256);
+        var alphaPacket = ReadRequiredSample(AlphaFrameSamplePath, 6233, AlphaFrameSampleSha256);
+        var decoder = new RawVp9Decoder();
+        var keyFrame = decoder.DecodeFrameWithAlpha(colorPacket, alphaPacket, new Vp9DecodeOptions(2656, 1352));
+
+        decoder.Reset();
+        var result = decoder.DecodeFrameWithAlpha(colorPacket, ShowExistingFrame0Packet, new Vp9DecodeOptions(2656, 1352));
+
+        Assert.True(keyFrame.Succeeded, keyFrame.Diagnostic?.Message);
+        Assert.False(result.Succeeded);
+        Assert.Null(result.Frame);
+        Assert.NotNull(result.Header);
+        Assert.True(result.Header.ShowExistingFrame);
+        Assert.Equal(Vp9DecodeDiagnosticCode.MissingReferenceFrame, result.Diagnostic?.Code);
+    }
+
+    [Fact]
+    public void DecodeFrameWithAlpha_WhenAlphaFails_DoesNotRollBackColorReferenceState()
+    {
+        var colorPacket = ReadRequiredSample(MainFrameSamplePath, 30398, MainFrameSampleSha256);
+        var decoder = new RawVp9Decoder();
+
+        var failedAlpha = decoder.DecodeFrameWithAlpha(
+            colorPacket,
+            ShowExistingFrame0Packet,
+            new Vp9DecodeOptions(2656, 1352));
+        var colorShowExisting = decoder.DecodeFrame(ShowExistingFrame0Packet, new Vp9DecodeOptions(2656, 1352));
+
+        Assert.False(failedAlpha.Succeeded);
+        Assert.Equal(Vp9DecodeDiagnosticCode.MissingReferenceFrame, failedAlpha.Diagnostic?.Code);
+        Assert.True(colorShowExisting.Succeeded, colorShowExisting.Diagnostic?.Message);
+        Assert.NotNull(colorShowExisting.Frame);
+        Assert.Equal("bd018f0c6eac5ae58945a2517c96c29a40f703b6c8c0a07c99debb9a8a864902", Hash(colorShowExisting.Frame.Pixels));
+    }
+
+    [Fact]
     public void DecodeFrameWithAlpha_ReadOnlyMemoryInput_MergesExternalSamples()
     {
         ReadOnlyMemory<byte> colorPacket = ReadRequiredSample(MainFrameSamplePath, 30398, MainFrameSampleSha256);

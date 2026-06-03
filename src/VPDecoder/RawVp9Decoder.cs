@@ -9,6 +9,7 @@ public sealed class RawVp9Decoder
 
     private readonly Vp9ReferenceFrameStore _referenceFrames = new();
     private readonly Vp9FrameContext[] _frameContexts = CreateDefaultFrameContexts();
+    private RawVp9Decoder? _alphaDecoder;
 
     public Vp9DecodeResult DecodeFrame(ReadOnlyMemory<byte> packet, Vp9DecodeOptions? options = null)
     {
@@ -186,7 +187,7 @@ public sealed class RawVp9Decoder
             ExpectedHeight = colorResult.Frame.Height,
             OutputFormat = Vp9OutputPixelFormat.Bgra8888
         };
-        var alphaDecoder = new RawVp9Decoder();
+        var alphaDecoder = _alphaDecoder ??= new RawVp9Decoder();
         var alphaResult = alphaDecoder.DecodeFrame(alphaPacket, alphaOptions);
         if (!alphaResult.Succeeded)
         {
@@ -209,6 +210,7 @@ public sealed class RawVp9Decoder
     {
         _referenceFrames.Reset();
         ResetFrameContexts();
+        _alphaDecoder?.Reset();
     }
 
     private Vp9DecodeResult DecodeShowExistingFrame(Vp9FrameHeader header, Vp9DecodeOptions options, int packetLength)

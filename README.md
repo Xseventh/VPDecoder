@@ -115,15 +115,16 @@ Cross-frame decode semantics:
   otherwise for a specific future mode.
 - Returned frames are caller-owned pixel buffers. Mutating a returned frame does
   not mutate decoder reference slots.
-- `DecodeFrameWithAlpha` is a single-frame convenience helper for one color
-  packet plus one alpha packet. It maintains color state on the current decoder
-  instance, but the alpha packet is decoded with an internal fresh decoder for
-  that call. This is correct for independent alpha key-frame packets such as the
-  current validation sample, but it is not a full color+alpha sequence decoder
-  when alpha packets depend on prior alpha references.
-- A future color+alpha sequence integration should maintain two decoder states:
-  one `RawVp9Decoder` for color and one for alpha, reset both together, decode
-  each packet in order, and merge the two successfully decoded packed frames.
+- `DecodeFrameWithAlpha` maintains two decoder-owned stream states inside the
+  same `RawVp9Decoder` instance: the primary color state and a lazy alpha state.
+  Feed color and alpha packets for one stream to the same instance in order.
+- `Reset()` clears both color and alpha state. Mixing `DecodeFrame` and
+  `DecodeFrameWithAlpha` is allowed; `DecodeFrame` advances only color state,
+  while `DecodeFrameWithAlpha` advances color first and alpha second.
+- Color+alpha decode is non-transactional. If color succeeds but alpha fails,
+  color state remains advanced and no merged pixels are returned. Callers should
+  reset or stop the stream after such a failure unless they intentionally accept
+  that state.
 
 CLI smoke example:
 
