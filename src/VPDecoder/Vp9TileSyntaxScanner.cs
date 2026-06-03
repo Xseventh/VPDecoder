@@ -1881,13 +1881,22 @@ internal static class Vp9TileSyntaxScanner
         List<Vp9InterBlockModeInfoProbe> modes,
         out Vp9DecodeDiagnostic? diagnostic)
     {
+        var singleReferenceContexts = syntaxContext.GetSingleReferenceContexts(
+            miRow,
+            miColumn,
+            geometry.MiColumnStart);
         var contexts = new Vp9InterModeInfoContexts(
             Skip: syntaxContext.GetSkipContext(miRow, miColumn, geometry.MiColumnStart),
-            IntraInter: 0,
+            IntraInter: syntaxContext.GetIntraInterContext(miRow, miColumn, geometry.MiColumnStart),
             TransformSize: syntaxContext.GetTransformSizeContext(miRow, miColumn, geometry.MiColumnStart, blockSize),
-            SingleReference0: 0,
-            SingleReference1: 0,
-            InterMode: 0);
+            SingleReference0: singleReferenceContexts.Context0,
+            SingleReference1: singleReferenceContexts.Context1,
+            InterMode: syntaxContext.GetInterModeContext(
+                miRow,
+                miColumn,
+                blockSize,
+                geometry.MiColumnStart,
+                geometry.MiColumnEnd));
         if (!Vp9InterModeInfoSyntax.TryReadSupportedInterBlock(
                 ref reader,
                 header,

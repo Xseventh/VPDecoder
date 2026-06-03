@@ -164,7 +164,7 @@ public sealed class RawVp9DecoderTests
     }
 
     [Fact]
-    public void DecodeFrame_WhenInterFrameUsesReferenceSize_ParsesReferenceDimensionsBeforeTileDiagnostic()
+    public void DecodeFrame_WhenInterFrameUsesReferenceSize_ParsesReferenceDimensionsBeforeInterDiagnostic()
     {
         var packet = ReadRequiredSample(MainFrameSamplePath, 30398, MainFrameSampleSha256);
         var decoder = new RawVp9Decoder();
@@ -184,7 +184,8 @@ public sealed class RawVp9DecoderTests
         Assert.Equal(0, result.Header.FrameSizeReferenceIndex);
         Assert.Equal(2656, result.Header.Width);
         Assert.Equal(1352, result.Header.Height);
-        Assert.Equal(Vp9DecodeDiagnosticCode.TruncatedPacket, result.Diagnostic?.Code);
+        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedInterFrameFeature, result.Diagnostic?.Code);
+        Assert.Contains("intra blocks", result.Diagnostic?.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -529,7 +530,7 @@ public sealed class RawVp9DecoderTests
         int loopFilterLevel = 0)
     {
         const int firstPartitionSize = 64;
-        byte[] tilePayload = [0x06, 0x00, 0x00];
+        byte[] tilePayload = [0x01, 0x00, 0x00];
         var headerPacket = Vp9TestPackets.CreateOrdinaryInterFramePacket(
             sizeFromReference: sizeFromReference,
             stopAfterSizeReference: false,
