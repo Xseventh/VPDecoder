@@ -245,6 +245,59 @@ public sealed class Vp9LoopFilterTests
         Assert.True(last.HasAnyFilter);
     }
 
+    [Fact]
+    public void TryBuildInterFrameMasks_ForUniformZeroMvBlocks_BuildsAdjustedMask()
+    {
+        var header = CreateSyntheticInterHeader(width: 16, height: 8) with
+        {
+            LoopFilter = new Vp9LoopFilterHeader(
+                FilterLevel: 20,
+                SharpnessLevel: 0,
+                ModeRefDeltaEnabled: true,
+                ModeRefDeltaUpdate: false,
+                RefDeltas: [1, 2, -3, 4],
+                ModeDeltas: [-5, 6])
+        };
+        var reconstructed = CreateSyntheticInterReconstructedFrame(
+            width: 16,
+            height: 8,
+            CreateInterModeBlock(0, 0, Vp9BlockSize.Block64X64, Vp9InterReferenceFrame.Last, Vp9InterPredictionMode.ZeroMv));
+
+        Assert.True(Vp9LoopFilterMaskBuilder.TryBuildInterFrameMasks(header, reconstructed, out var masks, out var diagnostic), diagnostic?.Message);
+
+        Assert.Null(diagnostic);
+        var mask = Assert.Single(masks);
+        Assert.Equal(17, mask.FilterLevel);
+        Assert.Equal(2, mask.ActiveLevelCount);
+        Assert.True(mask.HasAnyFilter);
+    }
+
+    [Fact]
+    public void TryBuildInterFrameMasks_WhenPerBlockLevelsDiffer_ReturnsUnsupportedLoopFilter()
+    {
+        var header = CreateSyntheticInterHeader(width: 16, height: 8) with
+        {
+            LoopFilter = new Vp9LoopFilterHeader(
+                FilterLevel: 20,
+                SharpnessLevel: 0,
+                ModeRefDeltaEnabled: true,
+                ModeRefDeltaUpdate: false,
+                RefDeltas: [1, 2, -3, 4],
+                ModeDeltas: [-5, 6])
+        };
+        var reconstructed = CreateSyntheticInterReconstructedFrame(
+            width: 16,
+            height: 8,
+            CreateInterModeBlock(0, 0, Vp9BlockSize.Block8X8, Vp9InterReferenceFrame.Last, Vp9InterPredictionMode.ZeroMv),
+            CreateInterModeBlock(0, 1, Vp9BlockSize.Block8X8, Vp9InterReferenceFrame.Last, Vp9InterPredictionMode.NewMv));
+
+        Assert.False(Vp9LoopFilterMaskBuilder.TryBuildInterFrameMasks(header, reconstructed, out var masks, out var diagnostic));
+
+        Assert.Empty(masks);
+        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedLoopFilter, diagnostic?.Code);
+        Assert.Contains("mixed", diagnostic?.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Theory]
     [InlineData(
         "/tmp/vp9-main-frame-0.vp9",
@@ -367,6 +420,86 @@ public sealed class Vp9LoopFilterTests
         var bytes = frame.Pixels.AsSpan(plane.Offset, plane.Length).ToArray();
         Assert.Equal(expectedNonZero, bytes.Count(value => value != 0));
         Assert.Equal(expectedHash, Hash(bytes));
+    }
+
+    private static Vp9FrameHeader CreateSyntheticInterHeader(int width, int height)
+    {
+        var packet = Vp9TestPackets.CreateOrdinaryInterFramePacket(
+            sizeFromReference: false,
+            stopAfterSizeReference: false,
+            tileInfoWidth: width,
+            firstPartitionSize: 64);
+        return Vp9FrameHeaderParser.Parse(packet) with
+        {
+            Width = width,
+            Height = height,
+            RenderWidth = width,
+            RenderHeight = height,
+            TileInfo = new Vp9TileInfo(
+                MiColumns: (width + 7) / 8,
+                MiRows: (height + 7) / 8,
+                SuperblockColumns: (((width + 7) / 8) + 7) / 8,
+                MinLog2TileColumns: 0,
+                MaxLog2TileColumns: 0,
+                Log2TileColumns: 0,
+                Log2TileRows: 0)
+        };
+    }
+
+    private static Vp9ReconstructedFrame CreateSyntheticInterReconstructedFrame(
+        int width,
+        int height,
+        params Vp9InterBlockModeInfoProbe[] modeBlocks)
+    {
+        var frame = Vp9YuvFrameBuffer.Create(width, height).ToDecodedFrame();
+        var superblock = new Vp9InterSuperblockSyntaxProbe(
+            TileIndex: 0,
+            Partitions: [],
+            ModeInfos: modeBlocks,
+            CoefficientGroups: modeBlocks.SelectMany(modeBlock => CreateEmptyCoefficientGroups(modeBlock.ModeInfo.BlockSize)).ToArray());
+        return Vp9ReconstructedFrame.FromInter(
+            frame,
+            [superblock],
+            miRows: (height + 7) / 8,
+            miColumns: (width + 7) / 8);
+    }
+
+    private static Vp9InterBlockModeInfoProbe CreateInterModeBlock(
+        int miRow,
+        int miColumn,
+        Vp9BlockSize blockSize,
+        Vp9InterReferenceFrame referenceFrame,
+        Vp9InterPredictionMode predictionMode)
+    {
+        var modeInfo = new Vp9InterModeInfoProbe(
+            blockSize,
+            Skip: true,
+            SkipContext: 0,
+            IsInterBlock: true,
+            IntraInterContext: 0,
+            Vp9TransformSize.Tx4X4,
+            TransformSizeContext: 0,
+            Vp9ReferenceMode.Single,
+            referenceFrame,
+            SingleReferenceContext0: 0,
+            SingleReferenceContext1: null,
+            predictionMode,
+            InterModeContext: 0,
+            Vp9InterpolationFilter.EightTap);
+
+        return new Vp9InterBlockModeInfoProbe(
+            TileIndex: 0,
+            miRow,
+            miColumn,
+            PartitionPath: [Vp9PartitionType.None],
+            modeInfo);
+    }
+
+    private static IEnumerable<Vp9CoefficientBlockGroupProbe> CreateEmptyCoefficientGroups(Vp9BlockSize blockSize)
+    {
+        yield return new Vp9CoefficientBlockGroupProbe(0, blockSize, Vp9TransformSize.Tx4X4, Blocks: []);
+        yield return new Vp9CoefficientBlockGroupProbe(0, blockSize, Vp9TransformSize.Tx4X4, Blocks: []);
+        yield return new Vp9CoefficientBlockGroupProbe(0, blockSize, Vp9TransformSize.Tx4X4, Blocks: []);
     }
 
     private static string Hash(byte[] bytes)

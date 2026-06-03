@@ -221,6 +221,56 @@ internal static class Vp9LoopFilterMaskBuilder
             return true;
         }
 
+        masks = BuildMasks(header, reconstructedFrame, filterLevel);
+        return true;
+    }
+
+    public static bool TryBuildInterFrameMasks(
+        Vp9FrameHeader header,
+        Vp9ReconstructedFrame reconstructedFrame,
+        out IReadOnlyList<Vp9LoopFilterSuperblockMask> masks,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
+        masks = [];
+        diagnostic = ValidateInterInputs(header, reconstructedFrame);
+        if (diagnostic is not null)
+        {
+            return false;
+        }
+
+        var distinctLevels = reconstructedFrame.ModeBlocks
+            .Select(modeBlock => Vp9LoopFilter.GetInterFrameFilterLevel(
+                header.LoopFilter,
+                modeBlock.InterModeInfo!.ReferenceFrame,
+                modeBlock.InterModeInfo.PredictionMode))
+            .Distinct()
+            .ToArray();
+        if (distinctLevels.Length == 0)
+        {
+            return true;
+        }
+
+        if (distinctLevels.Length > 1)
+        {
+            diagnostic = Vp9DecodeDiagnostic.UnsupportedLoopFilter(
+                "VP9 inter-frame loop filter masks with mixed per-block filter levels are not supported yet.");
+            return false;
+        }
+
+        if (distinctLevels[0] == 0)
+        {
+            return true;
+        }
+
+        masks = BuildMasks(header, reconstructedFrame, distinctLevels[0]);
+        return true;
+    }
+
+    private static IReadOnlyList<Vp9LoopFilterSuperblockMask> BuildMasks(
+        Vp9FrameHeader header,
+        Vp9ReconstructedFrame reconstructedFrame,
+        int filterLevel)
+    {
         var thresholds = Vp9LoopFilter.GetThresholds(filterLevel, header.LoopFilter.SharpnessLevel);
         var superblockColumns = (reconstructedFrame.MiColumns + SuperblockSizeInMiUnits - 1) / SuperblockSizeInMiUnits;
         var superblockRows = (reconstructedFrame.MiRows + SuperblockSizeInMiUnits - 1) / SuperblockSizeInMiUnits;
@@ -248,8 +298,7 @@ internal static class Vp9LoopFilterMaskBuilder
             }
         }
 
-        masks = builtMasks;
-        return true;
+        return builtMasks;
     }
 
     private static Vp9DecodeDiagnostic? ValidateInputs(
@@ -262,6 +311,38 @@ internal static class Vp9LoopFilterMaskBuilder
                 "VP9 loop filter mask builder currently supports only key frames.");
         }
 
+        return ValidateCommonInputs(header, reconstructedFrame);
+    }
+
+    private static Vp9DecodeDiagnostic? ValidateInterInputs(
+        Vp9FrameHeader header,
+        Vp9ReconstructedFrame reconstructedFrame)
+    {
+        if (header.FrameType != Vp9FrameType.InterFrame || header.IntraOnly)
+        {
+            return Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(
+                "VP9 inter-frame loop filter mask builder requires an ordinary inter frame.");
+        }
+
+        var diagnostic = ValidateCommonInputs(header, reconstructedFrame);
+        if (diagnostic is not null)
+        {
+            return diagnostic;
+        }
+
+        if (reconstructedFrame.ModeBlocks.Any(modeBlock => modeBlock.InterModeInfo is null))
+        {
+            return Vp9DecodeDiagnostic.InternalDecodeFailure(
+                "VP9 inter-frame loop filter mask builder received non-inter mode metadata.");
+        }
+
+        return null;
+    }
+
+    private static Vp9DecodeDiagnostic? ValidateCommonInputs(
+        Vp9FrameHeader header,
+        Vp9ReconstructedFrame reconstructedFrame)
+    {
         if (header.BitDepth != 8)
         {
             return Vp9DecodeDiagnostic.UnsupportedBitDepth(
@@ -297,8 +378,8 @@ internal static class Vp9LoopFilterMaskBuilder
         var grouped = new Dictionary<int, List<Vp9ReconstructedModeBlock>>();
         foreach (var modeBlock in reconstructedFrame.ModeBlocks)
         {
-            var superblockRow = modeBlock.ModeInfo.MiRow / SuperblockSizeInMiUnits;
-            var superblockColumn = modeBlock.ModeInfo.MiColumn / SuperblockSizeInMiUnits;
+            var superblockRow = modeBlock.MiRow / SuperblockSizeInMiUnits;
+            var superblockColumn = modeBlock.MiColumn / SuperblockSizeInMiUnits;
             var key = GetSuperblockKey(superblockRow, superblockColumn, superblockColumns);
             if (!grouped.TryGetValue(key, out var list))
             {
@@ -322,26 +403,25 @@ internal static class Vp9LoopFilterMaskBuilder
         Vp9ReconstructedFrame reconstructedFrame,
         Vp9ReconstructedModeBlock modeBlock)
     {
-        var modeInfo = modeBlock.ModeInfo;
-        var rowInSuperblock = modeInfo.MiRow - mask.MiRow;
-        var columnInSuperblock = modeInfo.MiColumn - mask.MiColumn;
+        var rowInSuperblock = modeBlock.MiRow - mask.MiRow;
+        var columnInSuperblock = modeBlock.MiColumn - mask.MiColumn;
         if (rowInSuperblock is < 0 or >= SuperblockSizeInMiUnits ||
             columnInSuperblock is < 0 or >= SuperblockSizeInMiUnits)
         {
             throw new ArgumentException("VP9 mode block does not belong to the target superblock.", nameof(modeBlock));
         }
 
-        var blockSizeIndex = (int)modeInfo.BlockSize;
-        var yTransformSizeIndex = (int)modeInfo.TransformSize;
+        var blockSizeIndex = (int)modeBlock.BlockSize;
+        var yTransformSizeIndex = (int)modeBlock.TransformSize;
         var uvTransformSize = Vp9ResidualSyntax.GetUvTransformSizeForYuv420(
-            modeInfo.BlockSize,
-            modeInfo.TransformSize);
+            modeBlock.BlockSize,
+            modeBlock.TransformSize);
         var uvTransformSizeIndex = (int)uvTransformSize;
         var shiftY = columnInSuperblock + (rowInSuperblock << 3);
         var shiftUv = (columnInSuperblock >> 1) + ((rowInSuperblock >> 1) << 2);
         var buildUv = FirstBlockIn16X16[rowInSuperblock, columnInSuperblock];
 
-        SetLoopFilterLevels(mask, reconstructedFrame, modeInfo, rowInSuperblock, columnInSuperblock);
+        SetLoopFilterLevels(mask, reconstructedFrame, modeBlock, rowInSuperblock, columnInSuperblock);
 
         mask.AboveY[yTransformSizeIndex] |= AbovePredictionMask[blockSizeIndex] << shiftY;
         mask.LeftY[yTransformSizeIndex] |= LeftPredictionMask[blockSizeIndex] << shiftY;
@@ -371,7 +451,7 @@ internal static class Vp9LoopFilterMaskBuilder
                 (ushort)((SizeMaskUv[blockSizeIndex] & LeftTransformMaskUv[uvTransformSizeIndex]) << shiftUv));
         }
 
-        if (modeInfo.TransformSize == Vp9TransformSize.Tx4X4)
+        if (modeBlock.TransformSize == Vp9TransformSize.Tx4X4)
         {
             mask.Internal4x4Y |= SizeMask[blockSizeIndex] << shiftY;
         }
@@ -387,19 +467,19 @@ internal static class Vp9LoopFilterMaskBuilder
     private static void SetLoopFilterLevels(
         Vp9LoopFilterSuperblockMask mask,
         Vp9ReconstructedFrame reconstructedFrame,
-        Vp9ModeInfoProbe modeInfo,
+        Vp9ReconstructedModeBlock modeBlock,
         int rowInSuperblock,
         int columnInSuperblock)
     {
         var width = Math.Min(
-            Vp9ModeInfoSyntax.GetBlockWidthInMiUnits(modeInfo.BlockSize),
+            Vp9ModeInfoSyntax.GetBlockWidthInMiUnits(modeBlock.BlockSize),
             Math.Min(
-                reconstructedFrame.MiColumns - modeInfo.MiColumn,
+                reconstructedFrame.MiColumns - modeBlock.MiColumn,
                 SuperblockSizeInMiUnits - columnInSuperblock));
         var height = Math.Min(
-            Vp9ModeInfoSyntax.GetBlockHeightInMiUnits(modeInfo.BlockSize),
+            Vp9ModeInfoSyntax.GetBlockHeightInMiUnits(modeBlock.BlockSize),
             Math.Min(
-                reconstructedFrame.MiRows - modeInfo.MiRow,
+                reconstructedFrame.MiRows - modeBlock.MiRow,
                 SuperblockSizeInMiUnits - rowInSuperblock));
 
         for (var row = 0; row < height; row++)
