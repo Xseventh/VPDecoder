@@ -96,6 +96,104 @@ public sealed class Vp9TileSyntaxScannerTests
     }
 
     [Fact]
+    public void ReadPartition_WithInterFrameContext_UsesFrameContextProbabilities()
+    {
+        var interReader = new Vp9BoolReader([0x57, 0x00]);
+        var keyReader = new Vp9BoolReader([0x57, 0x00]);
+        var frameContext = Vp9FrameContext.CreateDefault();
+
+        var interPartition = Vp9PartitionSyntax.ReadPartition(
+            ref interReader,
+            frameContext,
+            partitionContext: 12,
+            hasRows: true,
+            hasColumns: true);
+        var keyPartition = Vp9PartitionSyntax.ReadPartition(
+            ref keyReader,
+            partitionContext: 12,
+            hasRows: true,
+            hasColumns: true);
+
+        Assert.Equal(Vp9PartitionType.None, interPartition);
+        Assert.Equal(Vp9PartitionType.Horizontal, keyPartition);
+        Assert.False(interReader.HasError);
+        Assert.False(keyReader.HasError);
+    }
+
+    [Fact]
+    public void TryProbeFirstInterSuperblockModeInfo_ForSyntheticOrdinaryInterFrame_ReadsFirstInterBlock()
+    {
+        byte[] tilePayload = [0x03, 0x00, 0x00];
+        var packet = tilePayload;
+        var header = CreateSyntheticOrdinaryInterHeader(packet.Length);
+        var compressedHeader = CreateSyntheticInterCompressedHeader();
+        IReadOnlyList<Vp9TileBuffer> tileBuffers =
+        [
+            new Vp9TileBuffer(Index: 0, SizeFieldOffset: null, DataOffset: 0, Size: tilePayload.Length)
+        ];
+
+        Assert.True(
+            Vp9TileSyntaxScanner.TryProbeFirstInterSuperblockModeInfo(
+                packet,
+                header,
+                compressedHeader,
+                tileBuffers,
+                out var probes,
+                out var diagnostic),
+            diagnostic?.Message);
+
+        Assert.Single(probes);
+        var probe = probes[0];
+        Assert.Equal(0, probe.TileIndex);
+        Assert.Single(probe.Partitions);
+        Assert.Single(probe.ModeInfos);
+        Assert.Equal(Vp9PartitionType.None, probe.Partitions[0].PartitionType);
+        Assert.Equal(12, probe.Partitions[0].PartitionContext);
+
+        var modeBlock = probe.ModeInfos[0];
+        Assert.Equal(0, modeBlock.TileIndex);
+        Assert.Equal(0, modeBlock.MiRow);
+        Assert.Equal(0, modeBlock.MiColumn);
+        Assert.Equal([Vp9PartitionType.None], modeBlock.PartitionPath);
+        Assert.Equal(Vp9BlockSize.Block64X64, modeBlock.ModeInfo.BlockSize);
+        Assert.False(modeBlock.ModeInfo.Skip);
+        Assert.True(modeBlock.ModeInfo.IsInterBlock);
+        Assert.Equal(Vp9TransformSize.Tx4X4, modeBlock.ModeInfo.TransformSize);
+        Assert.Equal(Vp9InterReferenceFrame.Last, modeBlock.ModeInfo.ReferenceFrame);
+        Assert.Equal(Vp9InterPredictionMode.ZeroMv, modeBlock.ModeInfo.PredictionMode);
+        Assert.Equal(Vp9InterpolationFilter.EightTapSharp, modeBlock.ModeInfo.InterpolationFilter);
+    }
+
+    [Fact]
+    public void TryProbeFirstInterSuperblockModeInfo_WhenSwitchableInterpolation_ReturnsUnsupportedDiagnostic()
+    {
+        byte[] tilePayload = [0x03, 0x00, 0x00];
+        var packet = tilePayload;
+        var header = CreateSyntheticOrdinaryInterHeader(packet.Length) with
+        {
+            InterpolationFilter = Vp9InterpolationFilter.Switchable
+        };
+        var compressedHeader = CreateSyntheticInterCompressedHeader();
+        IReadOnlyList<Vp9TileBuffer> tileBuffers =
+        [
+            new Vp9TileBuffer(Index: 0, SizeFieldOffset: null, DataOffset: 0, Size: tilePayload.Length)
+        ];
+
+        Assert.False(
+            Vp9TileSyntaxScanner.TryProbeFirstInterSuperblockModeInfo(
+                packet,
+                header,
+                compressedHeader,
+                tileBuffers,
+                out var probes,
+                out var diagnostic));
+
+        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedInterFrameFeature, diagnostic?.Code);
+        Assert.Contains("switchable", diagnostic?.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(probes);
+    }
+
+    [Fact]
     public void TryProbeFirstLeafCoefficientToken_ForExternalMainFrame_ReadsExpectedFirstToken()
     {
         var packet = ReadRequiredSample(
@@ -810,6 +908,39 @@ public sealed class Vp9TileSyntaxScannerTests
         Assert.True(Vp9FrameLayoutParser.TryReadTileBuffers(packet, header, out var tileBuffers, out var layoutDiagnostic), layoutDiagnostic?.Message);
         Assert.True(Vp9KeyFrameDecodeState.TryCreate(header, compressedHeader!, tileBuffers, out var state, out var stateDiagnostic), stateDiagnostic?.Message);
         return state!;
+    }
+
+    private static Vp9FrameHeader CreateSyntheticOrdinaryInterHeader(int packetLength)
+    {
+        var header = Vp9FrameHeaderParser.Parse(Vp9TestPackets.CreateOrdinaryInterFramePacket());
+        return header with
+        {
+            PacketLength = packetLength,
+            HeaderSizeInBytes = 0,
+            Width = 64,
+            Height = 64,
+            RenderWidth = 64,
+            RenderHeight = 64,
+            TileInfo = new Vp9TileInfo(
+                MiColumns: 8,
+                MiRows: 8,
+                SuperblockColumns: 1,
+                MinLog2TileColumns: 0,
+                MaxLog2TileColumns: 0,
+                Log2TileColumns: 0,
+                Log2TileRows: 0)
+        };
+    }
+
+    private static Vp9CompressedHeader CreateSyntheticInterCompressedHeader()
+    {
+        return new Vp9CompressedHeader(
+            Vp9TransformMode.Only4X4,
+            Vp9FrameContext.CreateDefault(),
+            TxProbabilityUpdateCount: 0,
+            CoefficientProbabilityUpdateCount: 0,
+            SkipProbabilityUpdateCount: 0,
+            ReferenceMode: Vp9ReferenceMode.Single);
     }
 
     private static void AssertCoefficientBlock(

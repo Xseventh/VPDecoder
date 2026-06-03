@@ -5,6 +5,18 @@ public sealed record Vp9SuperblockSyntaxProbe(
     IReadOnlyList<Vp9ModeInfoProbe> ModeInfos,
     IReadOnlyList<Vp9CoefficientBlockGroupProbe> CoefficientGroups);
 
+internal sealed record Vp9InterSuperblockModeInfoProbe(
+    int TileIndex,
+    IReadOnlyList<Vp9PartitionProbe> Partitions,
+    IReadOnlyList<Vp9InterBlockModeInfoProbe> ModeInfos);
+
+internal sealed record Vp9InterBlockModeInfoProbe(
+    int TileIndex,
+    int MiRow,
+    int MiColumn,
+    IReadOnlyList<Vp9PartitionType> PartitionPath,
+    Vp9InterModeInfoProbe ModeInfo);
+
 internal static class Vp9TileSyntaxScanner
 {
     private const int SuperblockSizeInMiUnits = 8;
@@ -101,6 +113,88 @@ internal static class Vp9TileSyntaxScanner
         catch (NotSupportedException ex)
         {
             diagnostic = Vp9DecodeDiagnostic.UnsupportedPredictionMode(ex.Message);
+            return false;
+        }
+        catch (Vp9BoolReaderException ex)
+        {
+            diagnostic = ex.Diagnostic;
+            return false;
+        }
+    }
+
+    public static bool TryProbeFirstInterSuperblockModeInfo(
+        ReadOnlyMemory<byte> packet,
+        Vp9FrameHeader header,
+        Vp9CompressedHeader compressedHeader,
+        IReadOnlyList<Vp9TileBuffer> tileBuffers,
+        out IReadOnlyList<Vp9InterSuperblockModeInfoProbe> probes,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
+        probes = [];
+        diagnostic = null;
+
+        if (header.FrameType != Vp9FrameType.InterFrame || header.IntraOnly)
+        {
+            diagnostic = Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(
+                "VP9 inter mode-info probe requires an ordinary inter frame.");
+            return false;
+        }
+
+        try
+        {
+            var geometries = Vp9TileGeometryBuilder.Build(header, tileBuffers);
+            var parsed = new List<Vp9InterSuperblockModeInfoProbe>(geometries.Count);
+            for (var i = 0; i < geometries.Count; i++)
+            {
+                var geometry = geometries[i];
+                if (geometry.Buffer.DataOffset + geometry.Buffer.Size > packet.Length)
+                {
+                    diagnostic = Vp9DecodeDiagnostic.TruncatedPacket("VP9 tile buffer extends past the packet boundary.");
+                    return false;
+                }
+
+                var tileBytes = packet.Span.Slice(geometry.Buffer.DataOffset, geometry.Buffer.Size);
+                var reader = new Vp9BoolReader(tileBytes);
+                var partitions = new List<Vp9PartitionProbe>();
+                var modes = new List<Vp9InterBlockModeInfoProbe>();
+                if (!TryReadInterPartitionModeInfo(
+                        ref reader,
+                        header,
+                        compressedHeader,
+                        geometry,
+                        geometry.MiRowStart,
+                        geometry.MiColumnStart,
+                        Vp9BlockSize.Block64X64,
+                        [],
+                        partitions,
+                        modes,
+                        out diagnostic))
+                {
+                    probes = parsed;
+                    return false;
+                }
+
+                if (reader.HasError)
+                {
+                    diagnostic = Vp9DecodeDiagnostic.TruncatedPacket("VP9 inter first-superblock mode-info probe ended unexpectedly.");
+                    probes = parsed;
+                    return false;
+                }
+
+                parsed.Add(new Vp9InterSuperblockModeInfoProbe(geometry.Buffer.Index, partitions, modes));
+            }
+
+            probes = parsed;
+            return true;
+        }
+        catch (ArgumentException ex)
+        {
+            diagnostic = Vp9DecodeDiagnostic.InvalidPacket(ex.Message);
+            return false;
+        }
+        catch (NotSupportedException ex)
+        {
+            diagnostic = Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(ex.Message);
             return false;
         }
         catch (Vp9BoolReaderException ex)
@@ -719,6 +813,269 @@ internal static class Vp9TileSyntaxScanner
                 "VP9 full-frame reconstruction overflowed a block geometry calculation.");
             return false;
         }
+    }
+
+    private static bool TryReadInterPartitionModeInfo(
+        ref Vp9BoolReader reader,
+        Vp9FrameHeader header,
+        Vp9CompressedHeader compressedHeader,
+        Vp9TileGeometry geometry,
+        int miRow,
+        int miColumn,
+        Vp9BlockSize blockSize,
+        IReadOnlyList<Vp9PartitionType> partitionPath,
+        List<Vp9PartitionProbe> partitions,
+        List<Vp9InterBlockModeInfoProbe> modes,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
+        diagnostic = null;
+        if (miRow >= header.TileInfo.MiRows || miColumn >= header.TileInfo.MiColumns)
+        {
+            return true;
+        }
+
+        var hbs = Vp9ModeInfoSyntax.GetHalfBlockSizeInMiUnits(blockSize);
+        var hasRows = miRow + hbs < header.TileInfo.MiRows;
+        var hasColumns = miColumn + hbs < header.TileInfo.MiColumns;
+        var partitionContext = Vp9PartitionSyntax.GetPartitionContext(
+            aboveContext: 0,
+            leftContext: 0,
+            Vp9ModeInfoSyntax.GetPartitionContextLog2(blockSize));
+        var partition = Vp9PartitionSyntax.ReadPartition(
+            ref reader,
+            compressedHeader.FrameContext,
+            partitionContext,
+            hasRows,
+            hasColumns);
+        if (reader.HasError)
+        {
+            diagnostic = Vp9DecodeDiagnostic.TruncatedPacket("VP9 inter partition mode-info probe ended unexpectedly.");
+            return false;
+        }
+
+        partitions.Add(new Vp9PartitionProbe(
+            geometry.Buffer.Index,
+            miRow,
+            miColumn,
+            partitionContext,
+            partition));
+
+        var subsize = Vp9ModeInfoSyntax.GetSubsize(blockSize, partition);
+        var childPath = partitionPath.Concat([partition]).ToArray();
+        if (hbs == 0)
+        {
+            return TryReadInterBlockModeInfo(
+                ref reader,
+                header,
+                compressedHeader,
+                geometry,
+                miRow,
+                miColumn,
+                subsize,
+                childPath,
+                modes,
+                out diagnostic);
+        }
+
+        switch (partition)
+        {
+            case Vp9PartitionType.None:
+                return TryReadInterBlockModeInfo(
+                    ref reader,
+                    header,
+                    compressedHeader,
+                    geometry,
+                    miRow,
+                    miColumn,
+                    subsize,
+                    childPath,
+                    modes,
+                    out diagnostic);
+
+            case Vp9PartitionType.Horizontal:
+                if (!TryReadInterBlockModeInfo(
+                        ref reader,
+                        header,
+                        compressedHeader,
+                        geometry,
+                        miRow,
+                        miColumn,
+                        subsize,
+                        childPath,
+                        modes,
+                        out diagnostic))
+                {
+                    return false;
+                }
+
+                if (hasRows)
+                {
+                    return TryReadInterBlockModeInfo(
+                        ref reader,
+                        header,
+                        compressedHeader,
+                        geometry,
+                        miRow + hbs,
+                        miColumn,
+                        subsize,
+                        childPath,
+                        modes,
+                        out diagnostic);
+                }
+
+                return true;
+
+            case Vp9PartitionType.Vertical:
+                if (!TryReadInterBlockModeInfo(
+                        ref reader,
+                        header,
+                        compressedHeader,
+                        geometry,
+                        miRow,
+                        miColumn,
+                        subsize,
+                        childPath,
+                        modes,
+                        out diagnostic))
+                {
+                    return false;
+                }
+
+                if (hasColumns)
+                {
+                    return TryReadInterBlockModeInfo(
+                        ref reader,
+                        header,
+                        compressedHeader,
+                        geometry,
+                        miRow,
+                        miColumn + hbs,
+                        subsize,
+                        childPath,
+                        modes,
+                        out diagnostic);
+                }
+
+                return true;
+
+            case Vp9PartitionType.Split:
+                if (!TryReadInterPartitionModeInfo(
+                        ref reader,
+                        header,
+                        compressedHeader,
+                        geometry,
+                        miRow,
+                        miColumn,
+                        subsize,
+                        childPath,
+                        partitions,
+                        modes,
+                        out diagnostic))
+                {
+                    return false;
+                }
+
+                if (hasColumns &&
+                    !TryReadInterPartitionModeInfo(
+                        ref reader,
+                        header,
+                        compressedHeader,
+                        geometry,
+                        miRow,
+                        miColumn + hbs,
+                        subsize,
+                        childPath,
+                        partitions,
+                        modes,
+                        out diagnostic))
+                {
+                    return false;
+                }
+
+                if (hasRows &&
+                    !TryReadInterPartitionModeInfo(
+                        ref reader,
+                        header,
+                        compressedHeader,
+                        geometry,
+                        miRow + hbs,
+                        miColumn,
+                        subsize,
+                        childPath,
+                        partitions,
+                        modes,
+                        out diagnostic))
+                {
+                    return false;
+                }
+
+                if (hasRows && hasColumns)
+                {
+                    return TryReadInterPartitionModeInfo(
+                        ref reader,
+                        header,
+                        compressedHeader,
+                        geometry,
+                        miRow + hbs,
+                        miColumn + hbs,
+                        subsize,
+                        childPath,
+                        partitions,
+                        modes,
+                        out diagnostic);
+                }
+
+                return true;
+
+            default:
+                throw new ArgumentOutOfRangeException(nameof(partition), partition, "Unsupported VP9 partition type.");
+        }
+    }
+
+    private static bool TryReadInterBlockModeInfo(
+        ref Vp9BoolReader reader,
+        Vp9FrameHeader header,
+        Vp9CompressedHeader compressedHeader,
+        Vp9TileGeometry geometry,
+        int miRow,
+        int miColumn,
+        Vp9BlockSize blockSize,
+        IReadOnlyList<Vp9PartitionType> partitionPath,
+        List<Vp9InterBlockModeInfoProbe> modes,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
+        var contexts = new Vp9InterModeInfoContexts(
+            Skip: 0,
+            IntraInter: 0,
+            SingleReference0: 0,
+            SingleReference1: 0,
+            InterMode: 0);
+        if (!Vp9InterModeInfoSyntax.TryReadSupportedInterBlock(
+                ref reader,
+                header,
+                compressedHeader,
+                blockSize,
+                contexts,
+                out var modeInfo,
+                out diagnostic))
+        {
+            return false;
+        }
+
+        if (modeInfo is null)
+        {
+            diagnostic = Vp9DecodeDiagnostic.InternalDecodeFailure(
+                "VP9 inter mode-info probe succeeded without returning a mode-info record.");
+            return false;
+        }
+
+        modes.Add(new Vp9InterBlockModeInfoProbe(
+            geometry.Buffer.Index,
+            miRow,
+            miColumn,
+            partitionPath,
+            modeInfo));
+        return true;
     }
 
     private static void ReadPartitionSyntax(

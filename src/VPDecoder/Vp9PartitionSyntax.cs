@@ -49,6 +49,26 @@ internal static class Vp9PartitionSyntax
         bool hasColumns)
     {
         var probabilities = GetKeyFrameProbabilities(partitionContext);
+        return ReadPartition(ref reader, probabilities, hasRows, hasColumns);
+    }
+
+    public static Vp9PartitionType ReadPartition(
+        ref Vp9BoolReader reader,
+        Vp9FrameContext frameContext,
+        int partitionContext,
+        bool hasRows,
+        bool hasColumns)
+    {
+        var probabilities = GetFrameContextProbabilities(frameContext, partitionContext);
+        return ReadPartition(ref reader, probabilities, hasRows, hasColumns);
+    }
+
+    private static Vp9PartitionType ReadPartition(
+        ref Vp9BoolReader reader,
+        ReadOnlySpan<byte> probabilities,
+        bool hasRows,
+        bool hasColumns)
+    {
         if (hasRows && hasColumns)
         {
             return (Vp9PartitionType)Vp9TreeReader.ReadTree(ref reader, PartitionTree, probabilities);
@@ -84,5 +104,20 @@ internal static class Vp9PartitionSyntax
         return KeyFramePartitionProbabilities.Slice(
             partitionContext * PartitionProbabilityCount,
             PartitionProbabilityCount);
+    }
+
+    private static byte[] GetFrameContextProbabilities(Vp9FrameContext frameContext, int partitionContext)
+    {
+        if (partitionContext is < 0 or >= PartitionContexts)
+        {
+            throw new ArgumentOutOfRangeException(nameof(partitionContext), "VP9 partition context must be between 0 and 15.");
+        }
+
+        return
+        [
+            frameContext.PartitionProbabilities[partitionContext, 0],
+            frameContext.PartitionProbabilities[partitionContext, 1],
+            frameContext.PartitionProbabilities[partitionContext, 2]
+        ];
     }
 }
