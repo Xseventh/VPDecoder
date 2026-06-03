@@ -49,20 +49,45 @@ internal static class Vp8IntraPredictor
         ReadOnlySpan<byte> left,
         byte topLeft)
     {
+        PredictBlock(
+            plane,
+            stride,
+            x,
+            y,
+            mode,
+            above,
+            left,
+            topLeft,
+            hasAbove: true,
+            hasLeft: true);
+    }
+
+    public static void PredictBlock(
+        Span<byte> plane,
+        int stride,
+        int x,
+        int y,
+        Vp8BlockPredictionMode mode,
+        ReadOnlySpan<byte> above,
+        ReadOnlySpan<byte> left,
+        byte topLeft,
+        bool hasAbove,
+        bool hasLeft)
+    {
         var destination = GetBlockDestination(plane, stride, x, y, size: 4);
         switch (mode)
         {
             case Vp8BlockPredictionMode.Dc:
-                PredictDc(destination, stride, size: 4, above, left, hasAbove: true, hasLeft: true);
+                PredictDc(destination, stride, size: 4, above, left, hasAbove, hasLeft);
                 break;
             case Vp8BlockPredictionMode.Vertical:
-                PredictVertical(destination, stride, size: 4, above, hasAbove: true);
+                PredictVertical(destination, stride, size: 4, above, hasAbove);
                 break;
             case Vp8BlockPredictionMode.Horizontal:
-                PredictHorizontal(destination, stride, size: 4, left, hasLeft: true);
+                PredictHorizontal(destination, stride, size: 4, left, hasLeft);
                 break;
             case Vp8BlockPredictionMode.TrueMotion:
-                PredictTrueMotion(destination, stride, size: 4, above, left, topLeft, hasAbove: true, hasLeft: true);
+                PredictTrueMotion(destination, stride, size: 4, above, left, topLeft, hasAbove, hasLeft);
                 break;
             default:
                 throw new NotSupportedException($"VP8 4x4 intra prediction mode {mode} is not implemented yet.");
