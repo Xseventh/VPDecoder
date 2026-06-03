@@ -40,7 +40,7 @@ internal static class Vp8MacroblockReconstructor
         var yPlane = GetPlanePixels(buffer, buffer.YPlane);
         var x = mode.Column * 16;
         var y = mode.Row * 16;
-        if (!ValidateVisibleBlock(buffer.YPlane, x, y, size: 16, out diagnostic))
+        if (!ValidateBlockOrigin(buffer.YPlane, x, y, out diagnostic))
         {
             return false;
         }
@@ -53,15 +53,20 @@ internal static class Vp8MacroblockReconstructor
                 return false;
             }
 
+            var temp = new byte[16 * 16];
             for (var block = 0; block < 16; block++)
             {
-                var blockX = x + ((block & 3) * 4);
-                var blockY = y + ((block >> 2) * 4);
-                if (!TryPredictBlock(
+                var localX = (block & 3) * 4;
+                var localY = (block >> 2) * 4;
+                if (!TryPredictBlockToTemp(
                     yPlane,
                     buffer.YPlane,
-                    blockX,
-                    blockY,
+                    x,
+                    y,
+                    temp,
+                    tempStride: 16,
+                    localX,
+                    localY,
                     mode.BlockModes[block],
                     out diagnostic))
                 {
@@ -69,10 +74,10 @@ internal static class Vp8MacroblockReconstructor
                 }
 
                 if (!TryAddDcResidual(
-                    yPlane,
-                    buffer.YPlane.Stride,
-                    blockX,
-                    blockY,
+                    temp,
+                    stride: 16,
+                    localX,
+                    localY,
                     residualBlocks[block],
                     dequantFactors.Y1Dc,
                     "VP8 Y1 AC reconstruction is not implemented yet.",
@@ -82,14 +87,17 @@ internal static class Vp8MacroblockReconstructor
                 }
             }
 
+            CopyVisibleBlock(temp, tempStride: 16, yPlane, buffer.YPlane, x, y, size: 16);
             return true;
         }
 
-        if (!TryPredictMacroblock(
+        var predicted = new byte[16 * 16];
+        if (!TryPredictMacroblockToTemp(
             yPlane,
             buffer.YPlane,
             x,
             y,
+            predicted,
             size: 16,
             mode.YMode,
             out diagnostic))
@@ -112,6 +120,7 @@ internal static class Vp8MacroblockReconstructor
             }
         }
 
+        CopyVisibleBlock(predicted, tempStride: 16, yPlane, buffer.YPlane, x, y, size: 16);
         return true;
     }
 
@@ -128,25 +137,29 @@ internal static class Vp8MacroblockReconstructor
         var uPlane = GetPlanePixels(buffer, buffer.UPlane);
         var vPlane = GetPlanePixels(buffer, buffer.VPlane);
 
-        if (!ValidateVisibleBlock(buffer.UPlane, uvX, uvY, size: 8, out diagnostic) ||
-            !ValidateVisibleBlock(buffer.VPlane, uvX, uvY, size: 8, out diagnostic))
+        if (!ValidateBlockOrigin(buffer.UPlane, uvX, uvY, out diagnostic) ||
+            !ValidateBlockOrigin(buffer.VPlane, uvX, uvY, out diagnostic))
         {
             return false;
         }
 
-        if (!TryPredictMacroblock(
+        var uTemp = new byte[8 * 8];
+        var vTemp = new byte[8 * 8];
+        if (!TryPredictMacroblockToTemp(
             uPlane,
             buffer.UPlane,
             uvX,
             uvY,
+            uTemp,
             size: 8,
             mode.UvMode,
             out diagnostic) ||
-            !TryPredictMacroblock(
+            !TryPredictMacroblockToTemp(
                 vPlane,
                 buffer.VPlane,
                 uvX,
                 uvY,
+                vTemp,
                 size: 8,
                 mode.UvMode,
                 out diagnostic))
@@ -159,10 +172,10 @@ internal static class Vp8MacroblockReconstructor
             var blockX = uvX + ((block & 1) * 4);
             var blockY = uvY + (((block - 16) >> 1) * 4);
             if (!TryAddDcResidual(
-                uPlane,
-                buffer.UPlane.Stride,
-                blockX,
-                blockY,
+                uTemp,
+                stride: 8,
+                blockX - uvX,
+                blockY - uvY,
                 residualBlocks[block],
                 dequantFactors.UvDc,
                 "VP8 UV AC reconstruction is not implemented yet.",
@@ -177,10 +190,10 @@ internal static class Vp8MacroblockReconstructor
             var blockX = uvX + ((block & 1) * 4);
             var blockY = uvY + (((block - 20) >> 1) * 4);
             if (!TryAddDcResidual(
-                vPlane,
-                buffer.VPlane.Stride,
-                blockX,
-                blockY,
+                vTemp,
+                stride: 8,
+                blockX - uvX,
+                blockY - uvY,
                 residualBlocks[block],
                 dequantFactors.UvDc,
                 "VP8 UV AC reconstruction is not implemented yet.",
@@ -190,14 +203,17 @@ internal static class Vp8MacroblockReconstructor
             }
         }
 
+        CopyVisibleBlock(uTemp, tempStride: 8, uPlane, buffer.UPlane, uvX, uvY, size: 8);
+        CopyVisibleBlock(vTemp, tempStride: 8, vPlane, buffer.VPlane, uvX, uvY, size: 8);
         return true;
     }
 
-    private static bool TryPredictMacroblock(
-        Span<byte> plane,
+    private static bool TryPredictMacroblockToTemp(
+        ReadOnlySpan<byte> plane,
         Vp9DecodedPlane planeMetadata,
         int x,
         int y,
+        Span<byte> temp,
         int size,
         Vp8MacroblockPredictionMode mode,
         out Vp8DecodeDiagnostic? diagnostic)
@@ -212,22 +228,22 @@ internal static class Vp8MacroblockReconstructor
         var hasAbove = y > 0;
         var hasLeft = x > 0;
         var above = hasAbove
-            ? ReadAboveEdge(plane, planeMetadata.Stride, x, y, size)
+            ? ReadAboveEdgeClamped(plane, planeMetadata, x, y, size)
             : [];
         var left = hasLeft
-            ? ReadLeftEdge(plane, planeMetadata.Stride, x, y, size)
+            ? ReadLeftEdgeClamped(plane, planeMetadata, x, y, size)
             : [];
         var topLeft = hasAbove && hasLeft
-            ? plane[((y - 1) * planeMetadata.Stride) + x - 1]
+            ? ReadClampedPixel(plane, planeMetadata, x - 1, y - 1)
             : (byte)0;
 
         try
         {
             Vp8IntraPredictor.PredictMacroblock(
-                plane,
-                planeMetadata.Stride,
-                x,
-                y,
+                temp,
+                size,
+                x: 0,
+                y: 0,
                 size,
                 mode,
                 above,
@@ -245,34 +261,38 @@ internal static class Vp8MacroblockReconstructor
         return true;
     }
 
-    private static bool TryPredictBlock(
-        Span<byte> plane,
+    private static bool TryPredictBlockToTemp(
+        ReadOnlySpan<byte> plane,
         Vp9DecodedPlane planeMetadata,
-        int x,
-        int y,
+        int macroblockX,
+        int macroblockY,
+        Span<byte> temp,
+        int tempStride,
+        int localX,
+        int localY,
         Vp8BlockPredictionMode mode,
         out Vp8DecodeDiagnostic? diagnostic)
     {
         diagnostic = null;
-        var hasAbove = y > 0;
-        var hasLeft = x > 0;
+        var hasAbove = localY > 0 || macroblockY > 0;
+        var hasLeft = localX > 0 || macroblockX > 0;
         var above = hasAbove
-            ? ReadAboveEdge(plane, planeMetadata.Stride, x, y, size: 4)
+            ? ReadTempAboveEdge(plane, planeMetadata, macroblockX, macroblockY, temp, tempStride, localX, localY)
             : [];
         var left = hasLeft
-            ? ReadLeftEdge(plane, planeMetadata.Stride, x, y, size: 4)
+            ? ReadTempLeftEdge(plane, planeMetadata, macroblockX, macroblockY, temp, tempStride, localX, localY)
             : [];
         var topLeft = hasAbove && hasLeft
-            ? plane[((y - 1) * planeMetadata.Stride) + x - 1]
+            ? ReadTempAboveLeft(plane, planeMetadata, macroblockX, macroblockY, temp, tempStride, localX, localY)
             : (byte)0;
 
         try
         {
             Vp8IntraPredictor.PredictBlock(
-                plane,
-                planeMetadata.Stride,
-                x,
-                y,
+                temp,
+                tempStride,
+                localX,
+                localY,
                 mode,
                 above,
                 left,
@@ -358,18 +378,12 @@ internal static class Vp8MacroblockReconstructor
         return true;
     }
 
-    private static bool ValidateVisibleBlock(Vp9DecodedPlane plane, int x, int y, int size, out Vp8DecodeDiagnostic? diagnostic)
+    private static bool ValidateBlockOrigin(Vp9DecodedPlane plane, int x, int y, out Vp8DecodeDiagnostic? diagnostic)
     {
         diagnostic = null;
         if (x < 0 || y < 0 || x >= plane.Width || y >= plane.Height)
         {
             diagnostic = Vp8DecodeDiagnostic.InvalidPacket("VP8 macroblock origin is outside the visible frame.");
-            return false;
-        }
-
-        if (x + size > plane.Width || y + size > plane.Height)
-        {
-            diagnostic = Vp8DecodeDiagnostic.UnsupportedFeature("VP8 clipped edge macroblock reconstruction is not implemented yet.");
             return false;
         }
 
@@ -381,20 +395,115 @@ internal static class Vp8MacroblockReconstructor
         return buffer.Pixels.AsSpan(plane.Offset, plane.Length);
     }
 
-    private static byte[] ReadAboveEdge(Span<byte> plane, int stride, int x, int y, int size)
+    private static byte[] ReadAboveEdgeClamped(ReadOnlySpan<byte> plane, Vp9DecodedPlane planeMetadata, int x, int y, int size)
     {
-        return plane.Slice(((y - 1) * stride) + x, size).ToArray();
+        var above = new byte[size];
+        for (var column = 0; column < size; column++)
+        {
+            above[column] = ReadClampedPixel(plane, planeMetadata, x + column, y - 1);
+        }
+
+        return above;
     }
 
-    private static byte[] ReadLeftEdge(Span<byte> plane, int stride, int x, int y, int size)
+    private static byte[] ReadLeftEdgeClamped(ReadOnlySpan<byte> plane, Vp9DecodedPlane planeMetadata, int x, int y, int size)
     {
         var left = new byte[size];
         for (var row = 0; row < size; row++)
         {
-            left[row] = plane[((y + row) * stride) + x - 1];
+            left[row] = ReadClampedPixel(plane, planeMetadata, x - 1, y + row);
         }
 
         return left;
+    }
+
+    private static byte[] ReadTempAboveEdge(
+        ReadOnlySpan<byte> plane,
+        Vp9DecodedPlane planeMetadata,
+        int macroblockX,
+        int macroblockY,
+        ReadOnlySpan<byte> temp,
+        int tempStride,
+        int localX,
+        int localY)
+    {
+        if (localY > 0)
+        {
+            return temp.Slice(((localY - 1) * tempStride) + localX, 4).ToArray();
+        }
+
+        return ReadAboveEdgeClamped(plane, planeMetadata, macroblockX + localX, macroblockY, size: 4);
+    }
+
+    private static byte[] ReadTempLeftEdge(
+        ReadOnlySpan<byte> plane,
+        Vp9DecodedPlane planeMetadata,
+        int macroblockX,
+        int macroblockY,
+        ReadOnlySpan<byte> temp,
+        int tempStride,
+        int localX,
+        int localY)
+    {
+        if (localX == 0)
+        {
+            return ReadLeftEdgeClamped(plane, planeMetadata, macroblockX, macroblockY + localY, size: 4);
+        }
+
+        var left = new byte[4];
+        for (var row = 0; row < left.Length; row++)
+        {
+            left[row] = temp[((localY + row) * tempStride) + localX - 1];
+        }
+
+        return left;
+    }
+
+    private static byte ReadTempAboveLeft(
+        ReadOnlySpan<byte> plane,
+        Vp9DecodedPlane planeMetadata,
+        int macroblockX,
+        int macroblockY,
+        ReadOnlySpan<byte> temp,
+        int tempStride,
+        int localX,
+        int localY)
+    {
+        if (localX > 0 && localY > 0)
+        {
+            return temp[((localY - 1) * tempStride) + localX - 1];
+        }
+
+        return ReadClampedPixel(
+            plane,
+            planeMetadata,
+            macroblockX + localX - 1,
+            macroblockY + localY - 1);
+    }
+
+    private static void CopyVisibleBlock(
+        ReadOnlySpan<byte> source,
+        int tempStride,
+        Span<byte> destination,
+        Vp9DecodedPlane destinationMetadata,
+        int x,
+        int y,
+        int size)
+    {
+        var visibleWidth = Math.Min(size, destinationMetadata.Width - x);
+        var visibleHeight = Math.Min(size, destinationMetadata.Height - y);
+        for (var row = 0; row < visibleHeight; row++)
+        {
+            source.Slice(row * tempStride, visibleWidth)
+                .CopyTo(destination.Slice(((y + row) * destinationMetadata.Stride) + x, visibleWidth));
+        }
+    }
+
+    private static byte ReadClampedPixel(ReadOnlySpan<byte> plane, Vp9DecodedPlane planeMetadata, int x, int y)
+    {
+        var clampedX = Math.Clamp(x, 0, planeMetadata.Width - 1);
+        var clampedY = Math.Clamp(y, 0, planeMetadata.Height - 1);
+        return plane[(clampedY * planeMetadata.Stride) + clampedX];
     }
 
     private static bool IsEmpty(Vp8CoefficientBlock? block)

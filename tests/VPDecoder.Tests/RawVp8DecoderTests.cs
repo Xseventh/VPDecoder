@@ -187,7 +187,7 @@ public sealed class RawVp8DecoderTests
     }
 
     [Fact]
-    public void DecodeFrame_WhenKeyFrameMacroblockIsClipped_ReturnsUnsupportedFeatureWithHeader()
+    public void DecodeFrame_WhenKeyFrameMacroblockIsClipped_ReturnsDecodedVisibleFrame()
     {
         var packet = CreateValidKeyFramePacket(
             ValidFirstPartitionSize,
@@ -198,10 +198,13 @@ public sealed class RawVp8DecoderTests
 
         var result = decoder.DecodeFrame(packet, new Vp8DecodeOptions(16, 8));
 
-        Assert.False(result.Succeeded);
+        Assert.True(result.Succeeded);
         Assert.NotNull(result.Header);
-        Assert.Equal(Vp8DecodeDiagnosticCode.UnsupportedFeature, result.Diagnostic?.Code);
-        Assert.Contains("clipped edge macroblock", result.Diagnostic?.Message, StringComparison.Ordinal);
+        Assert.NotNull(result.Frame);
+        Assert.Null(result.Diagnostic);
+        Assert.Equal(16, result.Frame.Width);
+        Assert.Equal(8, result.Frame.Height);
+        Assert.Equal(16 * 8 * 4, result.Frame.Pixels.Length);
     }
 
     private static byte[] CreateValidKeyFramePacket(

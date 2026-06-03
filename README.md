@@ -67,10 +67,10 @@ Current status:
   the same displayed/no-display/failed result shape expected by sequence
   callers.
 - Reconstructs a strictly gated VP8 key-frame subset: one token partition,
-  loop-filter level 0, visible full macroblocks, supported intra predictors,
-  and DC-only residual paths. VP8 Y2/WHT, AC reconstruction, clipped edge
-  macroblocks, multi-token partitions, and inter frames remain explicit
-  unsupported diagnostics.
+  loop-filter level 0, visible macroblocks including clipped right/bottom edge
+  macroblocks, supported intra predictors, and DC-only residual paths. VP8
+  Y2/WHT, AC reconstruction, multi-token partitions, and inter frames remain
+  explicit unsupported diagnostics.
 - Validates the current sample shape: VP9 profile 0, 8-bit, YUV420,
   2656x1352, 8 tile columns.
 - Fails explicitly for unsupported decode work instead of emitting pixels.

@@ -143,9 +143,23 @@ public sealed class Vp8MacroblockReconstructorTests
     }
 
     [Fact]
-    public void TryReconstruct_WhenMacroblockIsClipped_ReturnsUnsupportedFeature()
+    public void TryReconstruct_WhenMacroblockIsClipped_CopiesVisiblePixelsOnly()
     {
         var buffer = Vp8ReconstructionBuffer.Create(17, 16);
+        var yPlane = buffer.Pixels.AsSpan(buffer.YPlane.Offset, buffer.YPlane.Length);
+        for (var row = 0; row < 16; row++)
+        {
+            yPlane[(row * buffer.YPlane.Stride) + 15] = 60;
+        }
+
+        var uPlane = buffer.Pixels.AsSpan(buffer.UPlane.Offset, buffer.UPlane.Length);
+        var vPlane = buffer.Pixels.AsSpan(buffer.VPlane.Offset, buffer.VPlane.Length);
+        for (var row = 0; row < 8; row++)
+        {
+            uPlane[(row * buffer.UPlane.Stride) + 7] = 70;
+            vPlane[(row * buffer.VPlane.Stride) + 7] = 90;
+        }
+
         var mode = CreateMode(
             Vp8MacroblockPredictionMode.Dc,
             Vp8MacroblockPredictionMode.Dc,
@@ -161,9 +175,21 @@ public sealed class Vp8MacroblockReconstructorTests
             DequantFactors,
             out var diagnostic);
 
-        Assert.False(succeeded);
-        Assert.Equal(Vp8DecodeDiagnosticCode.UnsupportedFeature, diagnostic?.Code);
-        Assert.Contains("clipped edge macroblock", diagnostic?.Message, StringComparison.Ordinal);
+        Assert.True(succeeded);
+        Assert.Null(diagnostic);
+        for (var row = 0; row < 16; row++)
+        {
+            Assert.Equal(60, yPlane[(row * buffer.YPlane.Stride) + 16]);
+            Assert.Equal(60, yPlane[(row * buffer.YPlane.Stride) + 15]);
+        }
+
+        for (var row = 0; row < 8; row++)
+        {
+            Assert.Equal(70, uPlane[(row * buffer.UPlane.Stride) + 8]);
+            Assert.Equal(90, vPlane[(row * buffer.VPlane.Stride) + 8]);
+            Assert.Equal(70, uPlane[(row * buffer.UPlane.Stride) + 7]);
+            Assert.Equal(90, vPlane[(row * buffer.VPlane.Stride) + 7]);
+        }
     }
 
     private static Vp8KeyFrameMacroblockMode CreateMode(
