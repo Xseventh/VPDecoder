@@ -605,6 +605,101 @@ public sealed class Vp9TileSyntaxScannerTests
     }
 
     [Fact]
+    public void TryReconstructFullInterFrameZeroMvWithResidual_ForTwoSyntheticTiles_CopiesReferenceAndAppliesZeroResiduals()
+    {
+        byte[] tilePayload = [0x54, 0x00, 0x00];
+        var packet = tilePayload.Concat(tilePayload).ToArray();
+        var header = CreateSyntheticTwoTileOrdinaryInterHeader(packet.Length);
+        var compressedHeader = CreateSyntheticInterCompressedHeader();
+        IReadOnlyList<Vp9TileBuffer> tileBuffers =
+        [
+            new Vp9TileBuffer(Index: 0, SizeFieldOffset: null, DataOffset: 0, Size: tilePayload.Length),
+            new Vp9TileBuffer(Index: 1, SizeFieldOffset: null, DataOffset: tilePayload.Length, Size: tilePayload.Length)
+        ];
+        var referenceFrame = CreatePatternYuvFrame(width: 128, height: 64);
+        var referenceFrames = new Vp9ReferenceFrameStore();
+        referenceFrames.Refresh(referenceFrame, Vp9ColorRange.Studio, refreshFrameFlags: 0x01);
+
+        Assert.True(
+            Vp9TileSyntaxScanner.TryReconstructFullInterFrameZeroMvWithResidual(
+                packet,
+                header,
+                compressedHeader,
+                tileBuffers,
+                referenceFrames,
+                out var frame,
+                out var probes,
+                out var diagnostic),
+            diagnostic?.Message);
+
+        Assert.NotNull(frame);
+        Assert.Equal(2, probes.Count);
+        Assert.Equal(Vp9OutputPixelFormat.Yuv420, frame.PixelFormat);
+        Assert.Equal(128, frame.Width);
+        Assert.Equal(64, frame.Height);
+        Assert.Equal(Hash(referenceFrame.Pixels), Hash(frame.Pixels));
+    }
+
+    [Fact]
+    public void TryReconstructFullInterFrameZeroMvWithResidual_WhenReferenceIsMissing_ReturnsMissingReferenceFrame()
+    {
+        byte[] tilePayload = [0x54, 0x00, 0x00];
+        var packet = tilePayload;
+        var header = CreateSyntheticOrdinaryInterHeader(packet.Length);
+        var compressedHeader = CreateSyntheticInterCompressedHeader();
+        IReadOnlyList<Vp9TileBuffer> tileBuffers =
+        [
+            new Vp9TileBuffer(Index: 0, SizeFieldOffset: null, DataOffset: 0, Size: tilePayload.Length)
+        ];
+
+        Assert.False(
+            Vp9TileSyntaxScanner.TryReconstructFullInterFrameZeroMvWithResidual(
+                packet,
+                header,
+                compressedHeader,
+                tileBuffers,
+                new Vp9ReferenceFrameStore(),
+                out var frame,
+                out var probes,
+                out var diagnostic));
+
+        Assert.Null(frame);
+        Assert.Single(probes);
+        Assert.Equal(Vp9DecodeDiagnosticCode.MissingReferenceFrame, diagnostic?.Code);
+    }
+
+    [Fact]
+    public void TryReconstructFullInterFrameZeroMvWithResidual_WhenResidualIsTruncated_ReturnsTruncatedPacket()
+    {
+        byte[] tilePayload = [0x03, 0x00, 0x00];
+        var packet = tilePayload;
+        var header = CreateSyntheticOrdinaryInterHeader(packet.Length);
+        var compressedHeader = CreateSyntheticInterCompressedHeader();
+        IReadOnlyList<Vp9TileBuffer> tileBuffers =
+        [
+            new Vp9TileBuffer(Index: 0, SizeFieldOffset: null, DataOffset: 0, Size: tilePayload.Length)
+        ];
+        var referenceFrame = CreatePatternYuvFrame(width: 64, height: 64);
+        var referenceFrames = new Vp9ReferenceFrameStore();
+        referenceFrames.Refresh(referenceFrame, Vp9ColorRange.Studio, refreshFrameFlags: 0x01);
+
+        Assert.False(
+            Vp9TileSyntaxScanner.TryReconstructFullInterFrameZeroMvWithResidual(
+                packet,
+                header,
+                compressedHeader,
+                tileBuffers,
+                referenceFrames,
+                out var frame,
+                out var probes,
+                out var diagnostic));
+
+        Assert.Null(frame);
+        Assert.Empty(probes);
+        Assert.Equal(Vp9DecodeDiagnosticCode.TruncatedPacket, diagnostic?.Code);
+    }
+
+    [Fact]
     public void TryProbeFirstLeafCoefficientToken_ForExternalMainFrame_ReadsExpectedFirstToken()
     {
         var packet = ReadRequiredSample(

@@ -791,6 +791,123 @@ internal static class Vp9TileSyntaxScanner
         }
     }
 
+    public static bool TryReconstructFullInterFrameZeroMvWithResidual(
+        ReadOnlyMemory<byte> packet,
+        Vp9FrameHeader header,
+        Vp9CompressedHeader compressedHeader,
+        IReadOnlyList<Vp9TileBuffer> tileBuffers,
+        Vp9ReferenceFrameStore referenceFrames,
+        out Vp9DecodedFrame? frame,
+        out IReadOnlyList<Vp9InterSuperblockSyntaxProbe> probes,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
+        frame = null;
+        probes = [];
+        diagnostic = null;
+
+        if (!TryProbeFullInterFrameResidualSyntax(
+                packet,
+                header,
+                compressedHeader,
+                tileBuffers,
+                out probes,
+                out diagnostic))
+        {
+            return false;
+        }
+
+        try
+        {
+            var destination = Vp9YuvFrameBuffer.Create(header.Width, header.Height);
+            foreach (var probe in probes)
+            {
+                var expectedGroupCount = checked(probe.ModeInfos.Count * 3);
+                if (probe.CoefficientGroups.Count != expectedGroupCount)
+                {
+                    diagnostic = Vp9DecodeDiagnostic.InternalDecodeFailure(
+                        "VP9 full inter reconstruction probe received mismatched mode/coefficient groups.");
+                    return false;
+                }
+
+                for (var modeIndex = 0; modeIndex < probe.ModeInfos.Count; modeIndex++)
+                {
+                    var modeBlock = probe.ModeInfos[modeIndex];
+                    if (!Vp9InterPredictor.TryResolveReferenceFrame(
+                            referenceFrames,
+                            header,
+                            modeBlock.ModeInfo.ReferenceFrame,
+                            out var referenceFrame,
+                            out diagnostic))
+                    {
+                        return false;
+                    }
+
+                    if (referenceFrame is null)
+                    {
+                        diagnostic = Vp9DecodeDiagnostic.InternalDecodeFailure(
+                            "VP9 inter reference lookup succeeded without returning a reference frame.");
+                        return false;
+                    }
+
+                    if (!Vp9InterPredictor.TrySelectMotionVector(
+                            modeBlock.ModeInfo.PredictionMode,
+                            Array.Empty<Vp9MotionVector>(),
+                            out var motionVector,
+                            out diagnostic))
+                    {
+                        return false;
+                    }
+
+                    if (!TryCopyInterPredictionBlock(
+                            referenceFrame.Frame,
+                            destination,
+                            header,
+                            modeBlock,
+                            motionVector,
+                            out diagnostic))
+                    {
+                        return false;
+                    }
+
+                    var groupOffset = modeIndex * 3;
+                    for (var plane = 0; plane < 3; plane++)
+                    {
+                        Vp9BlockReconstructor.AddInterResidualGroup(
+                            destination,
+                            modeBlock,
+                            probe.CoefficientGroups[groupOffset + plane],
+                            plane);
+                    }
+                }
+            }
+
+            frame = destination.ToDecodedFrame();
+            return true;
+        }
+        catch (ArgumentException ex)
+        {
+            diagnostic = Vp9DecodeDiagnostic.InvalidPacket(ex.Message);
+            return false;
+        }
+        catch (NotSupportedException ex)
+        {
+            diagnostic = Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(ex.Message);
+            return false;
+        }
+        catch (OverflowException)
+        {
+            diagnostic = Vp9DecodeDiagnostic.AllocationLimitExceeded(
+                "VP9 full inter reconstruction probe YUV frame buffer size overflowed.");
+            return false;
+        }
+        catch (OutOfMemoryException)
+        {
+            diagnostic = Vp9DecodeDiagnostic.AllocationLimitExceeded(
+                "VP9 full inter reconstruction probe YUV frame buffer allocation failed.");
+            return false;
+        }
+    }
+
     public static bool TryProbeFirstLeafCoefficientToken(
         ReadOnlyMemory<byte> packet,
         Vp9KeyFrameDecodeState state,
