@@ -21,6 +21,19 @@ internal static class Vp8KeyFrameModeSyntax
 
     private static ReadOnlySpan<byte> KeyFrameUvModeProbabilities => [142, 114, 183];
 
+    private static ReadOnlySpan<sbyte> BlockModeTree =>
+    [
+        -(sbyte)Vp8BlockPredictionMode.Dc, 2,
+        -(sbyte)Vp8BlockPredictionMode.TrueMotion, 4,
+        -(sbyte)Vp8BlockPredictionMode.Vertical, 6,
+        8, 12,
+        -(sbyte)Vp8BlockPredictionMode.Horizontal, 10,
+        -(sbyte)Vp8BlockPredictionMode.RightDown, -(sbyte)Vp8BlockPredictionMode.VerticalRight,
+        -(sbyte)Vp8BlockPredictionMode.LeftDown, 14,
+        -(sbyte)Vp8BlockPredictionMode.VerticalLeft, 16,
+        -(sbyte)Vp8BlockPredictionMode.HorizontalDown, -(sbyte)Vp8BlockPredictionMode.HorizontalUp
+    ];
+
     public static IReadOnlyList<Vp8KeyFrameMacroblockMode> ReadMacroblockModes(
         ref Vp8BoolReader reader,
         int width,
@@ -36,7 +49,13 @@ internal static class Vp8KeyFrameModeSyntax
         {
             for (var column = 0; column < macroblockColumns; column++)
             {
-                macroblocks[index++] = ReadMacroblockMode(ref reader, row, column, syntaxHeader);
+                macroblocks[index++] = ReadMacroblockMode(
+                    ref reader,
+                    row,
+                    column,
+                    macroblockColumns,
+                    macroblocks,
+                    syntaxHeader);
             }
         }
 
@@ -47,6 +66,8 @@ internal static class Vp8KeyFrameModeSyntax
         ref Vp8BoolReader reader,
         int row,
         int column,
+        int macroblockColumns,
+        IReadOnlyList<Vp8KeyFrameMacroblockMode?> macroblocks,
         Vp8KeyFrameSyntaxHeader syntaxHeader)
     {
         var segmentId = ReadSegmentId(ref reader, syntaxHeader);
@@ -58,11 +79,10 @@ internal static class Vp8KeyFrameModeSyntax
             KeyFrameYModeProbabilities,
             "key-frame Y mode");
 
+        var blockModes = Array.Empty<Vp8BlockPredictionMode>();
         if (yMode == Vp8MacroblockPredictionMode.BPred)
         {
-            throw new Vp8BoolReaderException(
-                Vp8DecodeDiagnostic.UnsupportedFeature(
-                    "VP8 key-frame 4x4 B_PRED macroblock modes are not supported yet."));
+            blockModes = ReadBlockModes(ref reader, row, column, macroblockColumns, macroblocks);
         }
 
         var uvMode = (Vp8MacroblockPredictionMode)Vp8TreeReader.ReadTree(
@@ -77,7 +97,110 @@ internal static class Vp8KeyFrameModeSyntax
             segmentId,
             skipCoefficients,
             yMode,
-            uvMode);
+            uvMode,
+            blockModes);
+    }
+
+    private static Vp8BlockPredictionMode[] ReadBlockModes(
+        ref Vp8BoolReader reader,
+        int macroblockRow,
+        int macroblockColumn,
+        int macroblockColumns,
+        IReadOnlyList<Vp8KeyFrameMacroblockMode?> macroblocks)
+    {
+        var blockModes = new Vp8BlockPredictionMode[16];
+        for (var blockIndex = 0; blockIndex < blockModes.Length; blockIndex++)
+        {
+            var above = GetAboveBlockMode(
+                macroblockRow,
+                macroblockColumn,
+                macroblockColumns,
+                macroblocks,
+                blockModes,
+                blockIndex);
+            var left = GetLeftBlockMode(
+                macroblockRow,
+                macroblockColumn,
+                macroblockColumns,
+                macroblocks,
+                blockModes,
+                blockIndex);
+            blockModes[blockIndex] = (Vp8BlockPredictionMode)Vp8TreeReader.ReadTree(
+                ref reader,
+                BlockModeTree,
+                Vp8KeyFrameBModeProbabilities.GetProbabilities(above, left),
+                "key-frame B_PRED block mode");
+        }
+
+        return blockModes;
+    }
+
+    private static Vp8BlockPredictionMode GetAboveBlockMode(
+        int macroblockRow,
+        int macroblockColumn,
+        int macroblockColumns,
+        IReadOnlyList<Vp8KeyFrameMacroblockMode?> macroblocks,
+        ReadOnlySpan<Vp8BlockPredictionMode> currentBlockModes,
+        int blockIndex)
+    {
+        if (blockIndex >= 4)
+        {
+            return currentBlockModes[blockIndex - 4];
+        }
+
+        if (macroblockRow == 0)
+        {
+            return Vp8BlockPredictionMode.Dc;
+        }
+
+        var aboveMacroblock = macroblocks[(macroblockRow - 1) * macroblockColumns + macroblockColumn];
+        return GetMacroblockBlockMode(aboveMacroblock, blockIndex + 12);
+    }
+
+    private static Vp8BlockPredictionMode GetLeftBlockMode(
+        int macroblockRow,
+        int macroblockColumn,
+        int macroblockColumns,
+        IReadOnlyList<Vp8KeyFrameMacroblockMode?> macroblocks,
+        ReadOnlySpan<Vp8BlockPredictionMode> currentBlockModes,
+        int blockIndex)
+    {
+        if ((blockIndex & 3) != 0)
+        {
+            return currentBlockModes[blockIndex - 1];
+        }
+
+        if (macroblockColumn == 0)
+        {
+            return Vp8BlockPredictionMode.Dc;
+        }
+
+        var leftMacroblock = macroblocks[macroblockRow * macroblockColumns + macroblockColumn - 1];
+        return GetMacroblockBlockMode(leftMacroblock, blockIndex + 3);
+    }
+
+    private static Vp8BlockPredictionMode GetMacroblockBlockMode(
+        Vp8KeyFrameMacroblockMode? macroblock,
+        int blockIndex)
+    {
+        if (macroblock is null)
+        {
+            return Vp8BlockPredictionMode.Dc;
+        }
+
+        if (macroblock.YMode == Vp8MacroblockPredictionMode.BPred &&
+            macroblock.BlockModes.Count == 16)
+        {
+            return macroblock.BlockModes[blockIndex];
+        }
+
+        return macroblock.YMode switch
+        {
+            Vp8MacroblockPredictionMode.Vertical => Vp8BlockPredictionMode.Vertical,
+            Vp8MacroblockPredictionMode.Horizontal => Vp8BlockPredictionMode.Horizontal,
+            Vp8MacroblockPredictionMode.TrueMotion => Vp8BlockPredictionMode.TrueMotion,
+            _ => Vp8BlockPredictionMode.Dc
+        };
     }
 
     private static int ReadSegmentId(ref Vp8BoolReader reader, Vp8KeyFrameSyntaxHeader syntaxHeader)
@@ -103,7 +226,8 @@ internal sealed record Vp8KeyFrameMacroblockMode(
     int SegmentId,
     bool SkipCoefficients,
     Vp8MacroblockPredictionMode YMode,
-    Vp8MacroblockPredictionMode UvMode);
+    Vp8MacroblockPredictionMode UvMode,
+    IReadOnlyList<Vp8BlockPredictionMode> BlockModes);
 
 internal enum Vp8MacroblockPredictionMode
 {
@@ -112,4 +236,18 @@ internal enum Vp8MacroblockPredictionMode
     Horizontal = 2,
     TrueMotion = 3,
     BPred = 4
+}
+
+internal enum Vp8BlockPredictionMode
+{
+    Dc = 0,
+    TrueMotion = 1,
+    Vertical = 2,
+    Horizontal = 3,
+    LeftDown = 4,
+    RightDown = 5,
+    VerticalRight = 6,
+    VerticalLeft = 7,
+    HorizontalDown = 8,
+    HorizontalUp = 9
 }

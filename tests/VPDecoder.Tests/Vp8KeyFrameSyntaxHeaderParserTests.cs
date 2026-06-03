@@ -48,19 +48,40 @@ public sealed class Vp8KeyFrameSyntaxHeaderParserTests
     }
 
     [Fact]
-    public void TryParseFrameSyntax_WhenKeyFrameUsesBPred_ReturnsUnsupportedFeature()
+    public void ParseFrameSyntax_WhenKeyFrameUsesBPred_ReadsBlockModes()
     {
-        var parsed = Vp8KeyFrameSyntaxHeaderParser.TryParseFrameSyntax(
+        var syntax = Vp8KeyFrameSyntaxHeaderParser.ParseFrameSyntax(
             new byte[MinimalAllZeroPartitionLength],
             width: 16,
-            height: 8,
-            out var syntax,
-            out var diagnostic);
+            height: 8);
 
-        Assert.False(parsed);
-        Assert.Null(syntax);
-        Assert.Equal(Vp8DecodeDiagnosticCode.UnsupportedFeature, diagnostic?.Code);
-        Assert.Contains("B_PRED", diagnostic?.Message, StringComparison.Ordinal);
+        var macroblock = Assert.Single(syntax.MacroblockModes);
+        Assert.Equal(0, macroblock.Row);
+        Assert.Equal(0, macroblock.Column);
+        Assert.Equal(0, macroblock.SegmentId);
+        Assert.False(macroblock.SkipCoefficients);
+        Assert.Equal(Vp8MacroblockPredictionMode.BPred, macroblock.YMode);
+        Assert.Equal(Vp8MacroblockPredictionMode.Dc, macroblock.UvMode);
+        Assert.Equal(16, macroblock.BlockModes.Count);
+        Assert.All(macroblock.BlockModes, mode => Assert.Equal(Vp8BlockPredictionMode.Dc, mode));
+    }
+
+    [Fact]
+    public void KeyFrameBModeProbabilities_UseLibvpxFlattenedOrder()
+    {
+        Assert.Equal(10 * 10 * 9, Vp8KeyFrameBModeProbabilities.Count);
+        Assert.Equal(231, Vp8KeyFrameBModeProbabilities.GetProbability(
+            Vp8BlockPredictionMode.Dc,
+            Vp8BlockPredictionMode.Dc,
+            0));
+        Assert.Equal(152, Vp8KeyFrameBModeProbabilities.GetProbability(
+            Vp8BlockPredictionMode.Dc,
+            Vp8BlockPredictionMode.TrueMotion,
+            0));
+        Assert.Equal(134, Vp8KeyFrameBModeProbabilities.GetProbability(
+            Vp8BlockPredictionMode.TrueMotion,
+            Vp8BlockPredictionMode.Dc,
+            0));
     }
 
     [Fact]
