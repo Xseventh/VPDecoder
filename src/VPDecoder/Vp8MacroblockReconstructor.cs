@@ -427,12 +427,19 @@ internal static class Vp8MacroblockReconstructor
         int localX,
         int localY)
     {
-        if (localY > 0)
+        var above = new byte[8];
+        var globalY = macroblockY + localY - 1;
+        for (var column = 0; column < above.Length; column++)
         {
-            return temp.Slice(((localY - 1) * tempStride) + localX, 4).ToArray();
+            var globalX = macroblockX + localX + column;
+            above[column] = localY > 0 &&
+                globalX >= macroblockX &&
+                globalX < macroblockX + 16
+                    ? temp[((localY - 1) * tempStride) + localX + column]
+                    : ReadClampedPixel(plane, planeMetadata, globalX, globalY);
         }
 
-        return ReadAboveEdgeClamped(plane, planeMetadata, macroblockX + localX, macroblockY, size: 4);
+        return above;
     }
 
     private static byte[] ReadTempLeftEdge(

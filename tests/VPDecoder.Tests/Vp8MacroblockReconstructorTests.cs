@@ -121,7 +121,36 @@ public sealed class Vp8MacroblockReconstructorTests
     }
 
     [Fact]
-    public void TryReconstruct_WhenBlockDirectionalModeIsUnsupported_ReturnsUnsupportedFeature()
+    public void TryReconstruct_WhenBlockDirectionalModeHasAboveEdge_ReconstructsBPredBlock()
+    {
+        var buffer = Vp8ReconstructionBuffer.Create(16, 32);
+        var yPlane = buffer.Pixels.AsSpan(buffer.YPlane.Offset, buffer.YPlane.Length);
+        for (var column = 0; column < 16; column++)
+        {
+            yPlane[(15 * buffer.YPlane.Stride) + column] = (byte)(10 + (column * 10));
+        }
+
+        var mode = CreateMode(
+            Vp8MacroblockPredictionMode.BPred,
+            Vp8MacroblockPredictionMode.Dc,
+            row: 1,
+            blockModes: Enumerable.Repeat(Vp8BlockPredictionMode.LeftDown, 16).ToArray());
+        var residual = new Vp8MacroblockResidual(Row: 1, Column: 0, Skipped: false, Blocks: []);
+
+        var succeeded = Vp8MacroblockReconstructor.TryReconstruct(
+            buffer,
+            mode,
+            residual,
+            DequantFactors,
+            out var diagnostic);
+
+        Assert.True(succeeded);
+        Assert.Null(diagnostic);
+        Assert.Equal([20, 30, 40, 50], yPlane.Slice(16 * buffer.YPlane.Stride, 4).ToArray());
+    }
+
+    [Fact]
+    public void TryReconstruct_WhenDirectionalModeLacksAboveEdge_ReturnsUnsupportedFeature()
     {
         var buffer = Vp8ReconstructionBuffer.Create(16, 16);
         var mode = CreateMode(
@@ -139,7 +168,7 @@ public sealed class Vp8MacroblockReconstructorTests
 
         Assert.False(succeeded);
         Assert.Equal(Vp8DecodeDiagnosticCode.UnsupportedFeature, diagnostic?.Code);
-        Assert.Contains("LeftDown", diagnostic?.Message, StringComparison.Ordinal);
+        Assert.Contains("B_LD_PRED", diagnostic?.Message, StringComparison.Ordinal);
     }
 
     [Fact]

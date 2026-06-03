@@ -172,23 +172,32 @@ public sealed class Vp8IntraPredictorTests
         Assert.Contains("VP8 B_PRED macroblock prediction", exception.Message);
     }
 
-    [Fact]
-    public void PredictBlock_WithDirectionalMode_ThrowsExplicitGate()
+    [Theory]
+    [InlineData((int)Vp8BlockPredictionMode.Vertical, new byte[] { 11, 20, 30, 40, 11, 20, 30, 40, 11, 20, 30, 40, 11, 20, 30, 40 })]
+    [InlineData((int)Vp8BlockPredictionMode.Horizontal, new byte[] { 71, 71, 71, 71, 100, 100, 100, 100, 110, 110, 110, 110, 118, 118, 118, 118 })]
+    [InlineData((int)Vp8BlockPredictionMode.LeftDown, new byte[] { 20, 30, 40, 50, 30, 40, 50, 60, 40, 50, 60, 70, 50, 60, 70, 78 })]
+    [InlineData((int)Vp8BlockPredictionMode.RightDown, new byte[] { 11, 20, 30, 38, 28, 11, 20, 30, 71, 28, 11, 20, 100, 71, 28, 11 })]
+    [InlineData((int)Vp8BlockPredictionMode.VerticalRight, new byte[] { 8, 15, 25, 35, 11, 20, 30, 38, 28, 8, 15, 25, 71, 11, 20, 30 })]
+    [InlineData((int)Vp8BlockPredictionMode.VerticalLeft, new byte[] { 15, 25, 35, 45, 20, 30, 40, 50, 25, 35, 45, 60, 30, 40, 60, 70 })]
+    [InlineData((int)Vp8BlockPredictionMode.HorizontalDown, new byte[] { 48, 28, 11, 20, 95, 71, 48, 28, 105, 100, 95, 71, 115, 110, 105, 100 })]
+    [InlineData((int)Vp8BlockPredictionMode.HorizontalUp, new byte[] { 95, 100, 105, 110, 105, 110, 115, 118, 115, 118, 120, 120, 120, 120, 120, 120 })]
+    public void PredictBlock_ForVp8FourByFourModes_UsesSmoothedDirectionalPredictors(
+        int mode,
+        byte[] expected)
     {
         var plane = new byte[4 * 4];
 
-        var exception = Assert.Throws<NotSupportedException>(() =>
-            Vp8IntraPredictor.PredictBlock(
-                plane,
-                stride: 4,
-                x: 0,
-                y: 0,
-                Vp8BlockPredictionMode.LeftDown,
-                above: [1, 2, 3, 4],
-                left: [5, 6, 7, 8],
-                topLeft: 9));
+        Vp8IntraPredictor.PredictBlock(
+            plane,
+            stride: 4,
+            x: 0,
+            y: 0,
+            (Vp8BlockPredictionMode)mode,
+            above: [10, 20, 30, 40, 50, 60, 70, 80],
+            left: [90, 100, 110, 120],
+            topLeft: 5);
 
-        Assert.Contains("VP8 4x4 intra prediction mode LeftDown is not implemented yet.", exception.Message);
+        Assert.Equal(expected, plane);
     }
 
     [Fact]
