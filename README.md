@@ -37,16 +37,22 @@ Current status:
   successful inter or intra-only frames can refresh only selected slots.
 - Parses VP9 ordinary inter-frame and hidden intra-only uncompressed headers
   far enough to expose reference, refresh, size, motion, loop-filter,
-  quantization, segmentation, and tile metadata before returning strict
-  unsupported diagnostics for inter prediction. Inter frame sizes that are
-  coded from reference frames use decoder-owned reference metadata when
-  available and otherwise return `MissingReferenceFrame`.
+  quantization, segmentation, and tile metadata. Restricted ordinary inter
+  reconstruction is supported for the current gated shape: profile0/8-bit
+  YUV420, single-reference blocks, same-size references, decoded spatial MV
+  candidates, whole-pixel motion compensation, DCT residual groups, and scalar
+  loop filtering. Unsupported inter features still return explicit diagnostics
+  before pixels are emitted.
 - Maintains decoder-owned VP9 frame-context slots for compressed-header
   probability state, commits refreshed contexts only after successful decode,
   and resets them with `Reset()`.
 - Carries libvpx-derived VP9 inter probability defaults and drains ordinary
   inter compressed-header probability syntax for no-update streams, while
-  still gating inter reconstruction.
+  keeping unsupported inter syntax strictly gated.
+- Reads gated VP9 NEWMV syntax when a same-reference spatial MV candidate is
+  already available; different-reference and previous-frame MV fallback,
+  compound references, switchable interpolation, sub-8x8 inter blocks, and
+  fractional-pixel motion compensation remain explicit unsupported paths.
 - Preserves deterministic evidence for the first Block16X16 luma TX4 group
   that previously exposed residual synchronization drift.
 - Converts decoded YUV420 frames to BGRA8888/RGBA8888 and composes alpha from
@@ -58,9 +64,9 @@ Current status:
   2656x1352, 8 tile columns.
 - Fails explicitly for unsupported decode work instead of emitting pixels.
 
-Ordinary inter-frame prediction and VP8 pixel reconstruction remain follow-up
-slices. The decoder must continue to return explicit unsupported diagnostics
-until those pieces are complete.
+Broader ordinary inter-frame prediction and VP8 pixel reconstruction remain
+follow-up slices. The decoder must continue to return explicit unsupported
+diagnostics until those pieces are complete.
 
 CLI smoke example:
 
