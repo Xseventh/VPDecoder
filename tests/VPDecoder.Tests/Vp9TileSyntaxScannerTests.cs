@@ -305,6 +305,90 @@ public sealed class Vp9TileSyntaxScannerTests
     }
 
     [Fact]
+    public void TryReconstructFirstSkippedInterSuperblockZeroMv_ForSyntheticOrdinaryInterFrame_CopiesReferenceAndCreatesZeroResiduals()
+    {
+        byte[] tilePayload = [0x54, 0x00, 0x00];
+        var packet = tilePayload;
+        var header = CreateSyntheticOrdinaryInterHeader(packet.Length);
+        var compressedHeader = CreateSyntheticInterCompressedHeader();
+        IReadOnlyList<Vp9TileBuffer> tileBuffers =
+        [
+            new Vp9TileBuffer(Index: 0, SizeFieldOffset: null, DataOffset: 0, Size: tilePayload.Length)
+        ];
+        var referenceFrame = CreatePatternYuvFrame(width: 64, height: 64);
+        var referenceFrames = new Vp9ReferenceFrameStore();
+        referenceFrames.Refresh(referenceFrame, Vp9ColorRange.Studio, refreshFrameFlags: 0x01);
+
+        Assert.True(
+            Vp9TileSyntaxScanner.TryReconstructFirstSkippedInterSuperblockZeroMv(
+                packet,
+                header,
+                compressedHeader,
+                tileBuffers,
+                referenceFrames,
+                out var frame,
+                out var probes,
+                out var residualGroups,
+                out var diagnostic),
+            diagnostic?.Message);
+
+        Assert.NotNull(frame);
+        Assert.Single(probes);
+        Assert.Single(probes[0].ModeInfos);
+        Assert.True(probes[0].ModeInfos[0].ModeInfo.Skip);
+        Assert.Equal(Vp9InterPredictionMode.ZeroMv, probes[0].ModeInfos[0].ModeInfo.PredictionMode);
+        Assert.Equal(Hash(referenceFrame.Pixels), Hash(frame.Pixels));
+        Assert.Equal([256, 64, 64], residualGroups.Select(group => group.Blocks.Count).ToArray());
+        Assert.All(residualGroups, group =>
+        {
+            Assert.Equal(Vp9TransformSize.Tx4X4, group.TransformSize);
+            Assert.All(group.Blocks, block =>
+            {
+                Assert.Equal(Vp9ResidualSyntax.InterBlockReferenceType, block.ReferenceType);
+                Assert.Equal(Vp9TransformType.DctDct, block.TransformType);
+                Assert.Equal(0, block.Eob);
+                Assert.Equal(0, block.NonZeroCount);
+                Assert.All(block.DequantizedCoefficients, coefficient => Assert.Equal(0, coefficient));
+            });
+        });
+    }
+
+    [Fact]
+    public void TryReconstructFirstSkippedInterSuperblockZeroMv_WhenInterBlockIsNotSkipped_ReturnsUnsupportedDiagnostic()
+    {
+        byte[] tilePayload = [0x03, 0x00, 0x00];
+        var packet = tilePayload;
+        var header = CreateSyntheticOrdinaryInterHeader(packet.Length);
+        var compressedHeader = CreateSyntheticInterCompressedHeader();
+        IReadOnlyList<Vp9TileBuffer> tileBuffers =
+        [
+            new Vp9TileBuffer(Index: 0, SizeFieldOffset: null, DataOffset: 0, Size: tilePayload.Length)
+        ];
+        var referenceFrame = CreatePatternYuvFrame(width: 64, height: 64);
+        var referenceFrames = new Vp9ReferenceFrameStore();
+        referenceFrames.Refresh(referenceFrame, Vp9ColorRange.Studio, refreshFrameFlags: 0x01);
+
+        Assert.False(
+            Vp9TileSyntaxScanner.TryReconstructFirstSkippedInterSuperblockZeroMv(
+                packet,
+                header,
+                compressedHeader,
+                tileBuffers,
+                referenceFrames,
+                out var frame,
+                out var probes,
+                out var residualGroups,
+                out var diagnostic));
+
+        Assert.Null(frame);
+        Assert.Single(probes);
+        Assert.False(probes[0].ModeInfos[0].ModeInfo.Skip);
+        Assert.Empty(residualGroups);
+        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedInterFrameFeature, diagnostic?.Code);
+        Assert.Contains("non-skipped", diagnostic?.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void TryProbeFirstLeafCoefficientToken_ForExternalMainFrame_ReadsExpectedFirstToken()
     {
         var packet = ReadRequiredSample(
