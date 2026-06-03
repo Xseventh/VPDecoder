@@ -204,7 +204,7 @@ internal static class Vp9TileSyntaxScanner
         }
     }
 
-    public static bool TryReconstructFirstInterSuperblockZeroMv(
+    public static bool TryPredictFirstInterSuperblockZeroMv(
         ReadOnlyMemory<byte> packet,
         Vp9FrameHeader header,
         Vp9CompressedHeader compressedHeader,

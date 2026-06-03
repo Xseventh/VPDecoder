@@ -194,7 +194,7 @@ public sealed class Vp9TileSyntaxScannerTests
     }
 
     [Fact]
-    public void TryReconstructFirstInterSuperblockZeroMv_ForSyntheticOrdinaryInterFrame_CopiesReferenceBlock()
+    public void TryPredictFirstInterSuperblockZeroMv_ForSyntheticOrdinaryInterFrame_CopiesReferenceBlock()
     {
         byte[] tilePayload = [0x03, 0x00, 0x00];
         var packet = tilePayload;
@@ -209,7 +209,7 @@ public sealed class Vp9TileSyntaxScannerTests
         referenceFrames.Refresh(referenceFrame, Vp9ColorRange.Studio, refreshFrameFlags: 0x01);
 
         Assert.True(
-            Vp9TileSyntaxScanner.TryReconstructFirstInterSuperblockZeroMv(
+            Vp9TileSyntaxScanner.TryPredictFirstInterSuperblockZeroMv(
                 packet,
                 header,
                 compressedHeader,
@@ -220,7 +220,7 @@ public sealed class Vp9TileSyntaxScannerTests
                 out var diagnostic),
             diagnostic?.Message);
         Assert.True(
-            Vp9TileSyntaxScanner.TryReconstructFirstInterSuperblockZeroMv(
+            Vp9TileSyntaxScanner.TryPredictFirstInterSuperblockZeroMv(
                 packet,
                 header,
                 compressedHeader,
@@ -243,7 +243,7 @@ public sealed class Vp9TileSyntaxScannerTests
     }
 
     [Fact]
-    public void TryReconstructFirstInterSuperblockZeroMv_WhenReferenceIsMissing_ReturnsMissingReferenceFrame()
+    public void TryPredictFirstInterSuperblockZeroMv_WhenReferenceIsMissing_ReturnsMissingReferenceFrame()
     {
         byte[] tilePayload = [0x03, 0x00, 0x00];
         var packet = tilePayload;
@@ -256,7 +256,7 @@ public sealed class Vp9TileSyntaxScannerTests
         var referenceFrames = new Vp9ReferenceFrameStore();
 
         Assert.False(
-            Vp9TileSyntaxScanner.TryReconstructFirstInterSuperblockZeroMv(
+            Vp9TileSyntaxScanner.TryPredictFirstInterSuperblockZeroMv(
                 packet,
                 header,
                 compressedHeader,
@@ -273,7 +273,7 @@ public sealed class Vp9TileSyntaxScannerTests
     }
 
     [Fact]
-    public void TryReconstructFirstInterSuperblockZeroMv_WhenChromaIsUnsupported_ReturnsSpecificDiagnostic()
+    public void TryPredictFirstInterSuperblockZeroMv_WhenChromaIsUnsupported_ReturnsSpecificDiagnostic()
     {
         byte[] tilePayload = [0x03, 0x00, 0x00];
         var packet = tilePayload;
@@ -289,7 +289,7 @@ public sealed class Vp9TileSyntaxScannerTests
         ];
 
         Assert.False(
-            Vp9TileSyntaxScanner.TryReconstructFirstInterSuperblockZeroMv(
+            Vp9TileSyntaxScanner.TryPredictFirstInterSuperblockZeroMv(
                 packet,
                 header,
                 compressedHeader,
