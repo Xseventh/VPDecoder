@@ -2,6 +2,25 @@ namespace VPDecoder;
 
 internal static class Vp9InterPredictor
 {
+    private const int MotionVectorReferenceNeighborCount = 8;
+
+    private static ReadOnlySpan<sbyte> MotionVectorReferencePositions =>
+    [
+        -1, 0, 0, -1, -1, -1, -2, 0, 0, -2, -2, -1, -1, -2, -2, -2,
+        -1, 0, 0, -1, -1, -1, -2, 0, 0, -2, -2, -1, -1, -2, -2, -2,
+        -1, 0, 0, -1, -1, -1, -2, 0, 0, -2, -2, -1, -1, -2, -2, -2,
+        -1, 0, 0, -1, -1, -1, -2, 0, 0, -2, -2, -1, -1, -2, -2, -2,
+        0, -1, -1, 0, 1, -1, -1, -1, 0, -2, -2, 0, -2, -1, -1, -2,
+        -1, 0, 0, -1, -1, 1, -1, -1, -2, 0, 0, -2, -1, -2, -2, -1,
+        -1, 0, 0, -1, -1, 1, 1, -1, -1, -1, -3, 0, 0, -3, -3, -3,
+        0, -1, -1, 0, 2, -1, -1, -1, -1, 1, 0, -3, -3, 0, -3, -3,
+        -1, 0, 0, -1, -1, 2, -1, -1, 1, -1, -3, 0, 0, -3, -3, -3,
+        -1, 1, 1, -1, -1, 2, 2, -1, -1, -1, -3, 0, 0, -3, -3, -3,
+        0, -1, -1, 0, 4, -1, -1, 2, -1, -1, 0, -3, -3, 0, 2, -1,
+        -1, 0, 0, -1, -1, 4, 2, -1, -1, -1, -3, 0, 0, -3, -1, 2,
+        -1, 3, 3, -1, -1, 4, 4, -1, -1, -1, -1, 0, 0, -1, -1, 6
+    ];
+
     public static bool TryResolveReferenceFrame(
         Vp9ReferenceFrameStore referenceFrames,
         Vp9FrameHeader header,
@@ -85,12 +104,24 @@ internal static class Vp9InterPredictor
         IReadOnlyList<Vp9InterBlockModeInfoProbe> decodedBlocks)
     {
         var candidates = new List<Vp9MotionVector>(capacity: 2);
-        AddCandidate(
-            candidates,
-            FindLeftCandidate(currentBlock, decodedBlocks));
-        AddCandidate(
-            candidates,
-            FindAboveCandidate(currentBlock, decodedBlocks));
+        var positionOffset = (int)currentBlock.ModeInfo.BlockSize * MotionVectorReferenceNeighborCount * 2;
+        for (var i = 0; i < MotionVectorReferenceNeighborCount; i++)
+        {
+            var rowOffset = MotionVectorReferencePositions[positionOffset + (i * 2)];
+            var columnOffset = MotionVectorReferencePositions[positionOffset + (i * 2) + 1];
+            AddCandidate(
+                candidates,
+                FindCandidateAtMiPosition(
+                    currentBlock,
+                    decodedBlocks,
+                    currentBlock.MiRow + rowOffset,
+                    currentBlock.MiColumn + columnOffset));
+            if (candidates.Count == 2)
+            {
+                break;
+            }
+        }
+
         return candidates;
     }
 
@@ -109,11 +140,12 @@ internal static class Vp9InterPredictor
         candidates.Add(motionVector);
     }
 
-    private static Vp9MotionVector? FindLeftCandidate(
+    private static Vp9MotionVector? FindCandidateAtMiPosition(
         Vp9InterBlockModeInfoProbe currentBlock,
-        IReadOnlyList<Vp9InterBlockModeInfoProbe> decodedBlocks)
+        IReadOnlyList<Vp9InterBlockModeInfoProbe> decodedBlocks,
+        int miRow,
+        int miColumn)
     {
-        Vp9InterBlockModeInfoProbe? best = null;
         foreach (var block in decodedBlocks)
         {
             if (!CanUseCandidate(block, currentBlock))
@@ -121,56 +153,13 @@ internal static class Vp9InterPredictor
                 continue;
             }
 
-            var rightEdge = block.MiColumn + Vp9ModeInfoSyntax.GetBlockWidthInMiUnits(block.ModeInfo.BlockSize);
-            if (rightEdge != currentBlock.MiColumn ||
-                !Overlaps(
-                    block.MiRow,
-                    Vp9ModeInfoSyntax.GetBlockHeightInMiUnits(block.ModeInfo.BlockSize),
-                    currentBlock.MiRow,
-                    Vp9ModeInfoSyntax.GetBlockHeightInMiUnits(currentBlock.ModeInfo.BlockSize)))
+            if (ContainsMiPosition(block, miRow, miColumn))
             {
-                continue;
-            }
-
-            if (best is null || block.MiColumn > best.MiColumn || block.MiRow > best.MiRow)
-            {
-                best = block;
+                return block.MotionVector;
             }
         }
 
-        return best?.MotionVector;
-    }
-
-    private static Vp9MotionVector? FindAboveCandidate(
-        Vp9InterBlockModeInfoProbe currentBlock,
-        IReadOnlyList<Vp9InterBlockModeInfoProbe> decodedBlocks)
-    {
-        Vp9InterBlockModeInfoProbe? best = null;
-        foreach (var block in decodedBlocks)
-        {
-            if (!CanUseCandidate(block, currentBlock))
-            {
-                continue;
-            }
-
-            var bottomEdge = block.MiRow + Vp9ModeInfoSyntax.GetBlockHeightInMiUnits(block.ModeInfo.BlockSize);
-            if (bottomEdge != currentBlock.MiRow ||
-                !Overlaps(
-                    block.MiColumn,
-                    Vp9ModeInfoSyntax.GetBlockWidthInMiUnits(block.ModeInfo.BlockSize),
-                    currentBlock.MiColumn,
-                    Vp9ModeInfoSyntax.GetBlockWidthInMiUnits(currentBlock.ModeInfo.BlockSize)))
-            {
-                continue;
-            }
-
-            if (best is null || block.MiRow > best.MiRow || block.MiColumn > best.MiColumn)
-            {
-                best = block;
-            }
-        }
-
-        return best?.MotionVector;
+        return null;
     }
 
     private static bool CanUseCandidate(
@@ -178,14 +167,18 @@ internal static class Vp9InterPredictor
         Vp9InterBlockModeInfoProbe currentBlock)
     {
         return candidate.MotionVector.HasValue &&
+            candidate.TileIndex == currentBlock.TileIndex &&
             candidate.ModeInfo.IsInterBlock &&
             candidate.ModeInfo.ReferenceMode == Vp9ReferenceMode.Single &&
             candidate.ModeInfo.ReferenceFrame == currentBlock.ModeInfo.ReferenceFrame;
     }
 
-    private static bool Overlaps(int firstStart, int firstSize, int secondStart, int secondSize)
+    private static bool ContainsMiPosition(Vp9InterBlockModeInfoProbe block, int miRow, int miColumn)
     {
-        return firstStart < secondStart + secondSize && secondStart < firstStart + firstSize;
+        return miRow >= block.MiRow &&
+            miRow < block.MiRow + Vp9ModeInfoSyntax.GetBlockHeightInMiUnits(block.ModeInfo.BlockSize) &&
+            miColumn >= block.MiColumn &&
+            miColumn < block.MiColumn + Vp9ModeInfoSyntax.GetBlockWidthInMiUnits(block.ModeInfo.BlockSize);
     }
 
     private static int GetReferenceFrameIndex(Vp9InterReferenceFrame referenceFrame)

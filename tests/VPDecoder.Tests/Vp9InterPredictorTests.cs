@@ -86,7 +86,7 @@ public sealed class Vp9InterPredictorTests
     }
 
     [Fact]
-    public void BuildSpatialMotionVectorCandidates_UsesLeftThenAboveMatchingReferenceBlocks()
+    public void BuildSpatialMotionVectorCandidates_UsesLibvpxReferenceOrderFor8X8Blocks()
     {
         var left = CreateModeBlock(1, 0, Vp9InterReferenceFrame.Last, new Vp9MotionVector(8, -16));
         var above = CreateModeBlock(0, 1, Vp9InterReferenceFrame.Last, new Vp9MotionVector(24, 32));
@@ -97,7 +97,50 @@ public sealed class Vp9InterPredictorTests
             current,
             [left, above, differentReference]);
 
-        Assert.Equal([left.MotionVector!.Value, above.MotionVector!.Value], candidates);
+        Assert.Equal([above.MotionVector!.Value, left.MotionVector!.Value], candidates);
+    }
+
+    [Fact]
+    public void BuildSpatialMotionVectorCandidates_UsesBlockSizeSpecificLibvpxReferencePositions()
+    {
+        var aboveRight = CreateModeBlock(
+            0,
+            4,
+            Vp9InterReferenceFrame.Last,
+            new Vp9MotionVector(8, 16),
+            Vp9BlockSize.Block32X32);
+        var leftBelow = CreateModeBlock(
+            4,
+            0,
+            Vp9InterReferenceFrame.Last,
+            new Vp9MotionVector(24, 32),
+            Vp9BlockSize.Block32X32);
+        var immediateAboveLeft = CreateModeBlock(3, 3, Vp9InterReferenceFrame.Last, new Vp9MotionVector(40, 48));
+        var current = CreateModeBlock(4, 4, Vp9InterReferenceFrame.Last, blockSize: Vp9BlockSize.Block32X32);
+
+        var candidates = Vp9InterPredictor.BuildSpatialMotionVectorCandidates(
+            current,
+            [immediateAboveLeft, aboveRight, leftBelow]);
+
+        Assert.Equal([aboveRight.MotionVector!.Value, leftBelow.MotionVector!.Value], candidates);
+    }
+
+    [Fact]
+    public void BuildSpatialMotionVectorCandidates_IgnoresCandidatesFromOtherTiles()
+    {
+        var otherTileAbove = CreateModeBlock(
+            0,
+            1,
+            Vp9InterReferenceFrame.Last,
+            new Vp9MotionVector(8, -16),
+            tileIndex: 1);
+        var current = CreateModeBlock(1, 1, Vp9InterReferenceFrame.Last, tileIndex: 0);
+
+        var candidates = Vp9InterPredictor.BuildSpatialMotionVectorCandidates(
+            current,
+            [otherTileAbove]);
+
+        Assert.Empty(candidates);
     }
 
     [Fact]
@@ -129,7 +172,7 @@ public sealed class Vp9InterPredictorTests
             out var motionVector,
             out var diagnostic));
 
-        Assert.Equal(above.MotionVector!.Value, motionVector);
+        Assert.Equal(left.MotionVector!.Value, motionVector);
         Assert.Null(diagnostic);
     }
 
@@ -201,10 +244,12 @@ public sealed class Vp9InterPredictorTests
         int miRow,
         int miColumn,
         Vp9InterReferenceFrame referenceFrame,
-        Vp9MotionVector? motionVector = null)
+        Vp9MotionVector? motionVector = null,
+        Vp9BlockSize blockSize = Vp9BlockSize.Block8X8,
+        int tileIndex = 0)
     {
         var modeInfo = new Vp9InterModeInfoProbe(
-            Vp9BlockSize.Block8X8,
+            blockSize,
             Skip: true,
             SkipContext: 0,
             IsInterBlock: true,
@@ -220,7 +265,7 @@ public sealed class Vp9InterPredictorTests
             Vp9InterpolationFilter.EightTap);
 
         return new Vp9InterBlockModeInfoProbe(
-            TileIndex: 0,
+            TileIndex: tileIndex,
             miRow,
             miColumn,
             PartitionPath: [Vp9PartitionType.None],
