@@ -178,12 +178,6 @@ public sealed class RawVp8Decoder
             return false;
         }
 
-        if (syntax.Header.LoopFilter.Level != 0)
-        {
-            diagnostic = Vp8DecodeDiagnostic.UnsupportedFeature("VP8 loop filter reconstruction is not implemented yet.");
-            return false;
-        }
-
         if (!Vp8TokenPartitionLayoutBuilder.TryCreate(
             packet,
             header,
@@ -222,6 +216,7 @@ public sealed class RawVp8Decoder
             var macroblockColumns = (header.Width + 15) >> 4;
             var residualContext = Vp8ResidualEntropyContext.Create(macroblockColumns);
             var buffer = Vp8ReconstructionBuffer.Create(header.Width, header.Height);
+            var loopFilterMacroblocks = new List<Vp8LoopFilterMacroblock>(syntax.MacroblockModes.Count);
 
             foreach (var mode in syntax.MacroblockModes)
             {
@@ -246,11 +241,23 @@ public sealed class RawVp8Decoder
                         "VP8 macroblock reconstructor failed without a diagnostic.");
                     return false;
                 }
+
+                loopFilterMacroblocks.Add(new Vp8LoopFilterMacroblock(
+                    mode.Row,
+                    mode.Column,
+                    Vp8LoopFilter.ShouldFilterSubblocks(mode, residual)));
             }
 
             if (tokenReader.HasError)
             {
                 diagnostic = Vp8DecodeDiagnostic.TruncatedPacket("VP8 token partition syntax extends past the packet boundary.");
+                return false;
+            }
+
+            if (!Vp8LoopFilter.TryApply(buffer, syntax.Header, loopFilterMacroblocks, out diagnostic))
+            {
+                diagnostic ??= Vp8DecodeDiagnostic.InternalDecodeFailure(
+                    "VP8 loop filter failed without a diagnostic.");
                 return false;
             }
 

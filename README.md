@@ -67,18 +67,20 @@ Current status:
   the same displayed/no-display/failed result shape expected by sequence
   callers.
 - Reconstructs a strictly gated VP8 key-frame subset: one token partition,
-  loop-filter level 0, visible macroblocks including clipped right/bottom edge
+  visible macroblocks including clipped right/bottom edge
   macroblocks, supported intra predictors, VP8 Y2 inverse Walsh luma DC
   propagation for non-B_PRED macroblocks, and 4x4 inverse DCT residual add for
-  Y1/UV blocks. VP8 multi-token partitions, loop-filtered output, and inter
-  frames remain explicit unsupported diagnostics.
+  Y1/UV blocks. Uniform simple/normal VP8 key-frame loop filtering is applied
+  after full-frame reconstruction. VP8 loop-filter deltas, segmentation
+  loop-filter feature data, multi-token partitions, and inter frames remain
+  explicit unsupported diagnostics.
 - Validates the current sample shape: VP9 profile 0, 8-bit, YUV420,
   2656x1352, 8 tile columns.
 - Fails explicitly for unsupported decode work instead of emitting pixels.
 
-Broader ordinary inter-frame prediction and full loop-filtered VP8 pixel
-reconstruction remain follow-up slices. The decoder must continue to return
-explicit unsupported diagnostics until those pieces are complete.
+Broader ordinary inter-frame prediction and VP8 sequence/reference state remain
+follow-up slices. The decoder must continue to return explicit unsupported
+diagnostics until those pieces are complete.
 
 Library API example:
 
