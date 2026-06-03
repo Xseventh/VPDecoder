@@ -2,6 +2,8 @@ namespace VPDecoder;
 
 internal static class Vp9InterPredictor
 {
+    private const int MotionVectorLowerBound = -(1 << 14);
+    private const int MotionVectorUpperBound = (1 << 14) - 1;
     private const int MotionVectorReferenceNeighborCount = 8;
 
     private static ReadOnlySpan<sbyte> MotionVectorReferencePositions =>
@@ -149,6 +151,14 @@ internal static class Vp9InterPredictor
     public static bool IsWholePixelMotionVector(Vp9MotionVector motionVector)
     {
         return (motionVector.Row & 7) == 0 && (motionVector.Column & 7) == 0;
+    }
+
+    public static bool IsValidMotionVector(Vp9MotionVector motionVector)
+    {
+        return motionVector.Row > MotionVectorLowerBound &&
+            motionVector.Row < MotionVectorUpperBound &&
+            motionVector.Column > MotionVectorLowerBound &&
+            motionVector.Column < MotionVectorUpperBound;
     }
 
     private static void AddCandidate(List<Vp9MotionVector> candidates, Vp9MotionVector? candidate)

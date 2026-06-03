@@ -241,6 +241,18 @@ public sealed class Vp9InterPredictorTests
         Assert.Equal(expected, Vp9InterPredictor.IsWholePixelMotionVector(new Vp9MotionVector(row, column)));
     }
 
+    [Theory]
+    [InlineData(-16_384, 0, false)]
+    [InlineData(-16_383, 0, true)]
+    [InlineData(16_382, 0, true)]
+    [InlineData(16_383, 0, false)]
+    [InlineData(0, -16_384, false)]
+    [InlineData(0, 16_383, false)]
+    public void IsValidMotionVector_MatchesLibvpxBounds(int row, int column, bool expected)
+    {
+        Assert.Equal(expected, Vp9InterPredictor.IsValidMotionVector(new Vp9MotionVector(row, column)));
+    }
+
     private static Vp9DecodedFrame CreateYuvFrame(int width, int height, byte yValue)
     {
         var uvWidth = (width + 1) / 2;

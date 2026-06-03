@@ -141,6 +141,27 @@ public sealed class Vp9MotionCompensatorTests
     }
 
     [Fact]
+    public void TryCopyWholePixelPlaneBlock_WithOutOfRangeWholePixelMv_ReturnsInvalidPacket()
+    {
+        var reference = CreatePatternYuvFrame(width: 4, height: 4);
+        var destination = Vp9YuvFrameBuffer.Create(4, 4);
+
+        Assert.False(Vp9MotionCompensator.TryCopyWholePixelPlaneBlock(
+            reference,
+            destination,
+            Vp9Plane.Y,
+            destinationX: 0,
+            destinationY: 0,
+            width: 2,
+            height: 2,
+            new Vp9MotionVector(Row: 16_384, Column: 0),
+            out var diagnostic));
+
+        Assert.Equal(Vp9DecodeDiagnosticCode.InvalidPacket, diagnostic?.Code);
+        Assert.Contains("range", diagnostic?.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void TryCopyWholePixelPlaneBlock_WithReferenceScaling_ReturnsUnsupportedDiagnostic()
     {
         var reference = CreatePatternYuvFrame(width: 4, height: 4);

@@ -36,6 +36,13 @@ internal static class Vp9MotionCompensator
             return false;
         }
 
+        if (!Vp9InterPredictor.IsValidMotionVector(planeMotionVector))
+        {
+            diagnostic = Vp9DecodeDiagnostic.InvalidPacket(
+                "VP9 motion vector is outside the valid VP9 range.");
+            return false;
+        }
+
         if (width <= 0 || height <= 0)
         {
             diagnostic = Vp9DecodeDiagnostic.InvalidPacket("VP9 motion compensation block dimensions must be positive.");
