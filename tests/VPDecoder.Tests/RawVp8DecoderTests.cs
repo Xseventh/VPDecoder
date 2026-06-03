@@ -2,17 +2,9 @@ namespace VPDecoder.Tests;
 
 public sealed class RawVp8DecoderTests
 {
-    private static readonly byte[] ValidKeyFramePacket =
-    [
-        0x10, 0x02, 0x00,
-        0x9d, 0x01, 0x2a,
-        0x10, 0x00,
-        0x08, 0x00,
-        0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x00, 0x00
-    ];
+    private const int ValidFirstPartitionSize = 160;
+
+    private static readonly byte[] ValidKeyFramePacket = CreateValidKeyFramePacket(ValidFirstPartitionSize);
 
     [Fact]
     public void DecodeFrame_WhenKeyFrameHeaderIsValid_ReturnsUnsupportedFeatureWithHeader()
@@ -138,8 +130,7 @@ public sealed class RawVp8DecoderTests
     [Fact]
     public void DecodeFrame_WhenFirstPartitionExtendsPastPacket_ReturnsTruncatedPacketWithHeader()
     {
-        var packet = (byte[])ValidKeyFramePacket.Clone();
-        packet[2] = 0x01;
+        var packet = CreateValidKeyFramePacket(firstPartitionSize: 2_064, emittedFirstPartitionBytes: ValidFirstPartitionSize);
         var decoder = new RawVp8Decoder();
 
         var result = decoder.DecodeFrame(packet, new Vp8DecodeOptions(16, 8));
@@ -169,5 +160,23 @@ public sealed class RawVp8DecoderTests
         Assert.NotNull(result.Header);
         Assert.Equal(0, result.Header.FirstPartitionSize);
         Assert.Equal(Vp8DecodeDiagnosticCode.TruncatedPacket, result.Diagnostic?.Code);
+    }
+
+    private static byte[] CreateValidKeyFramePacket(int firstPartitionSize, int? emittedFirstPartitionBytes = null)
+    {
+        var firstPartitionBytes = emittedFirstPartitionBytes ?? firstPartitionSize;
+        var packet = new byte[10 + firstPartitionBytes];
+        var frameTag = (firstPartitionSize << 5) | 0x10;
+        packet[0] = (byte)frameTag;
+        packet[1] = (byte)(frameTag >> 8);
+        packet[2] = (byte)(frameTag >> 16);
+        packet[3] = 0x9d;
+        packet[4] = 0x01;
+        packet[5] = 0x2a;
+        packet[6] = 0x10;
+        packet[7] = 0x00;
+        packet[8] = 0x08;
+        packet[9] = 0x00;
+        return packet;
     }
 }

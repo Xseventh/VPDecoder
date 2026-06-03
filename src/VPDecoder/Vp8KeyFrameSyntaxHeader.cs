@@ -7,7 +7,11 @@ internal sealed record Vp8KeyFrameSyntaxHeader(
     Vp8LoopFilterHeader LoopFilter,
     int Log2TokenPartitionCount,
     int TokenPartitionCount,
-    Vp8QuantizationHeader Quantization);
+    Vp8QuantizationHeader Quantization,
+    bool RefreshEntropyProbabilities,
+    IReadOnlyList<Vp8CoefficientProbabilityUpdate> CoefficientProbabilityUpdates,
+    bool MbNoCoeffSkip,
+    byte? ProbSkipFalse);
 
 internal enum Vp8KeyFrameColorSpace
 {
@@ -46,3 +50,10 @@ internal sealed record Vp8QuantizationHeader(
     int Y2AcDelta,
     int UvDcDelta,
     int UvAcDelta);
+
+internal readonly record struct Vp8CoefficientProbabilityUpdate(
+    int BlockType,
+    int CoefficientBand,
+    int PreviousCoefficientContext,
+    int EntropyNode,
+    byte Probability);

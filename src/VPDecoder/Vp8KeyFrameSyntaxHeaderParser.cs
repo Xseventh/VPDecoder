@@ -25,20 +25,31 @@ internal static class Vp8KeyFrameSyntaxHeaderParser
     public static Vp8KeyFrameSyntaxHeader Parse(ReadOnlySpan<byte> firstPartition)
     {
         var reader = new Vp8BoolReader(firstPartition);
-        var syntaxHeader = new Vp8KeyFrameSyntaxHeader(
-            ReadColorSpace(ref reader),
-            ClampType: reader.ReadBit(),
-            ReadSegmentationHeader(ref reader),
-            ReadLoopFilterHeader(ref reader),
-            Log2TokenPartitionCount: 0,
-            TokenPartitionCount: 0,
-            ReadQuantizationHeader(ref reader));
+        var colorSpace = ReadColorSpace(ref reader);
+        var clampType = reader.ReadBit();
+        var segmentationHeader = ReadSegmentationHeader(ref reader);
+        var loopFilterHeader = ReadLoopFilterHeader(ref reader);
         var log2TokenPartitionCount = reader.ReadLiteral(2);
-        syntaxHeader = syntaxHeader with
-        {
-            Log2TokenPartitionCount = log2TokenPartitionCount,
-            TokenPartitionCount = 1 << log2TokenPartitionCount
-        };
+        var quantizationHeader = ReadQuantizationHeader(ref reader);
+        var refreshEntropyProbabilities = reader.ReadBit();
+        var coefficientProbabilityUpdates = ReadCoefficientProbabilityUpdates(ref reader);
+        var mbNoCoeffSkip = reader.ReadBit();
+        var probSkipFalse = mbNoCoeffSkip
+            ? (byte)reader.ReadLiteral(8)
+            : (byte?)null;
+
+        var syntaxHeader = new Vp8KeyFrameSyntaxHeader(
+            colorSpace,
+            clampType,
+            segmentationHeader,
+            loopFilterHeader,
+            log2TokenPartitionCount,
+            1 << log2TokenPartitionCount,
+            quantizationHeader,
+            refreshEntropyProbabilities,
+            coefficientProbabilityUpdates,
+            mbNoCoeffSkip,
+            probSkipFalse);
 
         if (reader.HasError)
         {
@@ -47,6 +58,40 @@ internal static class Vp8KeyFrameSyntaxHeaderParser
         }
 
         return syntaxHeader;
+    }
+
+    private static IReadOnlyList<Vp8CoefficientProbabilityUpdate> ReadCoefficientProbabilityUpdates(ref Vp8BoolReader reader)
+    {
+        var updates = new List<Vp8CoefficientProbabilityUpdate>();
+        for (var blockType = 0; blockType < Vp8CoefficientUpdateProbabilities.BlockTypes; blockType++)
+        {
+            for (var coefficientBand = 0; coefficientBand < Vp8CoefficientUpdateProbabilities.CoefficientBands; coefficientBand++)
+            {
+                for (var previousCoefficientContext = 0; previousCoefficientContext < Vp8CoefficientUpdateProbabilities.PreviousCoefficientContexts; previousCoefficientContext++)
+                {
+                    for (var entropyNode = 0; entropyNode < Vp8CoefficientUpdateProbabilities.EntropyNodes; entropyNode++)
+                    {
+                        if (!reader.Read(Vp8CoefficientUpdateProbabilities.GetProbability(
+                                blockType,
+                                coefficientBand,
+                                previousCoefficientContext,
+                                entropyNode)))
+                        {
+                            continue;
+                        }
+
+                        updates.Add(new Vp8CoefficientProbabilityUpdate(
+                            blockType,
+                            coefficientBand,
+                            previousCoefficientContext,
+                            entropyNode,
+                            (byte)reader.ReadLiteral(8)));
+                    }
+                }
+            }
+        }
+
+        return updates;
     }
 
     private static Vp8KeyFrameColorSpace ReadColorSpace(ref Vp8BoolReader reader)
