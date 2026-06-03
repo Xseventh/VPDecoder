@@ -85,6 +85,17 @@ public sealed class RawVp9Decoder
                 compressedHeader);
         }
 
+        if (header.FrameType != Vp9FrameType.KeyFrame)
+        {
+            return Vp9DecodeResult.Fail(
+                Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(
+                    header.IntraOnly
+                        ? "VP9 intra-only inter-frame pixel decode is not supported yet."
+                        : "VP9 ordinary inter-frame full pixel decode is not supported yet."),
+                header,
+                compressedHeader);
+        }
+
         if (!Vp9KeyFrameDecodeState.TryCreate(header, compressedHeader, tileBuffers, out var state, out diagnostic))
         {
             return Vp9DecodeResult.Fail(
@@ -431,12 +442,6 @@ public sealed class RawVp9Decoder
         {
             return Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(
                 "VP9 show-existing-frame packets require decoder reference state and are not supported yet.");
-        }
-
-        if (header.FrameType != Vp9FrameType.KeyFrame)
-        {
-            return Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(
-                "VP9 inter frames require decoder reference state and are not supported yet.");
         }
 
         if (!header.ShowFrame)

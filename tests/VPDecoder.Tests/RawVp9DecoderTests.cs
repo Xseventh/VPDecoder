@@ -134,7 +134,7 @@ public sealed class RawVp9DecoderTests
     {
         var decoder = new RawVp9Decoder();
 
-        var result = decoder.DecodeFrame(Vp9TestPackets.CreateOrdinaryInterFramePacket(), new Vp9DecodeOptions(16, 8));
+        var result = decoder.DecodeFrame(CreatePaddedOrdinaryInterFramePacket(), new Vp9DecodeOptions(16, 8));
 
         Assert.False(result.Succeeded);
         Assert.Null(result.Frame);
@@ -152,13 +152,15 @@ public sealed class RawVp9DecoderTests
         var decoder = new RawVp9Decoder();
         var keyFrame = decoder.DecodeFrame(packet, new Vp9DecodeOptions(2656, 1352));
 
-        var result = decoder.DecodeFrame(Vp9TestPackets.CreateOrdinaryInterFramePacket(), new Vp9DecodeOptions(16, 8));
+        var result = decoder.DecodeFrame(CreatePaddedOrdinaryInterFramePacket(), new Vp9DecodeOptions(16, 8));
 
         Assert.True(keyFrame.Succeeded, keyFrame.Diagnostic?.Message);
         Assert.False(result.Succeeded);
         Assert.Null(result.Frame);
         Assert.NotNull(result.Header);
+        Assert.NotNull(result.CompressedHeader);
         Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedInterFrameFeature, result.Diagnostic?.Code);
+        Assert.Contains("full pixel decode", result.Diagnostic?.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -169,9 +171,8 @@ public sealed class RawVp9DecoderTests
         var keyFrame = decoder.DecodeFrame(packet, new Vp9DecodeOptions(2656, 1352));
 
         var result = decoder.DecodeFrame(
-            Vp9TestPackets.CreateOrdinaryInterFramePacket(
+            CreatePaddedOrdinaryInterFramePacket(
                 sizeFromReference: true,
-                stopAfterSizeReference: false,
                 tileInfoWidth: 2656),
             new Vp9DecodeOptions(2656, 1352));
 
@@ -179,6 +180,7 @@ public sealed class RawVp9DecoderTests
         Assert.False(result.Succeeded);
         Assert.Null(result.Frame);
         Assert.NotNull(result.Header);
+        Assert.NotNull(result.CompressedHeader);
         Assert.Equal(0, result.Header.FrameSizeReferenceIndex);
         Assert.Equal(2656, result.Header.Width);
         Assert.Equal(1352, result.Header.Height);
@@ -472,6 +474,22 @@ public sealed class RawVp9DecoderTests
     {
         var packet = new byte[MainFrameHeader.Length + 320];
         MainFrameHeader.CopyTo(packet, 0);
+        return packet;
+    }
+
+    private static byte[] CreatePaddedOrdinaryInterFramePacket(
+        bool sizeFromReference = false,
+        int tileInfoWidth = 16)
+    {
+        const int firstPartitionSize = 64;
+        var headerPacket = Vp9TestPackets.CreateOrdinaryInterFramePacket(
+            sizeFromReference: sizeFromReference,
+            stopAfterSizeReference: false,
+            tileInfoWidth: tileInfoWidth,
+            firstPartitionSize: firstPartitionSize);
+        var packet = new byte[headerPacket.Length + firstPartitionSize + 1];
+        headerPacket.CopyTo(packet, 0);
+        packet[^1] = 0x80;
         return packet;
     }
 
