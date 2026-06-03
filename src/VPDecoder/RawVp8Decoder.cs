@@ -44,7 +44,7 @@ public sealed class RawVp8Decoder
                 header);
         }
 
-        diagnostic = ValidateKeyFrameFirstPartition(packet, header);
+        diagnostic = ValidateKeyFrameSyntaxHeader(packet, header);
         if (diagnostic is not null)
         {
             return Vp8DecodeResult.Fail(diagnostic, header);
@@ -140,17 +140,14 @@ public sealed class RawVp8Decoder
         return null;
     }
 
-    private static Vp8DecodeDiagnostic? ValidateKeyFrameFirstPartition(ReadOnlySpan<byte> packet, Vp8FrameHeader header)
+    private static Vp8DecodeDiagnostic? ValidateKeyFrameSyntaxHeader(ReadOnlySpan<byte> packet, Vp8FrameHeader header)
     {
-        try
-        {
-            _ = new Vp8BoolReader(packet.Slice(header.HeaderSizeInBytes, header.FirstPartitionSize));
-            return null;
-        }
-        catch (Vp8BoolReaderException ex)
-        {
-            return ex.Diagnostic;
-        }
+        return Vp8KeyFrameSyntaxHeaderParser.TryParse(
+            packet.Slice(header.HeaderSizeInBytes, header.FirstPartitionSize),
+            out _,
+            out var diagnostic)
+            ? null
+            : diagnostic ?? Vp8DecodeDiagnostic.InternalDecodeFailure("VP8 key-frame syntax parser failed without a diagnostic.");
     }
 }
 

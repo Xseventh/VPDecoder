@@ -4,11 +4,14 @@ public sealed class RawVp8DecoderTests
 {
     private static readonly byte[] ValidKeyFramePacket =
     [
-        0x30, 0x00, 0x00,
+        0x10, 0x02, 0x00,
         0x9d, 0x01, 0x2a,
         0x10, 0x00,
         0x08, 0x00,
-        0x00
+        0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00
     ];
 
     [Fact]
@@ -136,14 +139,14 @@ public sealed class RawVp8DecoderTests
     public void DecodeFrame_WhenFirstPartitionExtendsPastPacket_ReturnsTruncatedPacketWithHeader()
     {
         var packet = (byte[])ValidKeyFramePacket.Clone();
-        packet[0] = 0x50;
+        packet[2] = 0x01;
         var decoder = new RawVp8Decoder();
 
         var result = decoder.DecodeFrame(packet, new Vp8DecodeOptions(16, 8));
 
         Assert.False(result.Succeeded);
         Assert.NotNull(result.Header);
-        Assert.Equal(2, result.Header.FirstPartitionSize);
+        Assert.Equal(2064, result.Header.FirstPartitionSize);
         Assert.Equal(Vp8DecodeDiagnosticCode.TruncatedPacket, result.Diagnostic?.Code);
     }
 
