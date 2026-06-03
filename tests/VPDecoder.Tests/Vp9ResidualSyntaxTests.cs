@@ -85,4 +85,50 @@ public sealed class Vp9ResidualSyntaxTests
         Assert.Equal(expected, Vp9ResidualSyntax.GetPlaneLeftContextOffset(miRow, plane: 1));
         Assert.Equal(expected, Vp9ResidualSyntax.GetPlaneLeftContextOffset(miRow, plane: 2));
     }
+
+    [Theory]
+    [InlineData(false, Vp9ResidualSyntax.IntraBlockReferenceType)]
+    [InlineData(true, Vp9ResidualSyntax.InterBlockReferenceType)]
+    public void GetReferenceType_SeparatesIntraAndInterCoefficientContexts(bool isInterBlock, int expected)
+    {
+        Assert.Equal(expected, Vp9ResidualSyntax.GetReferenceType(isInterBlock));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void GetInterTransformType_ForInterBlock_AlwaysUsesDctDct(int plane)
+    {
+        var modeInfo = CreateInterModeInfo(isInterBlock: true);
+
+        Assert.Equal(Vp9TransformType.DctDct, Vp9ResidualSyntax.GetInterTransformType(modeInfo, plane));
+    }
+
+    [Fact]
+    public void GetInterTransformType_WhenInterFrameIntraBlock_ThrowsUnsupported()
+    {
+        var modeInfo = CreateInterModeInfo(isInterBlock: false);
+
+        Assert.Throws<NotSupportedException>(() => Vp9ResidualSyntax.GetInterTransformType(modeInfo, plane: 0));
+    }
+
+    private static Vp9InterModeInfoProbe CreateInterModeInfo(bool isInterBlock)
+    {
+        return new Vp9InterModeInfoProbe(
+            Vp9BlockSize.Block16X16,
+            Skip: false,
+            SkipContext: 0,
+            IsInterBlock: isInterBlock,
+            IntraInterContext: 0,
+            Vp9TransformSize.Tx16X16,
+            TransformSizeContext: 1,
+            Vp9ReferenceMode.Single,
+            Vp9InterReferenceFrame.Last,
+            SingleReferenceContext0: 0,
+            SingleReferenceContext1: null,
+            Vp9InterPredictionMode.ZeroMv,
+            InterModeContext: 0,
+            Vp9InterpolationFilter.EightTap);
+    }
 }

@@ -50,6 +50,9 @@ public sealed record Vp9CoefficientBlockGroupProbe(
 
 internal static class Vp9ResidualSyntax
 {
+    public const int IntraBlockReferenceType = 0;
+    public const int InterBlockReferenceType = 1;
+
     private static readonly Vp9TransformSize[][] Yuv420UvTransformSizeLookup =
     [
         [Vp9TransformSize.Tx4X4, Vp9TransformSize.Tx4X4, Vp9TransformSize.Tx4X4, Vp9TransformSize.Tx4X4],
@@ -273,6 +276,26 @@ internal static class Vp9ResidualSyntax
         }
 
         return new Vp9CoefficientBlockGroupProbe(modeInfo.TileIndex, modeInfo.BlockSize, transformSize, blocks);
+    }
+
+    public static int GetReferenceType(bool isInterBlock)
+    {
+        return isInterBlock ? InterBlockReferenceType : IntraBlockReferenceType;
+    }
+
+    public static Vp9TransformType GetInterTransformType(Vp9InterModeInfoProbe modeInfo, int plane)
+    {
+        if (!modeInfo.IsInterBlock)
+        {
+            throw new NotSupportedException("VP9 inter residual syntax requires an inter-predicted block.");
+        }
+
+        if (plane is < 0 or > 2)
+        {
+            throw new ArgumentOutOfRangeException(nameof(plane), plane, "VP9 plane index must be 0, 1, or 2.");
+        }
+
+        return Vp9TransformType.DctDct;
     }
 
     private static Vp9CoefficientBlockProbe ReadCoefficientBlock(
