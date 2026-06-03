@@ -194,6 +194,117 @@ public sealed class Vp9TileSyntaxScannerTests
     }
 
     [Fact]
+    public void TryReconstructFirstInterSuperblockZeroMv_ForSyntheticOrdinaryInterFrame_CopiesReferenceBlock()
+    {
+        byte[] tilePayload = [0x03, 0x00, 0x00];
+        var packet = tilePayload;
+        var header = CreateSyntheticOrdinaryInterHeader(packet.Length);
+        var compressedHeader = CreateSyntheticInterCompressedHeader();
+        IReadOnlyList<Vp9TileBuffer> tileBuffers =
+        [
+            new Vp9TileBuffer(Index: 0, SizeFieldOffset: null, DataOffset: 0, Size: tilePayload.Length)
+        ];
+        var referenceFrame = CreatePatternYuvFrame(width: 64, height: 64);
+        var referenceFrames = new Vp9ReferenceFrameStore();
+        referenceFrames.Refresh(referenceFrame, Vp9ColorRange.Studio, refreshFrameFlags: 0x01);
+
+        Assert.True(
+            Vp9TileSyntaxScanner.TryReconstructFirstInterSuperblockZeroMv(
+                packet,
+                header,
+                compressedHeader,
+                tileBuffers,
+                referenceFrames,
+                out var frame,
+                out var probes,
+                out var diagnostic),
+            diagnostic?.Message);
+        Assert.True(
+            Vp9TileSyntaxScanner.TryReconstructFirstInterSuperblockZeroMv(
+                packet,
+                header,
+                compressedHeader,
+                tileBuffers,
+                referenceFrames,
+                out var secondFrame,
+                out _,
+                out var secondDiagnostic),
+            secondDiagnostic?.Message);
+
+        Assert.NotNull(frame);
+        Assert.NotNull(secondFrame);
+        Assert.Single(probes);
+        Assert.Single(probes[0].ModeInfos);
+        Assert.Equal(Vp9OutputPixelFormat.Yuv420, frame.PixelFormat);
+        Assert.Equal(64, frame.Width);
+        Assert.Equal(64, frame.Height);
+        Assert.Equal(Hash(referenceFrame.Pixels), Hash(frame.Pixels));
+        Assert.Equal(Hash(frame.Pixels), Hash(secondFrame.Pixels));
+    }
+
+    [Fact]
+    public void TryReconstructFirstInterSuperblockZeroMv_WhenReferenceIsMissing_ReturnsMissingReferenceFrame()
+    {
+        byte[] tilePayload = [0x03, 0x00, 0x00];
+        var packet = tilePayload;
+        var header = CreateSyntheticOrdinaryInterHeader(packet.Length);
+        var compressedHeader = CreateSyntheticInterCompressedHeader();
+        IReadOnlyList<Vp9TileBuffer> tileBuffers =
+        [
+            new Vp9TileBuffer(Index: 0, SizeFieldOffset: null, DataOffset: 0, Size: tilePayload.Length)
+        ];
+        var referenceFrames = new Vp9ReferenceFrameStore();
+
+        Assert.False(
+            Vp9TileSyntaxScanner.TryReconstructFirstInterSuperblockZeroMv(
+                packet,
+                header,
+                compressedHeader,
+                tileBuffers,
+                referenceFrames,
+                out var frame,
+                out var probes,
+                out var diagnostic));
+
+        Assert.Null(frame);
+        Assert.Single(probes);
+        Assert.Single(probes[0].ModeInfos);
+        Assert.Equal(Vp9DecodeDiagnosticCode.MissingReferenceFrame, diagnostic?.Code);
+    }
+
+    [Fact]
+    public void TryReconstructFirstInterSuperblockZeroMv_WhenChromaIsUnsupported_ReturnsSpecificDiagnostic()
+    {
+        byte[] tilePayload = [0x03, 0x00, 0x00];
+        var packet = tilePayload;
+        var header = CreateSyntheticOrdinaryInterHeader(packet.Length) with
+        {
+            SubsamplingX = 0,
+            SubsamplingY = 1
+        };
+        var compressedHeader = CreateSyntheticInterCompressedHeader();
+        IReadOnlyList<Vp9TileBuffer> tileBuffers =
+        [
+            new Vp9TileBuffer(Index: 0, SizeFieldOffset: null, DataOffset: 0, Size: tilePayload.Length)
+        ];
+
+        Assert.False(
+            Vp9TileSyntaxScanner.TryReconstructFirstInterSuperblockZeroMv(
+                packet,
+                header,
+                compressedHeader,
+                tileBuffers,
+                new Vp9ReferenceFrameStore(),
+                out var frame,
+                out var probes,
+                out var diagnostic));
+
+        Assert.Null(frame);
+        Assert.Empty(probes);
+        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedChromaSubsampling, diagnostic?.Code);
+    }
+
+    [Fact]
     public void TryProbeFirstLeafCoefficientToken_ForExternalMainFrame_ReadsExpectedFirstToken()
     {
         var packet = ReadRequiredSample(
@@ -941,6 +1052,27 @@ public sealed class Vp9TileSyntaxScannerTests
             CoefficientProbabilityUpdateCount: 0,
             SkipProbabilityUpdateCount: 0,
             ReferenceMode: Vp9ReferenceMode.Single);
+    }
+
+    private static Vp9DecodedFrame CreatePatternYuvFrame(int width, int height)
+    {
+        var buffer = Vp9YuvFrameBuffer.Create(width, height);
+        for (var i = 0; i < buffer.YPlane.Length; i++)
+        {
+            buffer.Pixels[buffer.YPlane.Offset + i] = (byte)i;
+        }
+
+        for (var i = 0; i < buffer.UPlane.Length; i++)
+        {
+            buffer.Pixels[buffer.UPlane.Offset + i] = (byte)(100 + i);
+        }
+
+        for (var i = 0; i < buffer.VPlane.Length; i++)
+        {
+            buffer.Pixels[buffer.VPlane.Offset + i] = (byte)(200 + i);
+        }
+
+        return buffer.ToDecodedFrame();
     }
 
     private static void AssertCoefficientBlock(

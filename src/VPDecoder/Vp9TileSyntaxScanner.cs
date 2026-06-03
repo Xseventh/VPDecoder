@@ -204,6 +204,104 @@ internal static class Vp9TileSyntaxScanner
         }
     }
 
+    public static bool TryReconstructFirstInterSuperblockZeroMv(
+        ReadOnlyMemory<byte> packet,
+        Vp9FrameHeader header,
+        Vp9CompressedHeader compressedHeader,
+        IReadOnlyList<Vp9TileBuffer> tileBuffers,
+        Vp9ReferenceFrameStore referenceFrames,
+        out Vp9DecodedFrame? frame,
+        out IReadOnlyList<Vp9InterSuperblockModeInfoProbe> probes,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
+        frame = null;
+        probes = [];
+        diagnostic = null;
+
+        if (!TryValidateInterPredictionProbeHeader(header, out diagnostic))
+        {
+            return false;
+        }
+
+        if (!TryProbeFirstInterSuperblockModeInfo(
+                packet,
+                header,
+                compressedHeader,
+                tileBuffers,
+                out probes,
+                out diagnostic))
+        {
+            return false;
+        }
+
+        try
+        {
+            var destination = Vp9YuvFrameBuffer.Create(header.Width, header.Height);
+            foreach (var probe in probes)
+            {
+                foreach (var modeBlock in probe.ModeInfos)
+                {
+                    if (!Vp9InterPredictor.TryResolveReferenceFrame(
+                            referenceFrames,
+                            header,
+                            modeBlock.ModeInfo.ReferenceFrame,
+                            out var referenceFrame,
+                            out diagnostic))
+                    {
+                        return false;
+                    }
+
+                    if (referenceFrame is null)
+                    {
+                        diagnostic = Vp9DecodeDiagnostic.InternalDecodeFailure(
+                            "VP9 inter reference lookup succeeded without returning a reference frame.");
+                        return false;
+                    }
+
+                    if (!Vp9InterPredictor.TrySelectMotionVector(
+                            modeBlock.ModeInfo.PredictionMode,
+                            Array.Empty<Vp9MotionVector>(),
+                            out var motionVector,
+                            out diagnostic))
+                    {
+                        return false;
+                    }
+
+                    if (!TryCopyInterPredictionBlock(
+                            referenceFrame.Frame,
+                            destination,
+                            header,
+                            modeBlock,
+                            motionVector,
+                            out diagnostic))
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            frame = destination.ToDecodedFrame();
+            return true;
+        }
+        catch (ArgumentException ex)
+        {
+            diagnostic = Vp9DecodeDiagnostic.InvalidPacket(ex.Message);
+            return false;
+        }
+        catch (OverflowException)
+        {
+            diagnostic = Vp9DecodeDiagnostic.AllocationLimitExceeded(
+                "VP9 inter prediction probe YUV frame buffer size overflowed.");
+            return false;
+        }
+        catch (OutOfMemoryException)
+        {
+            diagnostic = Vp9DecodeDiagnostic.AllocationLimitExceeded(
+                "VP9 inter prediction probe YUV frame buffer allocation failed.");
+            return false;
+        }
+    }
+
     public static bool TryProbeFirstLeafCoefficientToken(
         ReadOnlyMemory<byte> packet,
         Vp9KeyFrameDecodeState state,
@@ -1076,6 +1174,102 @@ internal static class Vp9TileSyntaxScanner
             partitionPath,
             modeInfo));
         return true;
+    }
+
+    private static bool TryValidateInterPredictionProbeHeader(
+        Vp9FrameHeader header,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
+        diagnostic = null;
+
+        if (header.BitDepth != 8)
+        {
+            diagnostic = Vp9DecodeDiagnostic.UnsupportedBitDepth(
+                "VP9 inter prediction probe currently supports only 8-bit frames.");
+            return false;
+        }
+
+        if (header.SubsamplingX != 1 || header.SubsamplingY != 1)
+        {
+            diagnostic = Vp9DecodeDiagnostic.UnsupportedChromaSubsampling(
+                "VP9 inter prediction probe currently supports only YUV420 frames.");
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool TryCopyInterPredictionBlock(
+        Vp9DecodedFrame referenceFrame,
+        Vp9YuvFrameBuffer destination,
+        Vp9FrameHeader header,
+        Vp9InterBlockModeInfoProbe modeBlock,
+        Vp9MotionVector motionVector,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
+        var destinationX = modeBlock.MiColumn * 8;
+        var destinationY = modeBlock.MiRow * 8;
+        var blockWidth = Vp9ModeInfoSyntax.GetBlockWidthInMiUnits(modeBlock.ModeInfo.BlockSize) * 8;
+        var blockHeight = Vp9ModeInfoSyntax.GetBlockHeightInMiUnits(modeBlock.ModeInfo.BlockSize) * 8;
+        var visibleWidth = Math.Min(blockWidth, header.Width - destinationX);
+        var visibleHeight = Math.Min(blockHeight, header.Height - destinationY);
+        if (visibleWidth <= 0 || visibleHeight <= 0)
+        {
+            diagnostic = Vp9DecodeDiagnostic.InvalidPacket(
+                "VP9 inter prediction block lies outside the visible frame.");
+            return false;
+        }
+
+        if (!Vp9MotionCompensator.TryCopyWholePixelPlaneBlock(
+                referenceFrame,
+                destination,
+                Vp9Plane.Y,
+                destinationX,
+                destinationY,
+                visibleWidth,
+                visibleHeight,
+                motionVector,
+                out diagnostic))
+        {
+            return false;
+        }
+
+        var chromaMotionVector = new Vp9MotionVector(motionVector.Row / 2, motionVector.Column / 2);
+        var chromaDestinationX = destinationX / 2;
+        var chromaDestinationY = destinationY / 2;
+        var chromaWidth = Math.Min((visibleWidth + 1) / 2, ((header.Width + 1) / 2) - chromaDestinationX);
+        var chromaHeight = Math.Min((visibleHeight + 1) / 2, ((header.Height + 1) / 2) - chromaDestinationY);
+        if (chromaWidth <= 0 || chromaHeight <= 0)
+        {
+            diagnostic = Vp9DecodeDiagnostic.InvalidPacket(
+                "VP9 inter prediction chroma block lies outside the visible frame.");
+            return false;
+        }
+
+        if (!Vp9MotionCompensator.TryCopyWholePixelPlaneBlock(
+                referenceFrame,
+                destination,
+                Vp9Plane.U,
+                chromaDestinationX,
+                chromaDestinationY,
+                chromaWidth,
+                chromaHeight,
+                chromaMotionVector,
+                out diagnostic))
+        {
+            return false;
+        }
+
+        return Vp9MotionCompensator.TryCopyWholePixelPlaneBlock(
+            referenceFrame,
+            destination,
+            Vp9Plane.V,
+            chromaDestinationX,
+            chromaDestinationY,
+            chromaWidth,
+            chromaHeight,
+            chromaMotionVector,
+            out diagnostic);
     }
 
     private static void ReadPartitionSyntax(
