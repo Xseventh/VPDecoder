@@ -18,8 +18,7 @@ public sealed class Vp9InterPredictorTests
     [Theory]
     [InlineData((int)Vp9InterPredictionMode.NearestMv)]
     [InlineData((int)Vp9InterPredictionMode.NearMv)]
-    [InlineData((int)Vp9InterPredictionMode.NewMv)]
-    public void TrySelectMotionVector_ForUnsupportedModes_ReturnsSpecificUnsupportedDiagnostic(int modeValue)
+    public void TrySelectMotionVector_WhenReferenceCandidatesAreMissing_ReturnsSpecificUnsupportedDiagnostic(int modeValue)
     {
         var mode = (Vp9InterPredictionMode)modeValue;
 
@@ -31,7 +30,59 @@ public sealed class Vp9InterPredictorTests
 
         Assert.Equal(default, motionVector);
         Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedInterFrameFeature, diagnostic?.Code);
-        Assert.Contains(mode == Vp9InterPredictionMode.NewMv ? "NEWMV" : mode.ToString(), diagnostic?.Message, StringComparison.Ordinal);
+        Assert.Contains(mode == Vp9InterPredictionMode.NearestMv ? "NEARESTMV" : "NEARMV", diagnostic?.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TrySelectMotionVector_ForNearestMv_ReturnsFirstCandidate()
+    {
+        var candidates = new[]
+        {
+            new Vp9MotionVector(8, -16),
+            new Vp9MotionVector(24, 32)
+        };
+
+        Assert.True(Vp9InterPredictor.TrySelectMotionVector(
+            Vp9InterPredictionMode.NearestMv,
+            candidates,
+            out var motionVector,
+            out var diagnostic));
+
+        Assert.Equal(candidates[0], motionVector);
+        Assert.Null(diagnostic);
+    }
+
+    [Fact]
+    public void TrySelectMotionVector_ForNearMv_ReturnsSecondCandidate()
+    {
+        var candidates = new[]
+        {
+            new Vp9MotionVector(8, -16),
+            new Vp9MotionVector(24, 32)
+        };
+
+        Assert.True(Vp9InterPredictor.TrySelectMotionVector(
+            Vp9InterPredictionMode.NearMv,
+            candidates,
+            out var motionVector,
+            out var diagnostic));
+
+        Assert.Equal(candidates[1], motionVector);
+        Assert.Null(diagnostic);
+    }
+
+    [Fact]
+    public void TrySelectMotionVector_ForNewMv_ReturnsSpecificUnsupportedDiagnostic()
+    {
+        Assert.False(Vp9InterPredictor.TrySelectMotionVector(
+            Vp9InterPredictionMode.NewMv,
+            candidates: [new Vp9MotionVector(8, -16), new Vp9MotionVector(24, 32)],
+            out var motionVector,
+            out var diagnostic));
+
+        Assert.Equal(default, motionVector);
+        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedInterFrameFeature, diagnostic?.Code);
+        Assert.Contains("NEWMV", diagnostic?.Message, StringComparison.Ordinal);
     }
 
     [Fact]

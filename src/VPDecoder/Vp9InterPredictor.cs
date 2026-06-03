@@ -47,10 +47,26 @@ internal static class Vp9InterPredictor
                 return true;
 
             case Vp9InterPredictionMode.NearestMv:
+                if (candidates.Count < 1)
+                {
+                    diagnostic = Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(
+                        "VP9 NEARESTMV requires a derived reference MV candidate, which is not available yet.");
+                    return false;
+                }
+
+                motionVector = candidates[0];
+                return true;
+
             case Vp9InterPredictionMode.NearMv:
-                diagnostic = Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(
-                    $"VP9 {predictionMode} requires reference MV candidate derivation, which is not supported yet.");
-                return false;
+                if (candidates.Count < 2)
+                {
+                    diagnostic = Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(
+                        "VP9 NEARMV requires derived reference MV candidates, which are not available yet.");
+                    return false;
+                }
+
+                motionVector = candidates[1];
+                return true;
 
             case Vp9InterPredictionMode.NewMv:
                 diagnostic = Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(
