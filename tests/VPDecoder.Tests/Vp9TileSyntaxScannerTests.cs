@@ -533,6 +533,78 @@ public sealed class Vp9TileSyntaxScannerTests
     }
 
     [Fact]
+    public void TryProbeFullInterFrameResidualSyntax_ForTwoSyntheticTiles_ReadsEachTileSuperblock()
+    {
+        byte[] tilePayload = [0x54, 0x00, 0x00];
+        var packet = tilePayload.Concat(tilePayload).ToArray();
+        var header = CreateSyntheticTwoTileOrdinaryInterHeader(packet.Length);
+        var compressedHeader = CreateSyntheticInterCompressedHeader();
+        IReadOnlyList<Vp9TileBuffer> tileBuffers =
+        [
+            new Vp9TileBuffer(Index: 0, SizeFieldOffset: null, DataOffset: 0, Size: tilePayload.Length),
+            new Vp9TileBuffer(Index: 1, SizeFieldOffset: null, DataOffset: tilePayload.Length, Size: tilePayload.Length)
+        ];
+
+        Assert.True(
+            Vp9TileSyntaxScanner.TryProbeFullInterFrameResidualSyntax(
+                packet,
+                header,
+                compressedHeader,
+                tileBuffers,
+                out var probes,
+                out var diagnostic),
+            diagnostic?.Message);
+
+        Assert.Equal(2, probes.Count);
+        Assert.Equal([0, 1], probes.Select(probe => probe.TileIndex).ToArray());
+        Assert.Equal([0, 8], probes.Select(probe => probe.ModeInfos[0].MiColumn).ToArray());
+        Assert.All(probes, probe =>
+        {
+            Assert.Single(probe.Partitions);
+            Assert.Single(probe.ModeInfos);
+            Assert.Equal(Vp9PartitionType.None, probe.Partitions[0].PartitionType);
+            Assert.True(probe.ModeInfos[0].ModeInfo.Skip);
+            Assert.Equal(Vp9InterPredictionMode.ZeroMv, probe.ModeInfos[0].ModeInfo.PredictionMode);
+            Assert.Equal([256, 64, 64], probe.CoefficientGroups.Select(group => group.Blocks.Count).ToArray());
+            Assert.All(probe.CoefficientGroups, group =>
+            {
+                Assert.Equal(Vp9TransformSize.Tx4X4, group.TransformSize);
+                Assert.All(group.Blocks, block =>
+                {
+                    Assert.Equal(Vp9ResidualSyntax.InterBlockReferenceType, block.ReferenceType);
+                    Assert.Equal(0, block.Eob);
+                });
+            });
+        });
+    }
+
+    [Fact]
+    public void TryProbeFullInterFrameResidualSyntax_WhenFirstTileResidualIsTruncated_ReturnsTruncatedPacket()
+    {
+        byte[] tilePayload = [0x03, 0x00, 0x00];
+        var packet = tilePayload;
+        var header = CreateSyntheticOrdinaryInterHeader(packet.Length);
+        var compressedHeader = CreateSyntheticInterCompressedHeader();
+        IReadOnlyList<Vp9TileBuffer> tileBuffers =
+        [
+            new Vp9TileBuffer(Index: 0, SizeFieldOffset: null, DataOffset: 0, Size: tilePayload.Length)
+        ];
+
+        Assert.False(
+            Vp9TileSyntaxScanner.TryProbeFullInterFrameResidualSyntax(
+                packet,
+                header,
+                compressedHeader,
+                tileBuffers,
+                out var probes,
+                out var diagnostic));
+
+        Assert.Empty(probes);
+        Assert.Equal(Vp9DecodeDiagnosticCode.TruncatedPacket, diagnostic?.Code);
+        Assert.Contains("full inter residual", diagnostic?.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void TryProbeFirstLeafCoefficientToken_ForExternalMainFrame_ReadsExpectedFirstToken()
     {
         var packet = ReadRequiredSample(
@@ -1267,6 +1339,24 @@ public sealed class Vp9TileSyntaxScannerTests
                 MinLog2TileColumns: 0,
                 MaxLog2TileColumns: 0,
                 Log2TileColumns: 0,
+                Log2TileRows: 0)
+        };
+    }
+
+    private static Vp9FrameHeader CreateSyntheticTwoTileOrdinaryInterHeader(int packetLength)
+    {
+        var header = CreateSyntheticOrdinaryInterHeader(packetLength);
+        return header with
+        {
+            Width = 128,
+            RenderWidth = 128,
+            TileInfo = new Vp9TileInfo(
+                MiColumns: 16,
+                MiRows: 8,
+                SuperblockColumns: 2,
+                MinLog2TileColumns: 0,
+                MaxLog2TileColumns: 0,
+                Log2TileColumns: 1,
                 Log2TileRows: 0)
         };
     }

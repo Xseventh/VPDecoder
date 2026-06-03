@@ -10,6 +10,12 @@ internal sealed record Vp9InterSuperblockModeInfoProbe(
     IReadOnlyList<Vp9PartitionProbe> Partitions,
     IReadOnlyList<Vp9InterBlockModeInfoProbe> ModeInfos);
 
+internal sealed record Vp9InterSuperblockSyntaxProbe(
+    int TileIndex,
+    IReadOnlyList<Vp9PartitionProbe> Partitions,
+    IReadOnlyList<Vp9InterBlockModeInfoProbe> ModeInfos,
+    IReadOnlyList<Vp9CoefficientBlockGroupProbe> CoefficientGroups);
+
 internal sealed record Vp9InterBlockModeInfoProbe(
     int TileIndex,
     int MiRow,
@@ -449,10 +455,10 @@ internal static class Vp9TileSyntaxScanner
 
         try
         {
-            var dequantTables = Vp9DequantTables.Create(header.Quantization, header.BitDepth);
             var geometries = Vp9TileGeometryBuilder.Build(header, tileBuffers);
             var parsed = new List<Vp9InterSuperblockModeInfoProbe>(geometries.Count);
             var parsedResidualGroups = new List<Vp9CoefficientBlockGroupProbe>();
+            var dequantTables = Vp9DequantTables.Create(header.Quantization, header.BitDepth);
             for (var i = 0; i < geometries.Count; i++)
             {
                 var geometry = geometries[i];
@@ -464,19 +470,17 @@ internal static class Vp9TileSyntaxScanner
 
                 var tileBytes = packet.Span.Slice(geometry.Buffer.DataOffset, geometry.Buffer.Size);
                 var reader = new Vp9BoolReader(tileBytes);
-                var partitions = new List<Vp9PartitionProbe>();
-                var modes = new List<Vp9InterBlockModeInfoProbe>();
-                if (!TryReadInterPartitionModeInfo(
+                var entropyContext = Vp9CoefficientEntropyContext.Create(header);
+                if (!TryReadInterSuperblockResidualSyntax(
                         ref reader,
                         header,
                         compressedHeader,
+                        dequantTables,
                         geometry,
+                        entropyContext,
                         geometry.MiRowStart,
                         geometry.MiColumnStart,
-                        Vp9BlockSize.Block64X64,
-                        [],
-                        partitions,
-                        modes,
+                        out var syntaxProbe,
                         out diagnostic))
                 {
                     probes = parsed;
@@ -484,22 +488,11 @@ internal static class Vp9TileSyntaxScanner
                     return false;
                 }
 
-                var entropyContext = Vp9CoefficientEntropyContext.Create(header);
-                var tileResidualGroups = new List<Vp9CoefficientBlockGroupProbe>();
-                foreach (var modeBlock in modes)
+                if (syntaxProbe is null)
                 {
-                    for (var plane = 0; plane < 3; plane++)
-                    {
-                        tileResidualGroups.Add(
-                            Vp9ResidualSyntax.ReadInterPlaneCoefficientBlocks(
-                                ref reader,
-                                header,
-                                compressedHeader,
-                                dequantTables,
-                                modeBlock,
-                                entropyContext,
-                                plane));
-                    }
+                    diagnostic = Vp9DecodeDiagnostic.InternalDecodeFailure(
+                        "VP9 inter residual probe succeeded without returning a syntax probe.");
+                    return false;
                 }
 
                 if (reader.HasError)
@@ -510,8 +503,11 @@ internal static class Vp9TileSyntaxScanner
                     return false;
                 }
 
-                parsed.Add(new Vp9InterSuperblockModeInfoProbe(geometry.Buffer.Index, partitions, modes));
-                parsedResidualGroups.AddRange(tileResidualGroups);
+                parsed.Add(new Vp9InterSuperblockModeInfoProbe(
+                    syntaxProbe.TileIndex,
+                    syntaxProbe.Partitions,
+                    syntaxProbe.ModeInfos));
+                parsedResidualGroups.AddRange(syntaxProbe.CoefficientGroups);
             }
 
             probes = parsed;
@@ -538,6 +534,128 @@ internal static class Vp9TileSyntaxScanner
         {
             diagnostic = Vp9DecodeDiagnostic.AllocationLimitExceeded(
                 "VP9 inter residual probe allocation failed.");
+            return false;
+        }
+        catch (Vp9BoolReaderException ex)
+        {
+            diagnostic = ex.Diagnostic;
+            return false;
+        }
+    }
+
+    public static bool TryProbeFullInterFrameResidualSyntax(
+        ReadOnlyMemory<byte> packet,
+        Vp9FrameHeader header,
+        Vp9CompressedHeader compressedHeader,
+        IReadOnlyList<Vp9TileBuffer> tileBuffers,
+        out IReadOnlyList<Vp9InterSuperblockSyntaxProbe> probes,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
+        var parsed = new List<Vp9InterSuperblockSyntaxProbe>();
+        probes = parsed;
+        diagnostic = null;
+
+        if (header.FrameType != Vp9FrameType.InterFrame || header.IntraOnly)
+        {
+            diagnostic = Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(
+                "VP9 full inter residual probe requires an ordinary inter frame.");
+            return false;
+        }
+
+        if (!TryValidateInter8BitYuv420Header(header, out diagnostic))
+        {
+            return false;
+        }
+
+        try
+        {
+            var dequantTables = Vp9DequantTables.Create(header.Quantization, header.BitDepth);
+            var geometries = Vp9TileGeometryBuilder.Build(header, tileBuffers);
+            foreach (var geometry in geometries)
+            {
+                if (geometry.Buffer.DataOffset + geometry.Buffer.Size > packet.Length)
+                {
+                    diagnostic = Vp9DecodeDiagnostic.TruncatedPacket("VP9 tile buffer extends past the packet boundary.");
+                    return false;
+                }
+
+                var tileBytes = packet.Span.Slice(geometry.Buffer.DataOffset, geometry.Buffer.Size);
+                var reader = new Vp9BoolReader(tileBytes);
+                var entropyContext = Vp9CoefficientEntropyContext.Create(header);
+
+                for (var miRow = geometry.MiRowStart; miRow < geometry.MiRowEnd; miRow += SuperblockSizeInMiUnits)
+                {
+                    entropyContext.ResetLeftContexts();
+
+                    for (var miColumn = geometry.MiColumnStart; miColumn < geometry.MiColumnEnd; miColumn += SuperblockSizeInMiUnits)
+                    {
+                        if (!TryReadInterSuperblockResidualSyntax(
+                                ref reader,
+                                header,
+                                compressedHeader,
+                                dequantTables,
+                                geometry,
+                                entropyContext,
+                                miRow,
+                                miColumn,
+                                out var syntaxProbe,
+                                out diagnostic))
+                        {
+                            return false;
+                        }
+
+                        if (syntaxProbe is null)
+                        {
+                            diagnostic = Vp9DecodeDiagnostic.InternalDecodeFailure(
+                                "VP9 full inter residual probe succeeded without returning a syntax probe.");
+                            return false;
+                        }
+
+                        if (reader.HasError)
+                        {
+                            diagnostic = Vp9DecodeDiagnostic.TruncatedPacket(
+                                CreateInterFullFrameSyntaxTruncatedMessage(
+                                    geometry.Buffer.Index,
+                                    miRow,
+                                    miColumn,
+                                    syntaxProbe.ModeInfos,
+                                    syntaxProbe.CoefficientGroups));
+                            return false;
+                        }
+
+                        parsed.Add(syntaxProbe);
+                    }
+                }
+
+                if (reader.HasError)
+                {
+                    diagnostic = Vp9DecodeDiagnostic.TruncatedPacket("VP9 full inter residual probe ended unexpectedly.");
+                    return false;
+                }
+            }
+
+            return true;
+        }
+        catch (ArgumentException ex)
+        {
+            diagnostic = Vp9DecodeDiagnostic.InvalidPacket(ex.Message);
+            return false;
+        }
+        catch (NotSupportedException ex)
+        {
+            diagnostic = Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(ex.Message);
+            return false;
+        }
+        catch (OverflowException)
+        {
+            diagnostic = Vp9DecodeDiagnostic.AllocationLimitExceeded(
+                "VP9 full inter residual probe allocation size overflowed.");
+            return false;
+        }
+        catch (OutOfMemoryException)
+        {
+            diagnostic = Vp9DecodeDiagnostic.AllocationLimitExceeded(
+                "VP9 full inter residual probe allocation failed.");
             return false;
         }
         catch (Vp9BoolReaderException ex)
@@ -1547,6 +1665,69 @@ internal static class Vp9TileSyntaxScanner
         return true;
     }
 
+    private static bool TryReadInterSuperblockResidualSyntax(
+        ref Vp9BoolReader reader,
+        Vp9FrameHeader header,
+        Vp9CompressedHeader compressedHeader,
+        Vp9DequantTables dequantTables,
+        Vp9TileGeometry geometry,
+        Vp9CoefficientEntropyContext entropyContext,
+        int miRow,
+        int miColumn,
+        out Vp9InterSuperblockSyntaxProbe? probe,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
+        probe = null;
+        var partitions = new List<Vp9PartitionProbe>();
+        var modes = new List<Vp9InterBlockModeInfoProbe>();
+        if (!TryReadInterPartitionModeInfo(
+                ref reader,
+                header,
+                compressedHeader,
+                geometry,
+                miRow,
+                miColumn,
+                Vp9BlockSize.Block64X64,
+                [],
+                partitions,
+                modes,
+                out diagnostic))
+        {
+            return false;
+        }
+
+        if (modes.Count != 1)
+        {
+            diagnostic = Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(
+                "VP9 inter residual probe currently supports only single-leaf inter superblocks; split inter residual ordering is not supported yet.");
+            return false;
+        }
+
+        var coefficientGroups = new List<Vp9CoefficientBlockGroupProbe>(3);
+        foreach (var modeBlock in modes)
+        {
+            for (var plane = 0; plane < 3; plane++)
+            {
+                coefficientGroups.Add(
+                    Vp9ResidualSyntax.ReadInterPlaneCoefficientBlocks(
+                        ref reader,
+                        header,
+                        compressedHeader,
+                        dequantTables,
+                        modeBlock,
+                        entropyContext,
+                        plane));
+            }
+        }
+
+        probe = new Vp9InterSuperblockSyntaxProbe(
+            geometry.Buffer.Index,
+            partitions,
+            modes,
+            coefficientGroups);
+        return true;
+    }
+
     private static bool TryValidateInter8BitYuv420Header(
         Vp9FrameHeader header,
         out Vp9DecodeDiagnostic? diagnostic)
@@ -1896,6 +2077,29 @@ internal static class Vp9TileSyntaxScanner
         {
             var lastMode = modes[^1];
             message += $"; last mode MI ({lastMode.MiRow},{lastMode.MiColumn}) block {lastMode.BlockSize} transform {lastMode.TransformSize} skip {lastMode.Skip} Y {lastMode.YMode} UV {lastMode.UvMode}";
+        }
+
+        if (coefficientGroups.Count > 0)
+        {
+            var lastGroup = coefficientGroups[^1];
+            message += $"; last coefficient group block {lastGroup.BlockSize} transform {lastGroup.TransformSize} blocks {lastGroup.Blocks.Count}";
+        }
+
+        return message + ".";
+    }
+
+    private static string CreateInterFullFrameSyntaxTruncatedMessage(
+        int tileIndex,
+        int miRow,
+        int miColumn,
+        IReadOnlyList<Vp9InterBlockModeInfoProbe> modes,
+        IReadOnlyList<Vp9CoefficientBlockGroupProbe> coefficientGroups)
+    {
+        var message = $"VP9 full inter residual probe ended unexpectedly at tile {tileIndex} MI ({miRow},{miColumn}); parsed {modes.Count} inter mode infos and {coefficientGroups.Count} coefficient groups in this superblock";
+        if (modes.Count > 0)
+        {
+            var lastMode = modes[^1];
+            message += $"; last inter mode MI ({lastMode.MiRow},{lastMode.MiColumn}) block {lastMode.ModeInfo.BlockSize} transform {lastMode.ModeInfo.TransformSize} skip {lastMode.ModeInfo.Skip} ref {lastMode.ModeInfo.ReferenceFrame} prediction {lastMode.ModeInfo.PredictionMode}";
         }
 
         if (coefficientGroups.Count > 0)
