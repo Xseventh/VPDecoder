@@ -10,6 +10,11 @@ public sealed class RawVp9Decoder
     private readonly Vp9ReferenceFrameStore _referenceFrames = new();
     private readonly Vp9FrameContext[] _frameContexts = CreateDefaultFrameContexts();
 
+    public Vp9DecodeResult DecodeFrame(ReadOnlyMemory<byte> packet, Vp9DecodeOptions? options = null)
+    {
+        return DecodeFrame(packet.Span, options);
+    }
+
     public Vp9DecodeResult DecodeFrame(ReadOnlySpan<byte> packet, Vp9DecodeOptions? options = null)
     {
         options ??= Vp9DecodeOptions.Default;
@@ -138,6 +143,14 @@ public sealed class RawVp9Decoder
             ? yuvFrame
             : Vp9ColorConverter.ConvertYuv420ToPacked(yuvFrame, header.ColorRange, options.OutputFormat);
         return Vp9DecodeResult.Success(outputFrame, header, compressedHeader);
+    }
+
+    public Vp9DecodeResult DecodeFrameWithAlpha(
+        ReadOnlyMemory<byte> colorPacket,
+        ReadOnlyMemory<byte> alphaPacket,
+        Vp9DecodeOptions? options = null)
+    {
+        return DecodeFrameWithAlpha(colorPacket.Span, alphaPacket.Span, options);
     }
 
     public Vp9DecodeResult DecodeFrameWithAlpha(

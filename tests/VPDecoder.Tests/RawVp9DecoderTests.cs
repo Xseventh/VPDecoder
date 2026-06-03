@@ -299,6 +299,20 @@ public sealed class RawVp9DecoderTests
         Assert.Equal("de5f6cf32681237d0076b8e106c2d8803a54379f639d9f6e7d10a864ad1ff306", Hash(result.Frame.Pixels));
     }
 
+    [Fact]
+    public void DecodeFrame_ReadOnlyMemoryInput_DecodesExternalMainFrame()
+    {
+        ReadOnlyMemory<byte> packet = ReadRequiredSample(MainFrameSamplePath, 30398, MainFrameSampleSha256);
+        var decoder = new RawVp9Decoder();
+
+        var result = decoder.DecodeFrame(packet, new Vp9DecodeOptions(2656, 1352));
+
+        Assert.True(result.Succeeded, result.Diagnostic?.Message);
+        Assert.NotNull(result.Frame);
+        Assert.Equal(Vp9OutputPixelFormat.Bgra8888, result.Frame.PixelFormat);
+        Assert.Equal("bd018f0c6eac5ae58945a2517c96c29a40f703b6c8c0a07c99debb9a8a864902", Hash(result.Frame.Pixels));
+    }
+
     [Theory]
     [InlineData(
         Vp9OutputPixelFormat.Yuv420,
@@ -460,6 +474,21 @@ public sealed class RawVp9DecoderTests
         Assert.Equal(0, alphaValues.Min());
         Assert.Equal(168, alphaValues.Max());
         Assert.True(alphaValues.Distinct().Count() > 1);
+    }
+
+    [Fact]
+    public void DecodeFrameWithAlpha_ReadOnlyMemoryInput_MergesExternalSamples()
+    {
+        ReadOnlyMemory<byte> colorPacket = ReadRequiredSample(MainFrameSamplePath, 30398, MainFrameSampleSha256);
+        ReadOnlyMemory<byte> alphaPacket = ReadRequiredSample(AlphaFrameSamplePath, 6233, AlphaFrameSampleSha256);
+        var decoder = new RawVp9Decoder();
+
+        var result = decoder.DecodeFrameWithAlpha(colorPacket, alphaPacket, new Vp9DecodeOptions(2656, 1352));
+
+        Assert.True(result.Succeeded, result.Diagnostic?.Message);
+        Assert.NotNull(result.Frame);
+        Assert.Equal(Vp9OutputPixelFormat.Bgra8888, result.Frame.PixelFormat);
+        Assert.Equal("c8095ee5e4b760a8a6f7c18d10b357b9f579c6864bb1cd815061d8d6e930a2ff", Hash(result.Frame.Pixels));
     }
 
     [Fact]

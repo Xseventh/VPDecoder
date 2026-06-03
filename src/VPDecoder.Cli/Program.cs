@@ -26,6 +26,13 @@ internal static class VpDecoderCli
             return 1;
         }
 
+        var alphaPath = GetValue(args, "--alpha");
+        if (!string.IsNullOrWhiteSpace(alphaPath) && !File.Exists(alphaPath))
+        {
+            Console.Error.WriteLine($"Alpha input file does not exist: {alphaPath}");
+            return 1;
+        }
+
         if (!TryReadNullableInt(args, "--width", out var width) ||
             !TryReadNullableInt(args, "--height", out var height))
         {
@@ -40,7 +47,10 @@ internal static class VpDecoderCli
         var outputPath = GetValue(args, "--out");
         var packet = File.ReadAllBytes(inputPath);
         var decoder = new RawVp9Decoder();
-        var result = decoder.DecodeFrame(packet, new Vp9DecodeOptions(width, height, format));
+        var options = new Vp9DecodeOptions(width, height, format);
+        var result = string.IsNullOrWhiteSpace(alphaPath)
+            ? decoder.DecodeFrame(packet, options)
+            : decoder.DecodeFrameWithAlpha(packet, File.ReadAllBytes(alphaPath), options);
         if (!result.Succeeded)
         {
             Console.Error.WriteLine($"{result.Diagnostic?.Code}: {result.Diagnostic?.Message}");
@@ -134,6 +144,6 @@ internal static class VpDecoderCli
 
     private static void PrintUsage()
     {
-        Console.Error.WriteLine("Usage: VPDecoder.Cli --input frame.vp9 [--width 2656] [--height 1352] [--format bgra|rgba|yuv420] [--out frame.raw]");
+        Console.Error.WriteLine("Usage: VPDecoder.Cli --input frame.vp9 [--alpha alpha.vp9] [--width 2656] [--height 1352] [--format bgra|rgba|yuv420] [--out frame.raw]");
     }
 }

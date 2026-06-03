@@ -57,6 +57,9 @@ Current status:
   that previously exposed residual synchronization drift.
 - Converts decoded YUV420 frames to BGRA8888/RGBA8888 and composes alpha from
   either BGRA red or YUV luma.
+- Exposes memory-first library entry points for WCX-style integration:
+  `DecodeFrame(ReadOnlySpan<byte>)`, `DecodeFrame(ReadOnlyMemory<byte>)`,
+  `DecodeFrameWithAlpha(...)`, and `Reset()`.
 - Provides a small raw VP9 CLI smoke workflow in `src/VPDecoder.Cli`.
 - Parses raw VP8 frame tags and key-frame uncompressed headers, then returns
   strict unsupported diagnostics until VP8 pixel reconstruction is implemented.
@@ -67,6 +70,29 @@ Current status:
 Broader ordinary inter-frame prediction and VP8 pixel reconstruction remain
 follow-up slices. The decoder must continue to return explicit unsupported
 diagnostics until those pieces are complete.
+
+Library API example:
+
+```csharp
+var decoder = new RawVp9Decoder();
+var options = new Vp9DecodeOptions(
+    ExpectedWidth: 2656,
+    ExpectedHeight: 1352,
+    OutputFormat: Vp9OutputPixelFormat.Bgra8888);
+
+Vp9DecodeResult color = decoder.DecodeFrame(colorPacket, options);
+Vp9DecodeResult merged = decoder.DecodeFrameWithAlpha(
+    colorPacket,
+    alphaPacket,
+    options);
+
+decoder.Reset();
+```
+
+`RawVp9Decoder` accepts `ReadOnlySpan<byte>` and `ReadOnlyMemory<byte>` packet
+inputs. It never requires file paths or container wrappers from callers; file
+I/O is limited to the CLI smoke helper. Decode failures are returned as
+structured `Vp9DecodeDiagnostic` values with stable codes and messages.
 
 CLI smoke example:
 
@@ -80,3 +106,14 @@ dotnet run --project src/VPDecoder.Cli/VPDecoder.Cli.csproj -- \
 The command decodes the raw packet to BGRA8888 by default. Pass
 `--format yuv420` or `--format rgba` to select another supported output shape,
 and `--out frame.raw` to write the pixel buffer.
+
+Alpha smoke example:
+
+```bash
+dotnet run --project src/VPDecoder.Cli/VPDecoder.Cli.csproj -- \
+  --input /tmp/vp9-main-frame-0.vp9 \
+  --alpha /tmp/vp9-alpha-frame-0.vp9 \
+  --width 2656 \
+  --height 1352 \
+  --out frame.bgra
+```
