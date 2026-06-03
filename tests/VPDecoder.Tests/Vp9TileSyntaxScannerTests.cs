@@ -389,6 +389,50 @@ public sealed class Vp9TileSyntaxScannerTests
     }
 
     [Fact]
+    public void TryProbeFirstInterSuperblockResidualSyntax_ForSyntheticNonSkippedInterFrame_ReadsInterResidualGroups()
+    {
+        var tilePayload = new byte[64];
+        tilePayload[0] = 0x03;
+
+        AssertSyntheticInterResidualGroups(tilePayload, expectedSkip: false);
+    }
+
+    [Fact]
+    public void TryProbeFirstInterSuperblockResidualSyntax_ForSyntheticSkippedInterFrame_ReadsInterResidualGroups()
+    {
+        byte[] tilePayload = [0x54, 0x00, 0x00];
+
+        AssertSyntheticInterResidualGroups(tilePayload, expectedSkip: true);
+    }
+
+    [Fact]
+    public void TryProbeFirstInterSuperblockResidualSyntax_WhenNonSkippedResidualIsTruncated_ReturnsTruncatedPacket()
+    {
+        byte[] tilePayload = [0x03, 0x00, 0x00];
+        var packet = tilePayload;
+        var header = CreateSyntheticOrdinaryInterHeader(packet.Length);
+        var compressedHeader = CreateSyntheticInterCompressedHeader();
+        IReadOnlyList<Vp9TileBuffer> tileBuffers =
+        [
+            new Vp9TileBuffer(Index: 0, SizeFieldOffset: null, DataOffset: 0, Size: tilePayload.Length)
+        ];
+
+        Assert.False(
+            Vp9TileSyntaxScanner.TryProbeFirstInterSuperblockResidualSyntax(
+                packet,
+                header,
+                compressedHeader,
+                tileBuffers,
+                out var probes,
+                out var residualGroups,
+                out var diagnostic));
+
+        Assert.Empty(probes);
+        Assert.Empty(residualGroups);
+        Assert.Equal(Vp9DecodeDiagnosticCode.TruncatedPacket, diagnostic?.Code);
+    }
+
+    [Fact]
     public void TryProbeFirstLeafCoefficientToken_ForExternalMainFrame_ReadsExpectedFirstToken()
     {
         var packet = ReadRequiredSample(
@@ -1136,6 +1180,43 @@ public sealed class Vp9TileSyntaxScannerTests
             CoefficientProbabilityUpdateCount: 0,
             SkipProbabilityUpdateCount: 0,
             ReferenceMode: Vp9ReferenceMode.Single);
+    }
+
+    private static void AssertSyntheticInterResidualGroups(byte[] tilePayload, bool expectedSkip)
+    {
+        var packet = tilePayload;
+        var header = CreateSyntheticOrdinaryInterHeader(packet.Length);
+        var compressedHeader = CreateSyntheticInterCompressedHeader();
+        IReadOnlyList<Vp9TileBuffer> tileBuffers =
+        [
+            new Vp9TileBuffer(Index: 0, SizeFieldOffset: null, DataOffset: 0, Size: tilePayload.Length)
+        ];
+
+        Assert.True(
+            Vp9TileSyntaxScanner.TryProbeFirstInterSuperblockResidualSyntax(
+                packet,
+                header,
+                compressedHeader,
+                tileBuffers,
+                out var probes,
+                out var residualGroups,
+                out var diagnostic),
+            diagnostic?.Message);
+
+        Assert.Single(probes);
+        Assert.Single(probes[0].ModeInfos);
+        Assert.Equal(expectedSkip, probes[0].ModeInfos[0].ModeInfo.Skip);
+        Assert.Equal([256, 64, 64], residualGroups.Select(group => group.Blocks.Count).ToArray());
+        Assert.All(residualGroups, group =>
+        {
+            Assert.Equal(Vp9TransformSize.Tx4X4, group.TransformSize);
+            Assert.All(group.Blocks, block =>
+            {
+                Assert.Equal(Vp9ResidualSyntax.InterBlockReferenceType, block.ReferenceType);
+                Assert.Equal(Vp9TransformType.DctDct, block.TransformType);
+                Assert.Equal(0, block.NonZeroCount);
+            });
+        });
     }
 
     private static Vp9DecodedFrame CreatePatternYuvFrame(int width, int height)

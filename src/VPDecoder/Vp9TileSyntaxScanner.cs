@@ -218,7 +218,7 @@ internal static class Vp9TileSyntaxScanner
         probes = [];
         diagnostic = null;
 
-        if (!TryValidateInterPredictionProbeHeader(header, out diagnostic))
+        if (!TryValidateInter8BitYuv420Header(header, out diagnostic))
         {
             return false;
         }
@@ -318,7 +318,7 @@ internal static class Vp9TileSyntaxScanner
         residualGroups = [];
         diagnostic = null;
 
-        if (!TryValidateInterPredictionProbeHeader(header, out diagnostic))
+        if (!TryValidateInter8BitYuv420Header(header, out diagnostic))
         {
             return false;
         }
@@ -418,6 +418,131 @@ internal static class Vp9TileSyntaxScanner
         {
             diagnostic = Vp9DecodeDiagnostic.AllocationLimitExceeded(
                 "VP9 skipped inter reconstruction probe YUV frame buffer allocation failed.");
+            return false;
+        }
+    }
+
+    public static bool TryProbeFirstInterSuperblockResidualSyntax(
+        ReadOnlyMemory<byte> packet,
+        Vp9FrameHeader header,
+        Vp9CompressedHeader compressedHeader,
+        IReadOnlyList<Vp9TileBuffer> tileBuffers,
+        out IReadOnlyList<Vp9InterSuperblockModeInfoProbe> probes,
+        out IReadOnlyList<Vp9CoefficientBlockGroupProbe> residualGroups,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
+        probes = [];
+        residualGroups = [];
+        diagnostic = null;
+
+        if (header.FrameType != Vp9FrameType.InterFrame || header.IntraOnly)
+        {
+            diagnostic = Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(
+                "VP9 inter residual probe requires an ordinary inter frame.");
+            return false;
+        }
+
+        if (!TryValidateInter8BitYuv420Header(header, out diagnostic))
+        {
+            return false;
+        }
+
+        try
+        {
+            var dequantTables = Vp9DequantTables.Create(header.Quantization, header.BitDepth);
+            var geometries = Vp9TileGeometryBuilder.Build(header, tileBuffers);
+            var parsed = new List<Vp9InterSuperblockModeInfoProbe>(geometries.Count);
+            var parsedResidualGroups = new List<Vp9CoefficientBlockGroupProbe>();
+            for (var i = 0; i < geometries.Count; i++)
+            {
+                var geometry = geometries[i];
+                if (geometry.Buffer.DataOffset + geometry.Buffer.Size > packet.Length)
+                {
+                    diagnostic = Vp9DecodeDiagnostic.TruncatedPacket("VP9 tile buffer extends past the packet boundary.");
+                    return false;
+                }
+
+                var tileBytes = packet.Span.Slice(geometry.Buffer.DataOffset, geometry.Buffer.Size);
+                var reader = new Vp9BoolReader(tileBytes);
+                var partitions = new List<Vp9PartitionProbe>();
+                var modes = new List<Vp9InterBlockModeInfoProbe>();
+                if (!TryReadInterPartitionModeInfo(
+                        ref reader,
+                        header,
+                        compressedHeader,
+                        geometry,
+                        geometry.MiRowStart,
+                        geometry.MiColumnStart,
+                        Vp9BlockSize.Block64X64,
+                        [],
+                        partitions,
+                        modes,
+                        out diagnostic))
+                {
+                    probes = parsed;
+                    residualGroups = parsedResidualGroups;
+                    return false;
+                }
+
+                var entropyContext = Vp9CoefficientEntropyContext.Create(header);
+                var tileResidualGroups = new List<Vp9CoefficientBlockGroupProbe>();
+                foreach (var modeBlock in modes)
+                {
+                    for (var plane = 0; plane < 3; plane++)
+                    {
+                        tileResidualGroups.Add(
+                            Vp9ResidualSyntax.ReadInterPlaneCoefficientBlocks(
+                                ref reader,
+                                header,
+                                compressedHeader,
+                                dequantTables,
+                                modeBlock,
+                                entropyContext,
+                                plane));
+                    }
+                }
+
+                if (reader.HasError)
+                {
+                    diagnostic = Vp9DecodeDiagnostic.TruncatedPacket("VP9 inter first-superblock residual probe ended unexpectedly.");
+                    probes = parsed;
+                    residualGroups = parsedResidualGroups;
+                    return false;
+                }
+
+                parsed.Add(new Vp9InterSuperblockModeInfoProbe(geometry.Buffer.Index, partitions, modes));
+                parsedResidualGroups.AddRange(tileResidualGroups);
+            }
+
+            probes = parsed;
+            residualGroups = parsedResidualGroups;
+            return true;
+        }
+        catch (ArgumentException ex)
+        {
+            diagnostic = Vp9DecodeDiagnostic.InvalidPacket(ex.Message);
+            return false;
+        }
+        catch (NotSupportedException ex)
+        {
+            diagnostic = Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(ex.Message);
+            return false;
+        }
+        catch (OverflowException)
+        {
+            diagnostic = Vp9DecodeDiagnostic.AllocationLimitExceeded(
+                "VP9 inter residual probe allocation size overflowed.");
+            return false;
+        }
+        catch (OutOfMemoryException)
+        {
+            diagnostic = Vp9DecodeDiagnostic.AllocationLimitExceeded(
+                "VP9 inter residual probe allocation failed.");
+            return false;
+        }
+        catch (Vp9BoolReaderException ex)
+        {
+            diagnostic = ex.Diagnostic;
             return false;
         }
     }
@@ -1296,7 +1421,7 @@ internal static class Vp9TileSyntaxScanner
         return true;
     }
 
-    private static bool TryValidateInterPredictionProbeHeader(
+    private static bool TryValidateInter8BitYuv420Header(
         Vp9FrameHeader header,
         out Vp9DecodeDiagnostic? diagnostic)
     {
