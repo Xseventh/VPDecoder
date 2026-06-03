@@ -73,14 +73,14 @@ internal static class Vp8MacroblockReconstructor
                     return false;
                 }
 
-                if (!TryAddDcResidual(
+                if (!TryAddResidual(
                     temp,
                     stride: 16,
                     localX,
                     localY,
                     residualBlocks[block],
                     dequantFactors.Y1Dc,
-                    "VP8 Y1 AC reconstruction is not implemented yet.",
+                    dequantFactors.Y1Ac,
                     out diagnostic))
                 {
                     return false;
@@ -171,14 +171,14 @@ internal static class Vp8MacroblockReconstructor
         {
             var blockX = uvX + ((block & 1) * 4);
             var blockY = uvY + (((block - 16) >> 1) * 4);
-            if (!TryAddDcResidual(
+            if (!TryAddResidual(
                 uTemp,
                 stride: 8,
                 blockX - uvX,
                 blockY - uvY,
                 residualBlocks[block],
                 dequantFactors.UvDc,
-                "VP8 UV AC reconstruction is not implemented yet.",
+                dequantFactors.UvAc,
                 out diagnostic))
             {
                 return false;
@@ -189,14 +189,14 @@ internal static class Vp8MacroblockReconstructor
         {
             var blockX = uvX + ((block & 1) * 4);
             var blockY = uvY + (((block - 20) >> 1) * 4);
-            if (!TryAddDcResidual(
+            if (!TryAddResidual(
                 vTemp,
                 stride: 8,
                 blockX - uvX,
                 blockY - uvY,
                 residualBlocks[block],
                 dequantFactors.UvDc,
-                "VP8 UV AC reconstruction is not implemented yet.",
+                dequantFactors.UvAc,
                 out diagnostic))
             {
                 return false;
@@ -309,14 +309,14 @@ internal static class Vp8MacroblockReconstructor
         return true;
     }
 
-    private static bool TryAddDcResidual(
+    private static bool TryAddResidual(
         Span<byte> plane,
         int stride,
         int x,
         int y,
         Vp8ResidualBlockProbe? residual,
         int dcQuant,
-        string acUnsupportedMessage,
+        int acQuant,
         out Vp8DecodeDiagnostic? diagnostic)
     {
         diagnostic = null;
@@ -325,18 +325,19 @@ internal static class Vp8MacroblockReconstructor
             return true;
         }
 
-        if (!IsDcOnly(residual.Block))
+        var dequantized = new int[16];
+        dequantized[0] = residual.Block.Coefficients[0] * dcQuant;
+        for (var i = 1; i < dequantized.Length; i++)
         {
-            diagnostic = Vp8DecodeDiagnostic.UnsupportedFeature(acUnsupportedMessage);
-            return false;
+            dequantized[i] = residual.Block.Coefficients[i] * acQuant;
         }
 
-        Vp8DcOnlyReconstructor.AddDcOnly(
+        Vp8InverseTransform.AddBlock(
             plane,
             stride,
             x,
             y,
-            residual.Block.Coefficients[0] * dcQuant);
+            dequantized);
         return true;
     }
 
@@ -518,21 +519,4 @@ internal static class Vp8MacroblockReconstructor
         return block is null || block.Coefficients.All(coefficient => coefficient == 0);
     }
 
-    private static bool IsDcOnly(Vp8CoefficientBlock block)
-    {
-        if (block.Eob > 1)
-        {
-            return false;
-        }
-
-        for (var i = 1; i < block.Coefficients.Length; i++)
-        {
-            if (block.Coefficients[i] != 0)
-            {
-                return false;
-            }
-        }
-
-        return block.Coefficients[0] != 0;
-    }
 }

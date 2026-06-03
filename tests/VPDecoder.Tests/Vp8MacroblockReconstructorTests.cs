@@ -81,6 +81,29 @@ public sealed class Vp8MacroblockReconstructorTests
     }
 
     [Fact]
+    public void TryReconstruct_ForUvAcResidual_AppliesInverseTransform()
+    {
+        var buffer = Vp8ReconstructionBuffer.Create(16, 16);
+        var mode = CreateMode(Vp8MacroblockPredictionMode.Dc, Vp8MacroblockPredictionMode.Dc);
+        var residual = CreateResidual(
+            CreateBlockProbe(blockIndex: 16, coefficientIndex: 0, coefficient: 80),
+            CreateBlockProbe(blockIndex: 17, coefficientIndex: 1, coefficient: 80, eob: 2));
+
+        var succeeded = Vp8MacroblockReconstructor.TryReconstruct(
+            buffer,
+            mode,
+            residual,
+            DequantFactors,
+            out var diagnostic);
+
+        Assert.True(succeeded);
+        Assert.Null(diagnostic);
+        var uPlane = buffer.Pixels.AsSpan(buffer.UPlane.Offset, buffer.UPlane.Length);
+        Assert.Equal([168, 168, 168, 168], uPlane.Slice(0, 4).ToArray());
+        Assert.True(uPlane.Slice(4, 4).ToArray().Distinct().Count() > 1);
+    }
+
+    [Fact]
     public void TryReconstruct_WhenY2BlockIsNonZero_ReturnsUnsupportedFeature()
     {
         var buffer = Vp8ReconstructionBuffer.Create(16, 16);
@@ -101,12 +124,35 @@ public sealed class Vp8MacroblockReconstructorTests
     }
 
     [Fact]
-    public void TryReconstruct_WhenY1AcIsNonZero_ReturnsUnsupportedFeature()
+    public void TryReconstruct_ForBPredY1AcResidual_AppliesInverseTransform()
     {
         var buffer = Vp8ReconstructionBuffer.Create(16, 16);
         var mode = CreateMode(Vp8MacroblockPredictionMode.BPred, Vp8MacroblockPredictionMode.Dc);
         var residual = CreateResidual(
-            CreateBlockProbe(blockIndex: 0, coefficientIndex: 1, coefficient: 1, eob: 2));
+            CreateBlockProbe(blockIndex: 0, coefficientIndex: 0, coefficient: 80),
+            CreateBlockProbe(blockIndex: 1, coefficientIndex: 1, coefficient: 80, eob: 2));
+
+        var succeeded = Vp8MacroblockReconstructor.TryReconstruct(
+            buffer,
+            mode,
+            residual,
+            DequantFactors,
+            out var diagnostic);
+
+        Assert.True(succeeded);
+        Assert.Null(diagnostic);
+        var yPlane = buffer.Pixels.AsSpan(buffer.YPlane.Offset, buffer.YPlane.Length);
+        Assert.Equal([168, 168, 168, 168], yPlane.Slice(0, 4).ToArray());
+        Assert.True(yPlane.Slice(4, 4).ToArray().Distinct().Count() > 1);
+    }
+
+    [Fact]
+    public void TryReconstruct_WhenNonBPredY1AcIsNonZero_ReturnsUnsupportedFeature()
+    {
+        var buffer = Vp8ReconstructionBuffer.Create(16, 16);
+        var mode = CreateMode(Vp8MacroblockPredictionMode.Dc, Vp8MacroblockPredictionMode.Dc);
+        var residual = CreateResidual(
+            CreateBlockProbe(blockIndex: 0, coefficientIndex: 1, coefficient: 80, eob: 2));
 
         var succeeded = Vp8MacroblockReconstructor.TryReconstruct(
             buffer,
@@ -117,7 +163,7 @@ public sealed class Vp8MacroblockReconstructorTests
 
         Assert.False(succeeded);
         Assert.Equal(Vp8DecodeDiagnosticCode.UnsupportedFeature, diagnostic?.Code);
-        Assert.Contains("Y1 AC", diagnostic?.Message, StringComparison.Ordinal);
+        Assert.Contains("non-B_PRED Y1 AC", diagnostic?.Message, StringComparison.Ordinal);
     }
 
     [Fact]
