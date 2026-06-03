@@ -106,8 +106,25 @@ internal static class Vp9ModeInfoSyntax
         Vp9BlockSize blockSize,
         out int transformSizeContext)
     {
+        return ReadTransformSize(
+            ref reader,
+            compressedHeader,
+            blockSize,
+            allowSelect: true,
+            out transformSizeContext);
+    }
+
+    public static Vp9TransformSize ReadTransformSize(
+        ref Vp9BoolReader reader,
+        Vp9CompressedHeader compressedHeader,
+        Vp9BlockSize blockSize,
+        bool allowSelect,
+        out int transformSizeContext)
+    {
         var maxTransformSize = GetMaximumTransformSize(blockSize);
-        if (compressedHeader.TransformMode != Vp9TransformMode.Select || blockSize < Vp9BlockSize.Block8X8)
+        if (!allowSelect ||
+            compressedHeader.TransformMode != Vp9TransformMode.Select ||
+            blockSize < Vp9BlockSize.Block8X8)
         {
             transformSizeContext = 0;
             return (Vp9TransformSize)Math.Min((int)maxTransformSize, GetBiggestTransformSize(compressedHeader.TransformMode));
@@ -123,8 +140,25 @@ internal static class Vp9ModeInfoSyntax
         Vp9BlockSize blockSize,
         int transformSizeContext)
     {
+        return ReadTransformSize(
+            ref reader,
+            compressedHeader,
+            blockSize,
+            transformSizeContext,
+            allowSelect: true);
+    }
+
+    public static Vp9TransformSize ReadTransformSize(
+        ref Vp9BoolReader reader,
+        Vp9CompressedHeader compressedHeader,
+        Vp9BlockSize blockSize,
+        int transformSizeContext,
+        bool allowSelect)
+    {
         var maxTransformSize = GetMaximumTransformSize(blockSize);
-        if (compressedHeader.TransformMode != Vp9TransformMode.Select || blockSize < Vp9BlockSize.Block8X8)
+        if (!allowSelect ||
+            compressedHeader.TransformMode != Vp9TransformMode.Select ||
+            blockSize < Vp9BlockSize.Block8X8)
         {
             return (Vp9TransformSize)Math.Min((int)maxTransformSize, GetBiggestTransformSize(compressedHeader.TransformMode));
         }
