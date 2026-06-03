@@ -212,6 +212,26 @@ public sealed class RawVp9DecoderTests
     }
 
     [Fact]
+    public void DecodeFrame_WhenOrdinaryInterFrameNewMvCandidateIsMissing_ReturnsUnsupportedInterFrameFeature()
+    {
+        var decoder = new RawVp9Decoder();
+        var reference = CreatePatternYuvFrame(width: 16, height: 8);
+        SeedReferenceFrame(decoder, reference, Vp9ColorRange.Studio, refreshFrameFlags: 0xff);
+
+        var result = decoder.DecodeFrame(
+            CreatePaddedOrdinaryInterFramePacket(tilePayload: [0x0c, 0x10, 0x00, 0x00]),
+            new Vp9DecodeOptions(16, 8, Vp9OutputPixelFormat.Yuv420));
+
+        Assert.False(result.Succeeded);
+        Assert.Null(result.Frame);
+        Assert.NotNull(result.Header);
+        Assert.NotNull(result.CompressedHeader);
+        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedInterFrameFeature, result.Diagnostic?.Code);
+        Assert.Contains("NEWMV", result.Diagnostic?.Message, StringComparison.Ordinal);
+        Assert.Contains("candidate", result.Diagnostic?.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void DecodeFrame_WhenRestrictedOrdinaryInterFrameHasLoopFilter_AppliesFilterDeterministically()
     {
         var reference = CreateEdgeYuvFrame(width: 16, height: 8);
@@ -527,10 +547,11 @@ public sealed class RawVp9DecoderTests
     private static byte[] CreatePaddedOrdinaryInterFramePacket(
         bool sizeFromReference = false,
         int tileInfoWidth = 16,
-        int loopFilterLevel = 0)
+        int loopFilterLevel = 0,
+        byte[]? tilePayload = null)
     {
         const int firstPartitionSize = 64;
-        byte[] tilePayload = [0x01, 0x00, 0x00];
+        tilePayload ??= [0x01, 0x00, 0x00];
         var headerPacket = Vp9TestPackets.CreateOrdinaryInterFramePacket(
             sizeFromReference: sizeFromReference,
             stopAfterSizeReference: false,
