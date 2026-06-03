@@ -99,6 +99,27 @@ internal static class Vp9InterPredictor
         }
     }
 
+    public static bool TrySelectMotionVector(
+        Vp9InterBlockModeInfoProbe modeBlock,
+        IReadOnlyList<Vp9MotionVector> candidates,
+        out Vp9MotionVector motionVector,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
+        if (modeBlock.ModeInfo.PredictionMode == Vp9InterPredictionMode.NewMv &&
+            modeBlock.MotionVector is { } decodedMotionVector)
+        {
+            motionVector = decodedMotionVector;
+            diagnostic = null;
+            return true;
+        }
+
+        return TrySelectMotionVector(
+            modeBlock.ModeInfo.PredictionMode,
+            candidates,
+            out motionVector,
+            out diagnostic);
+    }
+
     public static IReadOnlyList<Vp9MotionVector> BuildSpatialMotionVectorCandidates(
         Vp9InterBlockModeInfoProbe currentBlock,
         IReadOnlyList<Vp9InterBlockModeInfoProbe> decodedBlocks)

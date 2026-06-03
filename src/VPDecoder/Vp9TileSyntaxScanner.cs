@@ -893,7 +893,7 @@ internal static class Vp9TileSyntaxScanner
                         modeBlock,
                         predictedModeBlocks);
                     if (!Vp9InterPredictor.TrySelectMotionVector(
-                            modeBlock.ModeInfo.PredictionMode,
+                            modeBlock,
                             candidates,
                             out var motionVector,
                             out diagnostic))
@@ -2075,7 +2075,7 @@ internal static class Vp9TileSyntaxScanner
             modeBlock,
             predictedModeBlocks);
         if (!Vp9InterPredictor.TrySelectMotionVector(
-                modeBlock.ModeInfo.PredictionMode,
+                modeBlock,
                 candidates,
                 out var motionVector,
                 out diagnostic))

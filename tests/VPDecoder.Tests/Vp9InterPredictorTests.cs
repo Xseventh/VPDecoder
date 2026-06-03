@@ -86,6 +86,26 @@ public sealed class Vp9InterPredictorTests
     }
 
     [Fact]
+    public void TrySelectMotionVector_ForNewMvWithDecodedProbeVector_ReturnsProbeMotionVector()
+    {
+        var modeBlock = CreateModeBlock(
+            0,
+            0,
+            Vp9InterReferenceFrame.Last,
+            new Vp9MotionVector(16, -16),
+            predictionMode: Vp9InterPredictionMode.NewMv);
+
+        Assert.True(Vp9InterPredictor.TrySelectMotionVector(
+            modeBlock,
+            candidates: [],
+            out var motionVector,
+            out var diagnostic));
+
+        Assert.Equal(modeBlock.MotionVector, motionVector);
+        Assert.Null(diagnostic);
+    }
+
+    [Fact]
     public void BuildSpatialMotionVectorCandidates_UsesLibvpxReferenceOrderFor8X8Blocks()
     {
         var left = CreateModeBlock(1, 0, Vp9InterReferenceFrame.Last, new Vp9MotionVector(8, -16));
@@ -246,7 +266,8 @@ public sealed class Vp9InterPredictorTests
         Vp9InterReferenceFrame referenceFrame,
         Vp9MotionVector? motionVector = null,
         Vp9BlockSize blockSize = Vp9BlockSize.Block8X8,
-        int tileIndex = 0)
+        int tileIndex = 0,
+        Vp9InterPredictionMode predictionMode = Vp9InterPredictionMode.ZeroMv)
     {
         var modeInfo = new Vp9InterModeInfoProbe(
             blockSize,
@@ -260,7 +281,7 @@ public sealed class Vp9InterPredictorTests
             referenceFrame,
             SingleReferenceContext0: 0,
             SingleReferenceContext1: null,
-            Vp9InterPredictionMode.ZeroMv,
+            predictionMode,
             InterModeContext: 0,
             Vp9InterpolationFilter.EightTap);
 

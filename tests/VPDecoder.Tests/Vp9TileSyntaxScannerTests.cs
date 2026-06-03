@@ -841,6 +841,127 @@ public sealed class Vp9TileSyntaxScannerTests
     }
 
     [Fact]
+    public void TryReconstructInterFrameFromProbes_ForPresetNewMvThenNearestMv_CopiesShiftedReferenceAndPropagatesMotionVector()
+    {
+        var header = CreateSyntheticOrdinaryInterHeader(packetLength: 0) with
+        {
+            Width = 16,
+            Height = 16,
+            RenderWidth = 16,
+            RenderHeight = 16,
+            TileInfo = new Vp9TileInfo(
+                MiColumns: 2,
+                MiRows: 2,
+                SuperblockColumns: 1,
+                MinLog2TileColumns: 0,
+                MaxLog2TileColumns: 0,
+                Log2TileColumns: 0,
+                Log2TileRows: 0)
+        };
+        var referenceFrame = CreatePatternYuvFrame(width: 16, height: 16);
+        var referenceFrames = new Vp9ReferenceFrameStore();
+        referenceFrames.Refresh(referenceFrame, Vp9ColorRange.Studio, refreshFrameFlags: 0x01);
+        var motionVector = new Vp9MotionVector(Row: 16, Column: 0);
+        var first = CreateInterModeBlock(
+            0,
+            0,
+            Vp9InterPredictionMode.NewMv,
+            motionVector: motionVector);
+        var second = CreateInterModeBlock(0, 1, Vp9InterPredictionMode.NearestMv);
+        IReadOnlyList<Vp9InterSuperblockSyntaxProbe> probes =
+        [
+            new Vp9InterSuperblockSyntaxProbe(
+                TileIndex: 0,
+                Partitions: [],
+                ModeInfos: [first, second],
+                CoefficientGroups:
+                [
+                    .. CreateEmptyInterTx4Groups(first.ModeInfo.BlockSize),
+                    .. CreateEmptyInterTx4Groups(second.ModeInfo.BlockSize)
+                ])
+        ];
+
+        Assert.True(
+            Vp9TileSyntaxScanner.TryReconstructInterFrameFromProbes(
+                header,
+                probes,
+                referenceFrames,
+                out var reconstructedFrame,
+                out var predictedProbes,
+                out var diagnostic),
+            diagnostic?.Message);
+
+        Assert.NotNull(reconstructedFrame);
+        var frame = reconstructedFrame.Frame;
+        var referenceUPlane = referenceFrame.Planes[1];
+        var referenceVPlane = referenceFrame.Planes[2];
+        var frameUPlane = frame.Planes[1];
+        var frameVPlane = frame.Planes[2];
+        Assert.Equal(referenceFrame.Pixels[32], frame.Pixels[0]);
+        Assert.Equal(referenceFrame.Pixels[40], frame.Pixels[8]);
+        Assert.Equal(
+            referenceFrame.Pixels[referenceUPlane.Offset + referenceUPlane.Stride],
+            frame.Pixels[frameUPlane.Offset]);
+        Assert.Equal(
+            referenceFrame.Pixels[referenceUPlane.Offset + referenceUPlane.Stride + 4],
+            frame.Pixels[frameUPlane.Offset + 4]);
+        Assert.Equal(
+            referenceFrame.Pixels[referenceVPlane.Offset + referenceVPlane.Stride],
+            frame.Pixels[frameVPlane.Offset]);
+        Assert.Equal(
+            referenceFrame.Pixels[referenceVPlane.Offset + referenceVPlane.Stride + 4],
+            frame.Pixels[frameVPlane.Offset + 4]);
+        var predictedModes = Assert.Single(predictedProbes).ModeInfos;
+        Assert.Equal(motionVector, predictedModes[0].MotionVector);
+        Assert.Equal(motionVector, predictedModes[1].MotionVector);
+    }
+
+    [Fact]
+    public void TryReconstructInterFrameFromProbes_ForNewMvWithoutPresetVector_ReturnsUnsupportedDiagnostic()
+    {
+        var header = CreateSyntheticOrdinaryInterHeader(packetLength: 0) with
+        {
+            Width = 8,
+            Height = 8,
+            RenderWidth = 8,
+            RenderHeight = 8,
+            TileInfo = new Vp9TileInfo(
+                MiColumns: 1,
+                MiRows: 1,
+                SuperblockColumns: 1,
+                MinLog2TileColumns: 0,
+                MaxLog2TileColumns: 0,
+                Log2TileColumns: 0,
+                Log2TileRows: 0)
+        };
+        var referenceFrame = CreatePatternYuvFrame(width: 8, height: 8);
+        var referenceFrames = new Vp9ReferenceFrameStore();
+        referenceFrames.Refresh(referenceFrame, Vp9ColorRange.Studio, refreshFrameFlags: 0x01);
+        var modeBlock = CreateInterModeBlock(0, 0, Vp9InterPredictionMode.NewMv);
+        IReadOnlyList<Vp9InterSuperblockSyntaxProbe> probes =
+        [
+            new Vp9InterSuperblockSyntaxProbe(
+                TileIndex: 0,
+                Partitions: [],
+                ModeInfos: [modeBlock],
+                CoefficientGroups: [.. CreateEmptyInterTx4Groups(modeBlock.ModeInfo.BlockSize)])
+        ];
+
+        Assert.False(Vp9TileSyntaxScanner.TryReconstructInterFrameFromProbes(
+            header,
+            probes,
+            referenceFrames,
+            out var reconstructedFrame,
+            out var predictedProbes,
+            out var diagnostic));
+
+        Assert.Null(reconstructedFrame);
+        Assert.Empty(predictedProbes);
+        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedInterFrameFeature, diagnostic?.Code);
+        Assert.Contains("NEWMV", diagnostic?.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void TryReconstructInterFrameFromProbes_WhenNearestCandidateIsInOtherTile_ReturnsUnsupportedDiagnostic()
     {
         var header = CreateSyntheticOrdinaryInterHeader(packetLength: 0) with
@@ -1713,7 +1834,8 @@ public sealed class Vp9TileSyntaxScannerTests
         int miRow,
         int miColumn,
         Vp9InterPredictionMode predictionMode,
-        int tileIndex = 0)
+        int tileIndex = 0,
+        Vp9MotionVector? motionVector = null)
     {
         var modeInfo = new Vp9InterModeInfoProbe(
             Vp9BlockSize.Block8X8,
@@ -1736,7 +1858,8 @@ public sealed class Vp9TileSyntaxScannerTests
             miRow,
             miColumn,
             PartitionPath: [Vp9PartitionType.None],
-            modeInfo);
+            modeInfo,
+            motionVector);
     }
 
     private static IEnumerable<Vp9CoefficientBlockGroupProbe> CreateEmptyInterTx4Groups(Vp9BlockSize blockSize)
