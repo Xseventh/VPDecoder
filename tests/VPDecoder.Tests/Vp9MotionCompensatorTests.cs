@@ -71,6 +71,55 @@ public sealed class Vp9MotionCompensatorTests
     }
 
     [Fact]
+    public void TryCopyWholePixelPlaneBlock_WithNegativeWholePixelMv_ExtendsReferenceEdges()
+    {
+        var reference = CreatePatternYuvFrame(width: 4, height: 4);
+        var destination = Vp9YuvFrameBuffer.Create(4, 4);
+
+        Assert.True(Vp9MotionCompensator.TryCopyWholePixelPlaneBlock(
+            reference,
+            destination,
+            Vp9Plane.Y,
+            destinationX: 0,
+            destinationY: 0,
+            width: 3,
+            height: 3,
+            new Vp9MotionVector(Row: -8, Column: -8),
+            out var diagnostic), diagnostic?.Message);
+
+        Assert.Equal(0, destination.Pixels[0]);
+        Assert.Equal(0, destination.Pixels[1]);
+        Assert.Equal(1, destination.Pixels[2]);
+        Assert.Equal(0, destination.Pixels[4]);
+        Assert.Equal(0, destination.Pixels[5]);
+        Assert.Equal(1, destination.Pixels[6]);
+        Assert.Equal(4, destination.Pixels[8]);
+        Assert.Equal(4, destination.Pixels[9]);
+        Assert.Equal(5, destination.Pixels[10]);
+    }
+
+    [Fact]
+    public void TryCopyWholePixelPlaneBlock_WhenDestinationExtendsOutsidePlane_ReturnsInvalidPacket()
+    {
+        var reference = CreatePatternYuvFrame(width: 4, height: 4);
+        var destination = Vp9YuvFrameBuffer.Create(4, 4);
+
+        Assert.False(Vp9MotionCompensator.TryCopyWholePixelPlaneBlock(
+            reference,
+            destination,
+            Vp9Plane.Y,
+            destinationX: 3,
+            destinationY: 0,
+            width: 2,
+            height: 2,
+            new Vp9MotionVector(0, 0),
+            out var diagnostic));
+
+        Assert.Equal(Vp9DecodeDiagnosticCode.InvalidPacket, diagnostic?.Code);
+        Assert.Contains("destination", diagnostic?.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void TryCopyWholePixelPlaneBlock_WithFractionalMv_ReturnsUnsupportedDiagnostic()
     {
         var reference = CreatePatternYuvFrame(width: 4, height: 4);

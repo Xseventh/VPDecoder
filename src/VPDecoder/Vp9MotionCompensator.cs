@@ -46,19 +46,23 @@ internal static class Vp9MotionCompensator
         var destinationPlane = GetPlane(destination, plane);
         var sourceX = destinationX + (planeMotionVector.Column >> 3);
         var sourceY = destinationY + (planeMotionVector.Row >> 3);
-        if (!IsInside(sourcePlane, sourceX, sourceY, width, height) ||
-            !IsInside(destinationPlane, destinationX, destinationY, width, height))
+        if (!IsInside(destinationPlane, destinationX, destinationY, width, height))
         {
             diagnostic = Vp9DecodeDiagnostic.InvalidPacket(
-                "VP9 motion compensation block extends outside the reference or destination plane.");
+                "VP9 motion compensation block extends outside the destination plane.");
             return false;
         }
 
         for (var row = 0; row < height; row++)
         {
-            var sourceOffset = sourcePlane.Offset + ((sourceY + row) * sourcePlane.Stride) + sourceX;
+            var clampedSourceY = Math.Clamp(sourceY + row, 0, sourcePlane.Height - 1);
             var destinationOffset = destinationPlane.Offset + ((destinationY + row) * destinationPlane.Stride) + destinationX;
-            referenceFrame.Pixels.AsSpan(sourceOffset, width).CopyTo(destination.Pixels.AsSpan(destinationOffset, width));
+            for (var column = 0; column < width; column++)
+            {
+                var clampedSourceX = Math.Clamp(sourceX + column, 0, sourcePlane.Width - 1);
+                var sourceOffset = sourcePlane.Offset + (clampedSourceY * sourcePlane.Stride) + clampedSourceX;
+                destination.Pixels[destinationOffset + column] = referenceFrame.Pixels[sourceOffset];
+            }
         }
 
         return true;
