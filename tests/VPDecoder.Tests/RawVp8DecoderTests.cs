@@ -19,6 +19,26 @@ public sealed class RawVp8DecoderTests
         var result = decoder.DecodeFrame(ValidKeyFramePacket, new Vp8DecodeOptions(16, 8));
 
         Assert.False(result.Succeeded);
+        Assert.Equal(Vp8DecodeResultStatus.Failed, result.Status);
+        Assert.False(result.HasDisplayFrame);
+        Assert.False(result.NoDisplayFrame);
+        Assert.Null(result.Frame);
+        Assert.NotNull(result.Header);
+        Assert.Equal(16, result.Header.Width);
+        Assert.Equal(8, result.Header.Height);
+        Assert.Equal(Vp8DecodeDiagnosticCode.UnsupportedFeature, result.Diagnostic?.Code);
+    }
+
+    [Fact]
+    public void DecodeFrame_ReadOnlyMemoryInput_ReturnsStructuredUnsupportedFeatureWithHeader()
+    {
+        ReadOnlyMemory<byte> packet = ValidKeyFramePacket;
+        var decoder = new RawVp8Decoder();
+
+        var result = decoder.DecodeFrame(packet, new Vp8DecodeOptions(16, 8));
+
+        Assert.False(result.Succeeded);
+        Assert.Equal(Vp8DecodeResultStatus.Failed, result.Status);
         Assert.Null(result.Frame);
         Assert.NotNull(result.Header);
         Assert.Equal(16, result.Header.Width);

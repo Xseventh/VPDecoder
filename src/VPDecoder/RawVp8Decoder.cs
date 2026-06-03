@@ -5,6 +5,11 @@ namespace VPDecoder;
 /// </summary>
 public sealed class RawVp8Decoder
 {
+    public Vp8DecodeResult DecodeFrame(ReadOnlyMemory<byte> packet, Vp8DecodeOptions? options = null)
+    {
+        return DecodeFrame(packet.Span, options);
+    }
+
     public Vp8DecodeResult DecodeFrame(ReadOnlySpan<byte> packet, Vp8DecodeOptions? options = null)
     {
         options ??= Vp8DecodeOptions.Default;
@@ -146,12 +151,39 @@ public sealed record Vp8DecodeResult(
     Vp8FrameHeader? Header,
     Vp8DecodeDiagnostic? Diagnostic)
 {
-    public bool Succeeded => Frame is not null && Diagnostic is null;
+    public Vp8DecodeResultStatus Status => Diagnostic is not null
+        ? Vp8DecodeResultStatus.Failed
+        : Frame is null
+            ? Vp8DecodeResultStatus.NoDisplayFrame
+            : Vp8DecodeResultStatus.DecodedFrame;
+
+    public bool Succeeded => Status != Vp8DecodeResultStatus.Failed;
+
+    public bool HasDisplayFrame => Status == Vp8DecodeResultStatus.DecodedFrame;
+
+    public bool NoDisplayFrame => Status == Vp8DecodeResultStatus.NoDisplayFrame;
+
+    public static Vp8DecodeResult Success(Vp9DecodedFrame frame, Vp8FrameHeader header)
+    {
+        return new Vp8DecodeResult(frame, header, null);
+    }
+
+    public static Vp8DecodeResult NoDisplay(Vp8FrameHeader header)
+    {
+        return new Vp8DecodeResult(null, header, null);
+    }
 
     public static Vp8DecodeResult Fail(Vp8DecodeDiagnostic diagnostic, Vp8FrameHeader? header = null)
     {
         return new Vp8DecodeResult(null, header, diagnostic);
     }
+}
+
+public enum Vp8DecodeResultStatus
+{
+    Failed,
+    DecodedFrame,
+    NoDisplayFrame
 }
 
 public sealed record Vp8DecodeDiagnostic(

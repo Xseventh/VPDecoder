@@ -63,6 +63,9 @@ Current status:
 - Provides a small raw VP9 CLI smoke workflow in `src/VPDecoder.Cli`.
 - Parses raw VP8 frame tags and key-frame uncompressed headers, then returns
   strict unsupported diagnostics until VP8 pixel reconstruction is implemented.
+  The VP8 surface accepts `ReadOnlySpan<byte>` and `ReadOnlyMemory<byte>` and
+  uses the same displayed/no-display/failed result shape expected by sequence
+  callers.
 - Validates the current sample shape: VP9 profile 0, 8-bit, YUV420,
   2656x1352, 8 tile columns.
 - Fails explicitly for unsupported decode work instead of emitting pixels.
