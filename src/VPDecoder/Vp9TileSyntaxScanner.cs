@@ -855,12 +855,39 @@ internal static class Vp9TileSyntaxScanner
             return false;
         }
 
+        if (!TryReconstructInterFrameFromProbes(
+                header,
+                probes,
+                referenceFrames,
+                out reconstructedFrame,
+                out var predictedProbes,
+                out diagnostic))
+        {
+            return false;
+        }
+
+        probes = predictedProbes;
+        return true;
+    }
+
+    public static bool TryReconstructInterFrameFromProbes(
+        Vp9FrameHeader header,
+        IReadOnlyList<Vp9InterSuperblockSyntaxProbe> syntaxProbes,
+        Vp9ReferenceFrameStore referenceFrames,
+        out Vp9ReconstructedFrame? reconstructedFrame,
+        out IReadOnlyList<Vp9InterSuperblockSyntaxProbe> predictedProbes,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
+        reconstructedFrame = null;
+        predictedProbes = [];
+        diagnostic = null;
+
         try
         {
             var destination = Vp9YuvFrameBuffer.Create(header.Width, header.Height);
-            var predictedProbes = new List<Vp9InterSuperblockSyntaxProbe>(probes.Count);
+            var reconstructedProbes = new List<Vp9InterSuperblockSyntaxProbe>(syntaxProbes.Count);
             var predictedModeBlocks = new List<Vp9InterBlockModeInfoProbe>();
-            foreach (var probe in probes)
+            foreach (var probe in syntaxProbes)
             {
                 var expectedGroupCount = checked(probe.ModeInfos.Count * 3);
                 if (probe.CoefficientGroups.Count != expectedGroupCount)
@@ -932,16 +959,16 @@ internal static class Vp9TileSyntaxScanner
                     }
                 }
 
-                predictedProbes.Add(probe with
+                reconstructedProbes.Add(probe with
                 {
                     ModeInfos = predictedProbeModeBlocks
                 });
             }
 
-            probes = predictedProbes;
+            predictedProbes = reconstructedProbes;
             reconstructedFrame = Vp9ReconstructedFrame.FromInter(
                 destination.ToDecodedFrame(),
-                predictedProbes,
+                reconstructedProbes,
                 header.TileInfo.MiRows,
                 header.TileInfo.MiColumns);
             return true;
