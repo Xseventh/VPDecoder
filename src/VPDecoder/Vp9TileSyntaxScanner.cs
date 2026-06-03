@@ -805,6 +805,44 @@ internal static class Vp9TileSyntaxScanner
         probes = [];
         diagnostic = null;
 
+        if (!TryReconstructFullInterFrameZeroMvWithResidualMetadata(
+                packet,
+                header,
+                compressedHeader,
+                tileBuffers,
+                referenceFrames,
+                out var reconstructedFrame,
+                out probes,
+                out diagnostic))
+        {
+            return false;
+        }
+
+        if (reconstructedFrame is null)
+        {
+            diagnostic = Vp9DecodeDiagnostic.InternalDecodeFailure(
+                "VP9 full inter reconstruction probe succeeded without returning metadata.");
+            return false;
+        }
+
+        frame = reconstructedFrame.Frame;
+        return true;
+    }
+
+    public static bool TryReconstructFullInterFrameZeroMvWithResidualMetadata(
+        ReadOnlyMemory<byte> packet,
+        Vp9FrameHeader header,
+        Vp9CompressedHeader compressedHeader,
+        IReadOnlyList<Vp9TileBuffer> tileBuffers,
+        Vp9ReferenceFrameStore referenceFrames,
+        out Vp9ReconstructedFrame? reconstructedFrame,
+        out IReadOnlyList<Vp9InterSuperblockSyntaxProbe> probes,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
+        reconstructedFrame = null;
+        probes = [];
+        diagnostic = null;
+
         if (!TryProbeFullInterFrameResidualSyntax(
                 packet,
                 header,
@@ -881,7 +919,11 @@ internal static class Vp9TileSyntaxScanner
                 }
             }
 
-            frame = destination.ToDecodedFrame();
+            reconstructedFrame = Vp9ReconstructedFrame.FromInter(
+                destination.ToDecodedFrame(),
+                probes,
+                header.TileInfo.MiRows,
+                header.TileInfo.MiColumns);
             return true;
         }
         catch (ArgumentException ex)

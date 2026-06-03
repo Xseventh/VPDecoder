@@ -211,6 +211,29 @@ public sealed class RawVp9DecoderTests
     }
 
     [Fact]
+    public void DecodeFrame_WhenRestrictedOrdinaryInterFrameHasLoopFilter_AppliesFilterDeterministically()
+    {
+        var reference = CreateEdgeYuvFrame(width: 16, height: 8);
+        var packet = CreatePaddedOrdinaryInterFramePacket(loopFilterLevel: 20);
+        var firstDecoder = new RawVp9Decoder();
+        SeedReferenceFrame(firstDecoder, reference, Vp9ColorRange.Studio, refreshFrameFlags: 0xff);
+        var secondDecoder = new RawVp9Decoder();
+        SeedReferenceFrame(secondDecoder, reference, Vp9ColorRange.Studio, refreshFrameFlags: 0xff);
+
+        var first = firstDecoder.DecodeFrame(packet, new Vp9DecodeOptions(16, 8, Vp9OutputPixelFormat.Yuv420));
+        var showExisting = firstDecoder.DecodeFrame(ShowExistingFrame0Packet, new Vp9DecodeOptions(16, 8, Vp9OutputPixelFormat.Yuv420));
+        var second = secondDecoder.DecodeFrame(packet, new Vp9DecodeOptions(16, 8, Vp9OutputPixelFormat.Yuv420));
+
+        Assert.True(first.Succeeded, first.Diagnostic?.Message);
+        Assert.True(second.Succeeded, second.Diagnostic?.Message);
+        Assert.NotNull(first.Frame);
+        Assert.NotEqual(Hash(reference.Pixels), Hash(first.Frame.Pixels));
+        Assert.Equal(Hash(first.Frame.Pixels), Hash(second.Frame!.Pixels));
+        Assert.True(showExisting.Succeeded, showExisting.Diagnostic?.Message);
+        Assert.Equal(Hash(first.Frame.Pixels), Hash(showExisting.Frame!.Pixels));
+    }
+
+    [Fact]
     public void DecodeFrame_ExternalMainFrameSample_ParsesExpectedHeaderWhenPresent()
     {
         var packet = ReadRequiredSample(MainFrameSamplePath, 30398, MainFrameSampleSha256);
@@ -502,7 +525,8 @@ public sealed class RawVp9DecoderTests
 
     private static byte[] CreatePaddedOrdinaryInterFramePacket(
         bool sizeFromReference = false,
-        int tileInfoWidth = 16)
+        int tileInfoWidth = 16,
+        int loopFilterLevel = 0)
     {
         const int firstPartitionSize = 64;
         byte[] tilePayload = [0x06, 0x00, 0x00];
@@ -510,7 +534,8 @@ public sealed class RawVp9DecoderTests
             sizeFromReference: sizeFromReference,
             stopAfterSizeReference: false,
             tileInfoWidth: tileInfoWidth,
-            firstPartitionSize: firstPartitionSize);
+            firstPartitionSize: firstPartitionSize,
+            loopFilterLevel: loopFilterLevel);
         var packet = new byte[headerPacket.Length + firstPartitionSize + tilePayload.Length];
         headerPacket.CopyTo(packet, 0);
         tilePayload.CopyTo(packet.AsSpan(headerPacket.Length + firstPartitionSize));
@@ -536,6 +561,26 @@ public sealed class RawVp9DecoderTests
         }
 
         return buffer.ToDecodedFrame();
+    }
+
+    private static Vp9DecodedFrame CreateEdgeYuvFrame(int width, int height)
+    {
+        var buffer = Vp9YuvFrameBuffer.Create(width, height);
+        FillVerticalEdge(buffer.Pixels.AsSpan(buffer.YPlane.Offset, buffer.YPlane.Length), buffer.YStride, width, height, edgeX: width / 4);
+        FillVerticalEdge(buffer.Pixels.AsSpan(buffer.UPlane.Offset, buffer.UPlane.Length), buffer.UvStride, (width + 1) / 2, (height + 1) / 2, edgeX: width / 8);
+        FillVerticalEdge(buffer.Pixels.AsSpan(buffer.VPlane.Offset, buffer.VPlane.Length), buffer.UvStride, (width + 1) / 2, (height + 1) / 2, edgeX: width / 8);
+        return buffer.ToDecodedFrame();
+    }
+
+    private static void FillVerticalEdge(Span<byte> plane, int stride, int width, int height, int edgeX)
+    {
+        for (var row = 0; row < height; row++)
+        {
+            for (var column = 0; column < width; column++)
+            {
+                plane[(row * stride) + column] = column < edgeX ? (byte)100 : (byte)104;
+            }
+        }
     }
 
     private static void SeedReferenceFrame(

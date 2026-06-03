@@ -23,7 +23,11 @@ internal static class Vp9LoopFilter
             return false;
         }
 
-        if (!Vp9LoopFilterMaskBuilder.TryBuildKeyFrameMasks(header, reconstructedFrame, out var masks, out diagnostic))
+        IReadOnlyList<Vp9LoopFilterSuperblockMask> masks;
+        var masksBuilt = header.FrameType == Vp9FrameType.KeyFrame
+            ? Vp9LoopFilterMaskBuilder.TryBuildKeyFrameMasks(header, reconstructedFrame, out masks, out diagnostic)
+            : Vp9LoopFilterMaskBuilder.TryBuildInterFrameMasks(header, reconstructedFrame, out masks, out diagnostic);
+        if (!masksBuilt)
         {
             return false;
         }

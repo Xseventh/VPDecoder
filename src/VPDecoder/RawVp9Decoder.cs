@@ -296,13 +296,13 @@ public sealed class RawVp9Decoder
                 compressedHeader);
         }
 
-        if (!Vp9TileSyntaxScanner.TryReconstructFullInterFrameZeroMvWithResidual(
+        if (!Vp9TileSyntaxScanner.TryReconstructFullInterFrameZeroMvWithResidualMetadata(
                 packet.ToArray(),
                 header,
                 compressedHeader,
                 tileBuffers,
                 _referenceFrames,
-                out var yuvFrame,
+                out var reconstructedFrame,
                 out _,
                 out var diagnostic))
         {
@@ -313,25 +313,25 @@ public sealed class RawVp9Decoder
                 compressedHeader);
         }
 
-        if (yuvFrame is null)
+        if (reconstructedFrame is null)
         {
             return Vp9DecodeResult.Fail(
                 Vp9DecodeDiagnostic.InternalDecodeFailure(
-                    "VP9 ordinary inter-frame reconstruction succeeded without returning a frame."),
+                    "VP9 ordinary inter-frame reconstruction succeeded without returning metadata."),
                 header,
                 compressedHeader);
         }
 
-        if (header.LoopFilter.FilterLevel != 0)
+        if (!Vp9LoopFilter.TryApply(header, reconstructedFrame, out diagnostic))
         {
             return Vp9DecodeResult.Fail(
-                Vp9DecodeDiagnostic.UnsupportedLoopFilter(
-                    "VP9 inter-frame loop filter is not supported yet."),
+                diagnostic ?? Vp9DecodeDiagnostic.InternalDecodeFailure("VP9 inter-frame loop filter failed without a diagnostic."),
                 header,
                 compressedHeader);
         }
 
         RefreshFrameContext(header, compressedHeader.FrameContext);
+        var yuvFrame = reconstructedFrame.Frame;
         _referenceFrames.Refresh(yuvFrame, header.ColorRange, header.RefreshFrameFlags);
 
         var outputFrame = options.OutputFormat == Vp9OutputPixelFormat.Yuv420
