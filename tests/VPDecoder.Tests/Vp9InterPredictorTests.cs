@@ -85,15 +85,18 @@ public sealed class Vp9InterPredictorTests
         Assert.Contains("NEWMV", diagnostic?.Message, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public void TrySelectMotionVector_ForNewMvWithDecodedProbeVector_ReturnsProbeMotionVector()
+    [Theory]
+    [InlineData((int)Vp9InterPredictionMode.NearestMv)]
+    [InlineData((int)Vp9InterPredictionMode.NearMv)]
+    [InlineData((int)Vp9InterPredictionMode.NewMv)]
+    public void TrySelectMotionVector_ForDecodedProbeVector_ReturnsProbeMotionVector(int predictionModeValue)
     {
         var modeBlock = CreateModeBlock(
             0,
             0,
             Vp9InterReferenceFrame.Last,
             new Vp9MotionVector(16, -16),
-            predictionMode: Vp9InterPredictionMode.NewMv);
+            predictionMode: (Vp9InterPredictionMode)predictionModeValue);
 
         Assert.True(Vp9InterPredictor.TrySelectMotionVector(
             modeBlock,

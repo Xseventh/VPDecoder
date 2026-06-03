@@ -107,8 +107,7 @@ internal static class Vp9InterPredictor
         out Vp9MotionVector motionVector,
         out Vp9DecodeDiagnostic? diagnostic)
     {
-        if (modeBlock.ModeInfo.PredictionMode == Vp9InterPredictionMode.NewMv &&
-            modeBlock.MotionVector is { } decodedMotionVector)
+        if (modeBlock.MotionVector is { } decodedMotionVector)
         {
             motionVector = decodedMotionVector;
             diagnostic = null;
