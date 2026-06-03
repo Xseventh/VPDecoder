@@ -44,7 +44,7 @@ public sealed class RawVp8Decoder
                 header);
         }
 
-        diagnostic = ValidateKeyFrameSyntaxHeader(packet, header);
+        diagnostic = ValidateKeyFrameSyntax(packet, header);
         if (diagnostic is not null)
         {
             return Vp8DecodeResult.Fail(diagnostic, header);
@@ -140,10 +140,12 @@ public sealed class RawVp8Decoder
         return null;
     }
 
-    private static Vp8DecodeDiagnostic? ValidateKeyFrameSyntaxHeader(ReadOnlySpan<byte> packet, Vp8FrameHeader header)
+    private static Vp8DecodeDiagnostic? ValidateKeyFrameSyntax(ReadOnlySpan<byte> packet, Vp8FrameHeader header)
     {
-        return Vp8KeyFrameSyntaxHeaderParser.TryParse(
+        return Vp8KeyFrameSyntaxHeaderParser.TryParseFrameSyntax(
             packet.Slice(header.HeaderSizeInBytes, header.FirstPartitionSize),
+            header.Width,
+            header.Height,
             out _,
             out var diagnostic)
             ? null

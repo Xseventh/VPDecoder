@@ -1,5 +1,9 @@
 namespace VPDecoder;
 
+internal sealed record Vp8KeyFrameSyntax(
+    Vp8KeyFrameSyntaxHeader Header,
+    IReadOnlyList<Vp8KeyFrameMacroblockMode> MacroblockModes);
+
 internal sealed record Vp8KeyFrameSyntaxHeader(
     Vp8KeyFrameColorSpace ColorSpace,
     bool ClampType,

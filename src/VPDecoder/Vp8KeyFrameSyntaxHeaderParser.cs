@@ -22,9 +22,47 @@ internal static class Vp8KeyFrameSyntaxHeaderParser
         }
     }
 
+    public static bool TryParseFrameSyntax(
+        ReadOnlySpan<byte> firstPartition,
+        int width,
+        int height,
+        out Vp8KeyFrameSyntax? syntax,
+        out Vp8DecodeDiagnostic? diagnostic)
+    {
+        syntax = null;
+        diagnostic = null;
+
+        try
+        {
+            syntax = ParseFrameSyntax(firstPartition, width, height);
+            return true;
+        }
+        catch (Vp8BoolReaderException ex)
+        {
+            diagnostic = ex.Diagnostic;
+            return false;
+        }
+    }
+
     public static Vp8KeyFrameSyntaxHeader Parse(ReadOnlySpan<byte> firstPartition)
     {
         var reader = new Vp8BoolReader(firstPartition);
+        var syntaxHeader = ReadHeader(ref reader);
+        EnsureReaderIsValid(ref reader);
+        return syntaxHeader;
+    }
+
+    public static Vp8KeyFrameSyntax ParseFrameSyntax(ReadOnlySpan<byte> firstPartition, int width, int height)
+    {
+        var reader = new Vp8BoolReader(firstPartition);
+        var syntaxHeader = ReadHeader(ref reader);
+        var macroblockModes = Vp8KeyFrameModeSyntax.ReadMacroblockModes(ref reader, width, height, syntaxHeader);
+        EnsureReaderIsValid(ref reader);
+        return new Vp8KeyFrameSyntax(syntaxHeader, macroblockModes);
+    }
+
+    private static Vp8KeyFrameSyntaxHeader ReadHeader(ref Vp8BoolReader reader)
+    {
         var colorSpace = ReadColorSpace(ref reader);
         var clampType = reader.ReadBit();
         var segmentationHeader = ReadSegmentationHeader(ref reader);
@@ -50,14 +88,16 @@ internal static class Vp8KeyFrameSyntaxHeaderParser
             coefficientProbabilityUpdates,
             mbNoCoeffSkip,
             probSkipFalse);
+        return syntaxHeader;
+    }
 
+    private static void EnsureReaderIsValid(ref Vp8BoolReader reader)
+    {
         if (reader.HasError)
         {
             throw new Vp8BoolReaderException(
-                Vp8DecodeDiagnostic.TruncatedPacket("VP8 key-frame syntax header extends past the first partition."));
+                Vp8DecodeDiagnostic.TruncatedPacket("VP8 key-frame first partition syntax extends past the first partition."));
         }
-
-        return syntaxHeader;
     }
 
     private static IReadOnlyList<Vp8CoefficientProbabilityUpdate> ReadCoefficientProbabilityUpdates(ref Vp8BoolReader reader)

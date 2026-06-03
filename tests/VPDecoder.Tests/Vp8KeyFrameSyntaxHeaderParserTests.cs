@@ -48,6 +48,22 @@ public sealed class Vp8KeyFrameSyntaxHeaderParserTests
     }
 
     [Fact]
+    public void TryParseFrameSyntax_WhenKeyFrameUsesBPred_ReturnsUnsupportedFeature()
+    {
+        var parsed = Vp8KeyFrameSyntaxHeaderParser.TryParseFrameSyntax(
+            new byte[MinimalAllZeroPartitionLength],
+            width: 16,
+            height: 8,
+            out var syntax,
+            out var diagnostic);
+
+        Assert.False(parsed);
+        Assert.Null(syntax);
+        Assert.Equal(Vp8DecodeDiagnosticCode.UnsupportedFeature, diagnostic?.Code);
+        Assert.Contains("B_PRED", diagnostic?.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void TryParse_EmptyPartition_ReturnsTruncatedPacket()
     {
         var parsed = Vp8KeyFrameSyntaxHeaderParser.TryParse([], out var syntaxHeader, out var diagnostic);

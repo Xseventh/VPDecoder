@@ -22,6 +22,7 @@ public sealed class RawVp8DecoderTests
         Assert.Equal(16, result.Header.Width);
         Assert.Equal(8, result.Header.Height);
         Assert.Equal(Vp8DecodeDiagnosticCode.UnsupportedFeature, result.Diagnostic?.Code);
+        Assert.Contains("B_PRED", result.Diagnostic?.Message, StringComparison.Ordinal);
     }
 
     [Fact]
