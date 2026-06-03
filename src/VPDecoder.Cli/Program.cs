@@ -62,6 +62,12 @@ internal static class VpDecoderCli
             return 2;
         }
 
+        if (result.NoDisplayFrame)
+        {
+            Console.WriteLine($"Decoded no-display VP9 frame, status {result.Status}.");
+            return 0;
+        }
+
         if (!string.IsNullOrWhiteSpace(outputPath))
         {
             File.WriteAllBytes(outputPath, result.Frame!.Pixels);

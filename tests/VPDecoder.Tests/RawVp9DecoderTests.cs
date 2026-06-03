@@ -439,19 +439,24 @@ public sealed class RawVp9DecoderTests
     }
 
     [Fact]
-    public void DecodeFrame_WhenNonDisplayKeyFrameFails_DoesNotRefreshReferences()
+    public void DecodeFrame_WhenNonDisplayKeyFrameDecodes_RefreshesReferencesWithoutReturningFrame()
     {
-        var packet = CreatePaddedMainFramePacket();
+        var packet = ReadRequiredSample(MainFrameSamplePath, 30398, MainFrameSampleSha256);
         packet[0] = 0x80;
         var decoder = new RawVp9Decoder();
 
         var nonDisplay = decoder.DecodeFrame(packet, new Vp9DecodeOptions(2656, 1352));
         var showExisting = decoder.DecodeFrame(ShowExistingFrame0Packet, new Vp9DecodeOptions(2656, 1352));
 
-        Assert.False(nonDisplay.Succeeded);
-        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedInterFrameFeature, nonDisplay.Diagnostic?.Code);
-        Assert.False(showExisting.Succeeded);
-        Assert.Equal(Vp9DecodeDiagnosticCode.MissingReferenceFrame, showExisting.Diagnostic?.Code);
+        Assert.True(nonDisplay.Succeeded, nonDisplay.Diagnostic?.Message);
+        Assert.True(nonDisplay.NoDisplayFrame);
+        Assert.Null(nonDisplay.Frame);
+        Assert.Null(nonDisplay.Diagnostic);
+        Assert.NotNull(nonDisplay.Header);
+        Assert.False(nonDisplay.Header.ShowFrame);
+        Assert.True(showExisting.Succeeded, showExisting.Diagnostic?.Message);
+        Assert.NotNull(showExisting.Frame);
+        Assert.Equal("bd018f0c6eac5ae58945a2517c96c29a40f703b6c8c0a07c99debb9a8a864902", Hash(showExisting.Frame.Pixels));
     }
 
     [Fact]
@@ -495,6 +500,32 @@ public sealed class RawVp9DecoderTests
         Assert.True(showExisting.Header.ShowExistingFrame);
         Assert.NotNull(showExisting.Frame);
         Assert.Equal(Vp9OutputPixelFormat.Bgra8888, showExisting.Frame.PixelFormat);
+        Assert.Equal("c8095ee5e4b760a8a6f7c18d10b357b9f579c6864bb1cd815061d8d6e930a2ff", Hash(showExisting.Frame.Pixels));
+    }
+
+    [Fact]
+    public void DecodeFrameWithAlpha_WhenColorAndAlphaAreNonDisplay_UpdatesReferencesWithoutReturningFrame()
+    {
+        var colorPacket = ReadRequiredSample(MainFrameSamplePath, 30398, MainFrameSampleSha256);
+        var alphaPacket = ReadRequiredSample(AlphaFrameSamplePath, 6233, AlphaFrameSampleSha256);
+        colorPacket[0] = 0x80;
+        alphaPacket[0] = 0x80;
+        var decoder = new RawVp9Decoder();
+
+        var nonDisplay = decoder.DecodeFrameWithAlpha(colorPacket, alphaPacket, new Vp9DecodeOptions(2656, 1352));
+        var showExisting = decoder.DecodeFrameWithAlpha(
+            ShowExistingFrame0Packet,
+            ShowExistingFrame0Packet,
+            new Vp9DecodeOptions(2656, 1352));
+
+        Assert.True(nonDisplay.Succeeded, nonDisplay.Diagnostic?.Message);
+        Assert.True(nonDisplay.NoDisplayFrame);
+        Assert.Null(nonDisplay.Frame);
+        Assert.Null(nonDisplay.Diagnostic);
+        Assert.NotNull(nonDisplay.Header);
+        Assert.False(nonDisplay.Header.ShowFrame);
+        Assert.True(showExisting.Succeeded, showExisting.Diagnostic?.Message);
+        Assert.NotNull(showExisting.Frame);
         Assert.Equal("c8095ee5e4b760a8a6f7c18d10b357b9f579c6864bb1cd815061d8d6e930a2ff", Hash(showExisting.Frame.Pixels));
     }
 

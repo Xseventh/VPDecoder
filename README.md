@@ -92,7 +92,9 @@ decoder.Reset();
 `RawVp9Decoder` accepts `ReadOnlySpan<byte>` and `ReadOnlyMemory<byte>` packet
 inputs. It never requires file paths or container wrappers from callers; file
 I/O is limited to the CLI smoke helper. Decode failures are returned as
-structured `Vp9DecodeDiagnostic` values with stable codes and messages.
+structured `Vp9DecodeDiagnostic` values with stable codes and messages. Check
+`Vp9DecodeResult.Status` to distinguish failed packets, displayed decoded
+frames, and successful no-display frames.
 
 Cross-frame decode semantics:
 
@@ -105,6 +107,8 @@ Cross-frame decode semantics:
   decoder-owned reference slots according to VP9 `refresh_frame_flags`.
   `show_existing_frame` can replay an existing reference without parsing a
   compressed header.
+- Successful non-display frames also update decoder-owned state, then return
+  `Vp9DecodeResultStatus.NoDisplayFrame` with no pixel buffer.
 - Frame-context probability state is also decoder-owned. Refreshed contexts are
   committed only after a frame decodes successfully, and `Reset()` restores all
   frame contexts to defaults.

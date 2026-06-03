@@ -139,6 +139,10 @@ public sealed class RawVp9Decoder
         RefreshFrameContext(header, compressedHeader.FrameContext);
         var yuvFrame = reconstructedFrame.Frame;
         _referenceFrames.Refresh(yuvFrame, header.ColorRange, header.RefreshFrameFlags);
+        if (!header.ShowFrame)
+        {
+            return Vp9DecodeResult.NoDisplay(header, compressedHeader);
+        }
 
         var outputFrame = options.OutputFormat == Vp9OutputPixelFormat.Yuv420
             ? yuvFrame
@@ -183,8 +187,8 @@ public sealed class RawVp9Decoder
 
         var alphaOptions = options with
         {
-            ExpectedWidth = colorResult.Frame!.Width,
-            ExpectedHeight = colorResult.Frame.Height,
+            ExpectedWidth = colorResult.Frame?.Width ?? colorResult.Header?.Width,
+            ExpectedHeight = colorResult.Frame?.Height ?? colorResult.Header?.Height,
             OutputFormat = Vp9OutputPixelFormat.Bgra8888
         };
         var alphaDecoder = _alphaDecoder ??= new RawVp9Decoder();
@@ -192,6 +196,13 @@ public sealed class RawVp9Decoder
         if (!alphaResult.Succeeded)
         {
             return alphaResult;
+        }
+
+        if (colorResult.NoDisplayFrame || alphaResult.NoDisplayFrame)
+        {
+            return Vp9DecodeResult.NoDisplay(
+                colorResult.Header ?? alphaResult.Header!,
+                colorResult.CompressedHeader);
         }
 
         var merged = MergeAlpha(colorResult, alphaResult);
@@ -348,6 +359,10 @@ public sealed class RawVp9Decoder
         RefreshFrameContext(header, compressedHeader.FrameContext);
         var yuvFrame = reconstructedFrame.Frame;
         _referenceFrames.Refresh(yuvFrame, header.ColorRange, header.RefreshFrameFlags);
+        if (!header.ShowFrame)
+        {
+            return Vp9DecodeResult.NoDisplay(header, compressedHeader);
+        }
 
         var outputFrame = options.OutputFormat == Vp9OutputPixelFormat.Yuv420
             ? yuvFrame
@@ -511,12 +526,6 @@ public sealed class RawVp9Decoder
         {
             return Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(
                 "VP9 show-existing-frame packets require decoder reference state and are not supported yet.");
-        }
-
-        if (!header.ShowFrame)
-        {
-            return Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(
-                "VP9 non-display frames require decoder reference state and are not supported yet.");
         }
 
         if (header.Segmentation.Enabled)
