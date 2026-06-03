@@ -888,6 +888,56 @@ public sealed class Vp9TileSyntaxScannerTests
     }
 
     [Fact]
+    public void TryReconstructInterFrameFromProbes_WhenNearMvHasOnlyOneCandidate_ReturnsUnsupportedDiagnostic()
+    {
+        var header = CreateSyntheticOrdinaryInterHeader(packetLength: 0) with
+        {
+            Width = 16,
+            Height = 8,
+            RenderWidth = 16,
+            RenderHeight = 8,
+            TileInfo = new Vp9TileInfo(
+                MiColumns: 2,
+                MiRows: 1,
+                SuperblockColumns: 1,
+                MinLog2TileColumns: 0,
+                MaxLog2TileColumns: 0,
+                Log2TileColumns: 0,
+                Log2TileRows: 0)
+        };
+        var referenceFrame = CreatePatternYuvFrame(width: 16, height: 8);
+        var referenceFrames = new Vp9ReferenceFrameStore();
+        referenceFrames.Refresh(referenceFrame, Vp9ColorRange.Studio, refreshFrameFlags: 0x01);
+        var first = CreateInterModeBlock(0, 0, Vp9InterPredictionMode.ZeroMv);
+        var second = CreateInterModeBlock(0, 1, Vp9InterPredictionMode.NearMv);
+        IReadOnlyList<Vp9InterSuperblockSyntaxProbe> probes =
+        [
+            new Vp9InterSuperblockSyntaxProbe(
+                TileIndex: 0,
+                Partitions: [],
+                ModeInfos: [first, second],
+                CoefficientGroups:
+                [
+                    .. CreateEmptyInterTx4Groups(first.ModeInfo.BlockSize),
+                    .. CreateEmptyInterTx4Groups(second.ModeInfo.BlockSize)
+                ])
+        ];
+
+        Assert.False(Vp9TileSyntaxScanner.TryReconstructInterFrameFromProbes(
+            header,
+            probes,
+            referenceFrames,
+            out var reconstructedFrame,
+            out var predictedProbes,
+            out var diagnostic));
+
+        Assert.Null(reconstructedFrame);
+        Assert.Empty(predictedProbes);
+        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedInterFrameFeature, diagnostic?.Code);
+        Assert.Contains("NEARMV", diagnostic?.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void TryProbeFirstLeafCoefficientToken_ForExternalMainFrame_ReadsExpectedFirstToken()
     {
         var packet = ReadRequiredSample(
