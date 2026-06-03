@@ -47,6 +47,26 @@ public sealed class Vp9MotionVectorSyntaxTests
         Assert.Equal(expected, Vp9MotionVectorSyntax.UseHighPrecision(new Vp9MotionVector(row, column)));
     }
 
+    [Theory]
+    [InlineData(false, 5, -7, 4, -6)]
+    [InlineData(false, 6, -8, 6, -8)]
+    [InlineData(true, 5, -7, 5, -7)]
+    [InlineData(true, 65, -65, 64, -64)]
+    [InlineData(true, 64, 63, 64, 62)]
+    public void LowerPrecision_MatchesLibvpxReferenceRounding(
+        bool allowHighPrecision,
+        int row,
+        int column,
+        int expectedRow,
+        int expectedColumn)
+    {
+        var lowered = Vp9MotionVectorSyntax.LowerPrecision(
+            new Vp9MotionVector(row, column),
+            allowHighPrecision);
+
+        Assert.Equal(new Vp9MotionVector(expectedRow, expectedColumn), lowered);
+    }
+
     [Fact]
     public void TryReadSupportedInterBlock_WhenPredictionModeIsNewMv_ReturnsUnsupportedDiagnostic()
     {

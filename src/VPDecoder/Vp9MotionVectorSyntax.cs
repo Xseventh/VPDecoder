@@ -79,6 +79,18 @@ internal static class Vp9MotionVectorSyntax
             Math.Abs(reference.Column) < HighPrecisionReferenceThreshold;
     }
 
+    public static Vp9MotionVector LowerPrecision(Vp9MotionVector motionVector, bool allowHighPrecisionMv)
+    {
+        if (allowHighPrecisionMv && UseHighPrecision(motionVector))
+        {
+            return motionVector;
+        }
+
+        return new Vp9MotionVector(
+            LowerComponentPrecision(motionVector.Row),
+            LowerComponentPrecision(motionVector.Column));
+    }
+
     private static int ReadComponent(
         ref Vp9BoolReader reader,
         Vp9MotionVectorComponentProbabilities probabilities,
@@ -117,6 +129,16 @@ internal static class Vp9MotionVectorSyntax
 
         magnitude += ((d << 3) | (fractional << 1) | highPrecision) + 1;
         return sign ? -magnitude : magnitude;
+    }
+
+    private static int LowerComponentPrecision(int component)
+    {
+        if ((component & 1) == 0)
+        {
+            return component;
+        }
+
+        return component + (component > 0 ? -1 : 1);
     }
 
     private static byte[] GetFractionalProbabilities(
