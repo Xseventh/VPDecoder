@@ -193,6 +193,11 @@ internal sealed class Vp9ReconstructedFrame
 
     private static Vp9ModeInfoProbe CreateLoopFilterModeInfo(Vp9InterBlockModeInfoProbe interBlock)
     {
+        if (!interBlock.ModeInfo.IsInterBlock)
+        {
+            return interBlock.ToIntraModeInfoProbe();
+        }
+
         return new Vp9ModeInfoProbe(
             interBlock.TileIndex,
             interBlock.MiRow,

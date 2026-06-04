@@ -22,7 +22,30 @@ internal sealed record Vp9InterBlockModeInfoProbe(
     int MiColumn,
     IReadOnlyList<Vp9PartitionType> PartitionPath,
     Vp9InterModeInfoProbe ModeInfo,
-    Vp9MotionVector? MotionVector = null);
+    Vp9MotionVector? MotionVector = null)
+{
+    public Vp9ModeInfoProbe ToIntraModeInfoProbe()
+    {
+        if (ModeInfo.IsInterBlock)
+        {
+            throw new InvalidOperationException("VP9 inter block mode-info cannot be converted to intra mode-info.");
+        }
+
+        return new Vp9ModeInfoProbe(
+            TileIndex,
+            MiRow,
+            MiColumn,
+            ModeInfo.BlockSize,
+            PartitionPath,
+            ModeInfo.Skip,
+            ModeInfo.SkipContext,
+            ModeInfo.TransformSize,
+            ModeInfo.TransformSizeContext,
+            ModeInfo.YMode,
+            ModeInfo.UvMode,
+            ModeInfo.YSubModes);
+    }
+}
 
 internal static class Vp9TileSyntaxScanner
 {
@@ -856,10 +879,18 @@ internal static class Vp9TileSyntaxScanner
         try
         {
             var destination = Vp9YuvFrameBuffer.Create(header.Width, header.Height);
+            var tileGeometries = CreateReconstructionTileGeometries(header, syntaxProbes);
             var reconstructedProbes = new List<Vp9InterSuperblockSyntaxProbe>(syntaxProbes.Count);
             var predictedModeBlocks = new List<Vp9InterBlockModeInfoProbe>();
             foreach (var probe in syntaxProbes)
             {
+                if (probe.TileIndex < 0 || probe.TileIndex >= tileGeometries.Count)
+                {
+                    diagnostic = Vp9DecodeDiagnostic.InternalDecodeFailure(
+                        "VP9 full inter reconstruction probe received an invalid tile index.");
+                    return false;
+                }
+
                 var expectedGroupCount = checked(probe.ModeInfos.Count * 3);
                 if (probe.CoefficientGroups.Count != expectedGroupCount)
                 {
@@ -872,6 +903,26 @@ internal static class Vp9TileSyntaxScanner
                 for (var modeIndex = 0; modeIndex < probe.ModeInfos.Count; modeIndex++)
                 {
                     var modeBlock = probe.ModeInfos[modeIndex];
+                    var groupOffset = modeIndex * 3;
+                    if (!modeBlock.ModeInfo.IsInterBlock)
+                    {
+                        var intraModeInfo = modeBlock.ToIntraModeInfoProbe();
+                        var geometry = tileGeometries[probe.TileIndex];
+                        for (var plane = 0; plane < 3; plane++)
+                        {
+                            Vp9BlockReconstructor.ReconstructDcOnlyGroup(
+                                destination,
+                                geometry,
+                                intraModeInfo,
+                                probe.CoefficientGroups[groupOffset + plane],
+                                plane);
+                        }
+
+                        predictedModeBlocks.Add(modeBlock);
+                        predictedProbeModeBlocks.Add(modeBlock);
+                        continue;
+                    }
+
                     if (!Vp9InterPredictor.TryResolveReferenceFrame(
                             referenceFrames,
                             header,
@@ -924,7 +975,6 @@ internal static class Vp9TileSyntaxScanner
                     predictedModeBlocks.Add(predictedModeBlock);
                     predictedProbeModeBlocks.Add(predictedModeBlock);
 
-                    var groupOffset = modeIndex * 3;
                     for (var plane = 0; plane < 3; plane++)
                     {
                         Vp9BlockReconstructor.AddInterResidualGroup(
@@ -971,6 +1021,42 @@ internal static class Vp9TileSyntaxScanner
                 "VP9 full inter reconstruction probe YUV frame buffer allocation failed.");
             return false;
         }
+    }
+
+    private static IReadOnlyList<Vp9TileGeometry> CreateReconstructionTileGeometries(
+        Vp9FrameHeader header,
+        IReadOnlyList<Vp9InterSuperblockSyntaxProbe> syntaxProbes)
+    {
+        var tileCount = checked(header.TileInfo.TileRows * header.TileInfo.TileColumns);
+        var tileBuffers = new Vp9TileBuffer[tileCount];
+        for (var i = 0; i < tileBuffers.Length; i++)
+        {
+            tileBuffers[i] = new Vp9TileBuffer(Index: i, SizeFieldOffset: null, DataOffset: 0, Size: 0);
+        }
+
+        var geometries = Vp9TileGeometryBuilder.Build(header, tileBuffers);
+        var requiredTileCount = syntaxProbes.Count == 0
+            ? geometries.Count
+            : Math.Max(geometries.Count, syntaxProbes.Max(probe => probe.TileIndex + 1));
+        if (requiredTileCount <= geometries.Count)
+        {
+            return geometries;
+        }
+
+        var expanded = geometries.ToList();
+        for (var i = geometries.Count; i < requiredTileCount; i++)
+        {
+            expanded.Add(new Vp9TileGeometry(
+                TileRow: 0,
+                TileColumn: i,
+                MiRowStart: 0,
+                MiRowEnd: header.TileInfo.MiRows,
+                MiColumnStart: 0,
+                MiColumnEnd: header.TileInfo.MiColumns,
+                new Vp9TileBuffer(Index: i, SizeFieldOffset: null, DataOffset: 0, Size: 0)));
+        }
+
+        return expanded;
     }
 
     public static bool TryProbeFirstLeafCoefficientToken(
@@ -1894,6 +1980,13 @@ internal static class Vp9TileSyntaxScanner
             miColumn,
             partitionPath,
             modeInfo);
+        if (!modeInfo.IsInterBlock)
+        {
+            modes.Add(modeBlock);
+            syntaxContext.SetModeInfo(miRow, miColumn, modeInfo);
+            return true;
+        }
+
         if (!TryReadInterBlockMotionVector(
                 ref reader,
                 header,

@@ -194,6 +194,35 @@ public sealed class Vp9TileSyntaxScannerTests
     }
 
     [Fact]
+    public void TryProbeFirstInterSuperblockModeInfo_WhenFirstBlockIsIntra_ReadsIntraModes()
+    {
+        byte[] tilePayload = [0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+        var packet = tilePayload;
+        var header = CreateSyntheticOrdinaryInterHeader(packet.Length);
+        var compressedHeader = CreateSyntheticInterCompressedHeader();
+        IReadOnlyList<Vp9TileBuffer> tileBuffers =
+        [
+            new Vp9TileBuffer(Index: 0, SizeFieldOffset: null, DataOffset: 0, Size: tilePayload.Length)
+        ];
+
+        Assert.True(
+            Vp9TileSyntaxScanner.TryProbeFirstInterSuperblockModeInfo(
+                packet,
+                header,
+                compressedHeader,
+                tileBuffers,
+                out var probes,
+                out var diagnostic),
+            diagnostic?.Message);
+
+        var modeInfo = Assert.Single(Assert.Single(probes).ModeInfos).ModeInfo;
+        Assert.False(modeInfo.IsInterBlock);
+        Assert.Equal(Vp9PredictionMode.Dc, modeInfo.YMode);
+        Assert.Equal(Vp9PredictionMode.Dc, modeInfo.UvMode);
+        Assert.Equal(Vp9InterpolationFilter.Switchable, modeInfo.InterpolationFilter);
+    }
+
+    [Fact]
     public void TryProbeFirstInterSuperblockModeInfo_WhenNewMvCandidateIsMissing_ReturnsUnsupportedDiagnostic()
     {
         byte[] tilePayload = [0x24, 0x00, 0x00, 0x00];
@@ -1249,6 +1278,50 @@ public sealed class Vp9TileSyntaxScannerTests
     }
 
     [Fact]
+    public void TryReconstructInterFrameFromProbes_ForSkippedIntraBlock_ReconstructsWithoutReferenceFrame()
+    {
+        var header = CreateSyntheticOrdinaryInterHeader(packetLength: 0) with
+        {
+            Width = 8,
+            Height = 8,
+            RenderWidth = 8,
+            RenderHeight = 8,
+            TileInfo = new Vp9TileInfo(
+                MiColumns: 1,
+                MiRows: 1,
+                SuperblockColumns: 1,
+                MinLog2TileColumns: 0,
+                MaxLog2TileColumns: 0,
+                Log2TileColumns: 0,
+                Log2TileRows: 0)
+        };
+        var modeBlock = CreateIntraModeBlock(0, 0, Vp9BlockSize.Block8X8);
+        IReadOnlyList<Vp9InterSuperblockSyntaxProbe> probes =
+        [
+            new Vp9InterSuperblockSyntaxProbe(
+                TileIndex: 0,
+                Partitions: [],
+                ModeInfos: [modeBlock],
+                CoefficientGroups: [.. CreateEmptyIntraTx4Groups(modeBlock.ModeInfo.BlockSize)])
+        ];
+
+        Assert.True(
+            Vp9TileSyntaxScanner.TryReconstructInterFrameFromProbes(
+                header,
+                probes,
+                new Vp9ReferenceFrameStore(),
+                out var reconstructedFrame,
+                out var predictedProbes,
+                out var diagnostic),
+            diagnostic?.Message);
+
+        Assert.NotNull(reconstructedFrame);
+        Assert.Single(predictedProbes);
+        Assert.All(reconstructedFrame.Frame.Pixels, pixel => Assert.Equal(128, pixel));
+        Assert.False(Assert.Single(Assert.Single(predictedProbes).ModeInfos).ModeInfo.IsInterBlock);
+    }
+
+    [Fact]
     public void TryProbeFirstLeafCoefficientToken_ForExternalMainFrame_ReadsExpectedFirstToken()
     {
         var packet = ReadRequiredSample(
@@ -2049,6 +2122,39 @@ public sealed class Vp9TileSyntaxScannerTests
             motionVector);
     }
 
+    private static Vp9InterBlockModeInfoProbe CreateIntraModeBlock(
+        int miRow,
+        int miColumn,
+        Vp9BlockSize blockSize)
+    {
+        var modeInfo = new Vp9InterModeInfoProbe(
+            blockSize,
+            Skip: true,
+            SkipContext: 0,
+            IsInterBlock: false,
+            IntraInterContext: 0,
+            Vp9TransformSize.Tx4X4,
+            TransformSizeContext: 0,
+            Vp9ReferenceMode.Single,
+            Vp9InterReferenceFrame.Last,
+            SingleReferenceContext0: 0,
+            SingleReferenceContext1: null,
+            Vp9InterPredictionMode.ZeroMv,
+            InterModeContext: 0,
+            Vp9InterpolationFilter.Switchable)
+        {
+            YMode = Vp9PredictionMode.Dc,
+            UvMode = Vp9PredictionMode.Dc
+        };
+
+        return new Vp9InterBlockModeInfoProbe(
+            TileIndex: 0,
+            miRow,
+            miColumn,
+            PartitionPath: [Vp9PartitionType.None],
+            modeInfo);
+    }
+
     private static IEnumerable<Vp9CoefficientBlockGroupProbe> CreateEmptyInterTx4Groups(Vp9BlockSize blockSize)
     {
         yield return new Vp9CoefficientBlockGroupProbe(
@@ -2068,10 +2174,42 @@ public sealed class Vp9TileSyntaxScannerTests
             CreateEmptyInterTx4Blocks(width4: 1, height4: 1, planeType: 1));
     }
 
+    private static IEnumerable<Vp9CoefficientBlockGroupProbe> CreateEmptyIntraTx4Groups(Vp9BlockSize blockSize)
+    {
+        yield return new Vp9CoefficientBlockGroupProbe(
+            TileIndex: 0,
+            blockSize,
+            Vp9TransformSize.Tx4X4,
+            CreateEmptyInterTx4Blocks(
+                width4: 2,
+                height4: 2,
+                planeType: 0,
+                referenceType: Vp9ResidualSyntax.IntraBlockReferenceType));
+        yield return new Vp9CoefficientBlockGroupProbe(
+            TileIndex: 0,
+            blockSize,
+            Vp9TransformSize.Tx4X4,
+            CreateEmptyInterTx4Blocks(
+                width4: 1,
+                height4: 1,
+                planeType: 1,
+                referenceType: Vp9ResidualSyntax.IntraBlockReferenceType));
+        yield return new Vp9CoefficientBlockGroupProbe(
+            TileIndex: 0,
+            blockSize,
+            Vp9TransformSize.Tx4X4,
+            CreateEmptyInterTx4Blocks(
+                width4: 1,
+                height4: 1,
+                planeType: 1,
+                referenceType: Vp9ResidualSyntax.IntraBlockReferenceType));
+    }
+
     private static IReadOnlyList<Vp9CoefficientBlockProbe> CreateEmptyInterTx4Blocks(
         int width4,
         int height4,
-        int planeType)
+        int planeType,
+        int referenceType = Vp9ResidualSyntax.InterBlockReferenceType)
     {
         var blocks = new List<Vp9CoefficientBlockProbe>();
         for (var row4 = 0; row4 < height4; row4++)
@@ -2085,7 +2223,7 @@ public sealed class Vp9TileSyntaxScannerTests
                     row4,
                     column4,
                     planeType,
-                    Vp9ResidualSyntax.InterBlockReferenceType,
+                    referenceType,
                     InitialCoefficientContext: 0,
                     Eob: 0,
                     NonZeroCount: 0,

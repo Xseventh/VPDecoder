@@ -200,7 +200,7 @@ internal sealed class Vp9InterFrameSyntaxContext
     public void SetModeInfo(int miRow, int miColumn, Vp9InterModeInfoProbe modeInfo)
     {
         ValidateMiPosition(miRow, miColumn);
-        if (modeInfo.ReferenceMode != Vp9ReferenceMode.Single)
+        if (modeInfo.IsInterBlock && modeInfo.ReferenceMode != Vp9ReferenceMode.Single)
         {
             throw new ArgumentException("VP9 inter syntax context currently records only single-reference mode info.", nameof(modeInfo));
         }

@@ -239,10 +239,7 @@ internal static class Vp9LoopFilterMaskBuilder
         }
 
         var distinctLevels = reconstructedFrame.ModeBlocks
-            .Select(modeBlock => Vp9LoopFilter.GetInterFrameFilterLevel(
-                header.LoopFilter,
-                modeBlock.InterModeInfo!.ReferenceFrame,
-                modeBlock.InterModeInfo.PredictionMode))
+            .Select(modeBlock => Vp9LoopFilter.GetInterFrameFilterLevel(header.LoopFilter, modeBlock.InterModeInfo!))
             .Distinct()
             .ToArray();
         if (distinctLevels.Length == 0)

@@ -98,6 +98,33 @@ internal static class Vp9LoopFilter
         return Math.Clamp(level, 0, 63);
     }
 
+    public static int GetInterFrameFilterLevel(Vp9LoopFilterHeader header, Vp9InterModeInfoProbe modeInfo)
+    {
+        if (modeInfo.IsInterBlock)
+        {
+            return GetInterFrameFilterLevel(header, modeInfo.ReferenceFrame, modeInfo.PredictionMode);
+        }
+
+        if (header.FilterLevel == 0)
+        {
+            return 0;
+        }
+
+        if (!header.ModeRefDeltaEnabled)
+        {
+            return header.FilterLevel;
+        }
+
+        if (header.RefDeltas.Count < 1)
+        {
+            throw new ArgumentException("VP9 loop filter ref delta table must include INTRA_FRAME.", nameof(header));
+        }
+
+        var scale = 1 << (header.FilterLevel >> 5);
+        var level = header.FilterLevel + (header.RefDeltas[0] * scale);
+        return Math.Clamp(level, 0, 63);
+    }
+
     public static Vp9LoopFilterThresholds GetThresholds(int filterLevel, int sharpnessLevel)
     {
         if (filterLevel is < 0 or > 63)

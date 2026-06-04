@@ -164,7 +164,7 @@ public sealed class RawVp9DecoderTests
     }
 
     [Fact]
-    public void DecodeFrame_WhenInterFrameUsesReferenceSize_ParsesReferenceDimensionsBeforeInterDiagnostic()
+    public void DecodeFrame_WhenInterFrameUsesReferenceSize_ParsesReferenceDimensionsBeforeDecodeDiagnostic()
     {
         var packet = ReadRequiredSample(MainFrameSamplePath, 30398, MainFrameSampleSha256);
         var decoder = new RawVp9Decoder();
@@ -184,8 +184,7 @@ public sealed class RawVp9DecoderTests
         Assert.Equal(0, result.Header.FrameSizeReferenceIndex);
         Assert.Equal(2656, result.Header.Width);
         Assert.Equal(1352, result.Header.Height);
-        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedInterFrameFeature, result.Diagnostic?.Code);
-        Assert.Contains("intra blocks", result.Diagnostic?.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(Vp9DecodeDiagnosticCode.TruncatedPacket, result.Diagnostic?.Code);
     }
 
     [Fact]

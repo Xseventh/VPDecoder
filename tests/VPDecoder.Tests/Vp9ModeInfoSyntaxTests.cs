@@ -113,7 +113,7 @@ public sealed class Vp9ModeInfoSyntaxTests
     [Fact]
     public void TryReadSupportedInterBlock_WhenReferenceModeIsNotSingle_ReturnsUnsupportedDiagnostic()
     {
-        var reader = new Vp9BoolReader([0x00, 0x00]);
+        var reader = new Vp9BoolReader([0x0c, 0x24, 0x00]);
         var frameHeader = CreateOrdinaryInterFrameHeader();
         var compressedHeader = CreateCompressedHeader(Vp9ReferenceMode.Compound);
 
@@ -197,24 +197,30 @@ public sealed class Vp9ModeInfoSyntaxTests
     }
 
     [Fact]
-    public void TryReadSupportedInterBlock_WhenInterFrameIntraBlock_ReturnsUnsupportedDiagnostic()
+    public void TryReadSupportedInterBlock_WhenInterFrameIntraBlock_ReadsIntraModes()
     {
-        var reader = new Vp9BoolReader([0x00, 0x00]);
+        var reader = new Vp9BoolReader([0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
         var frameHeader = CreateOrdinaryInterFrameHeader();
         var compressedHeader = CreateCompressedHeader();
 
-        Assert.False(Vp9InterModeInfoSyntax.TryReadSupportedInterBlock(
-            ref reader,
-            frameHeader,
-            compressedHeader,
-            Vp9BlockSize.Block16X16,
-            CreateDefaultInterContexts(),
-            out var probe,
-            out var diagnostic));
+        Assert.True(
+            Vp9InterModeInfoSyntax.TryReadSupportedInterBlock(
+                ref reader,
+                frameHeader,
+                compressedHeader,
+                Vp9BlockSize.Block16X16,
+                CreateDefaultInterContexts(),
+                out var probe,
+                out var diagnostic),
+            diagnostic?.Message);
 
-        Assert.Null(probe);
-        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedInterFrameFeature, diagnostic?.Code);
-        Assert.Contains("intra blocks", diagnostic?.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.NotNull(probe);
+        Assert.False(probe.IsInterBlock);
+        Assert.Equal(Vp9PredictionMode.Dc, probe.YMode);
+        Assert.Equal(Vp9PredictionMode.Dc, probe.UvMode);
+        Assert.Empty(probe.YSubModes);
+        Assert.Equal(Vp9InterpolationFilter.Switchable, probe.InterpolationFilter);
+        Assert.False(reader.HasError);
     }
 
     private static Vp9FrameHeader CreateOrdinaryInterFrameHeader()

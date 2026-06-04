@@ -111,6 +111,35 @@ public sealed class Vp9LoopFilterTests
     }
 
     [Fact]
+    public void GetInterFrameFilterLevel_WhenModeInfoIsIntraBlock_UsesIntraReferenceDelta()
+    {
+        var header = new Vp9LoopFilterHeader(
+            FilterLevel: 20,
+            SharpnessLevel: 0,
+            ModeRefDeltaEnabled: true,
+            ModeRefDeltaUpdate: false,
+            RefDeltas: [1, 2, -3, 4],
+            ModeDeltas: [-5, 6]);
+        var modeInfo = new Vp9InterModeInfoProbe(
+            Vp9BlockSize.Block8X8,
+            Skip: true,
+            SkipContext: 0,
+            IsInterBlock: false,
+            IntraInterContext: 0,
+            Vp9TransformSize.Tx4X4,
+            TransformSizeContext: 0,
+            Vp9ReferenceMode.Single,
+            Vp9InterReferenceFrame.Last,
+            SingleReferenceContext0: 0,
+            SingleReferenceContext1: null,
+            Vp9InterPredictionMode.ZeroMv,
+            InterModeContext: 0,
+            Vp9InterpolationFilter.Switchable);
+
+        Assert.Equal(21, Vp9LoopFilter.GetInterFrameFilterLevel(header, modeInfo));
+    }
+
+    [Fact]
     public void GetInterFrameFilterLevel_WhenDeltaTablesAreIncomplete_ThrowsArgumentDiagnostic()
     {
         var missingRefDeltas = new Vp9LoopFilterHeader(

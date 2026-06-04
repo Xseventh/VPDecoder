@@ -191,6 +191,25 @@ internal static class Vp9ResidualSyntax
         Vp9CoefficientEntropyContext entropyContext,
         int plane)
     {
+        return ReadIntraPlaneCoefficientBlocks(
+            ref reader,
+            state.Header,
+            state.CompressedHeader.FrameContext,
+            state.DequantTables,
+            modeInfo,
+            entropyContext,
+            plane);
+    }
+
+    private static Vp9CoefficientBlockGroupProbe ReadIntraPlaneCoefficientBlocks(
+        ref Vp9BoolReader reader,
+        Vp9FrameHeader header,
+        Vp9FrameContext frameContext,
+        Vp9DequantTables dequantTables,
+        Vp9ModeInfoProbe modeInfo,
+        Vp9CoefficientEntropyContext entropyContext,
+        int plane)
+    {
         if (plane is < 0 or > 2)
         {
             throw new ArgumentOutOfRangeException(nameof(plane), plane, "VP9 plane index must be 0, 1, or 2.");
@@ -199,8 +218,8 @@ internal static class Vp9ResidualSyntax
         var transformSize = plane == 0
             ? modeInfo.TransformSize
             : GetUvTransformSize(modeInfo.BlockSize, modeInfo.TransformSize);
-        var width4 = GetVisiblePlaneWidthIn4x4Blocks(state.Header, modeInfo.BlockSize, modeInfo.MiColumn, plane);
-        var height4 = GetVisiblePlaneHeightIn4x4Blocks(state.Header, modeInfo.BlockSize, modeInfo.MiRow, plane);
+        var width4 = GetVisiblePlaneWidthIn4x4Blocks(header, modeInfo.BlockSize, modeInfo.MiColumn, plane);
+        var height4 = GetVisiblePlaneHeightIn4x4Blocks(header, modeInfo.BlockSize, modeInfo.MiRow, plane);
         var step = Vp9CoefficientEntropyContext.GetTransformSizeIn4x4Blocks(transformSize);
         var blocks = new List<Vp9CoefficientBlockProbe>();
 
@@ -234,8 +253,8 @@ internal static class Vp9ResidualSyntax
             return new Vp9CoefficientBlockGroupProbe(modeInfo.TileIndex, modeInfo.BlockSize, transformSize, blocks);
         }
 
-        var dc = plane == 0 ? state.DequantTables.YDc : state.DequantTables.UvDc;
-        var ac = plane == 0 ? state.DequantTables.YAc : state.DequantTables.UvAc;
+        var dc = plane == 0 ? dequantTables.YDc : dequantTables.UvDc;
+        var ac = plane == 0 ? dequantTables.YAc : dequantTables.UvAc;
         var planeType = plane == 0 ? 0 : 1;
         var originX4 = GetPlaneX4(modeInfo.MiColumn, plane);
         var originY4 = GetPlaneLeftContextOffset(modeInfo.MiRow, plane);
@@ -251,8 +270,9 @@ internal static class Vp9ResidualSyntax
                 var visibleHeight4 = Math.Min(step, height4 - row);
                 var block = ReadCoefficientBlock(
                     ref reader,
-                    state,
-                    modeInfo,
+                    frameContext,
+                    modeInfo.TileIndex,
+                    modeInfo.Skip,
                     transformSize,
                     transformType,
                     row,
@@ -311,7 +331,13 @@ internal static class Vp9ResidualSyntax
         var modeInfo = modeBlock.ModeInfo;
         if (!modeInfo.IsInterBlock)
         {
-            throw new NotSupportedException("VP9 inter residual syntax requires an inter-predicted block.");
+            if (!modeInfo.Skip)
+            {
+                throw new NotSupportedException(
+                    "VP9 skipped inter residual scaffold requires skip=true; non-skipped inter-frame intra residual synthesis is not supported here.");
+            }
+
+            return CreateSkippedIntraPlaneCoefficientBlocks(header, modeBlock.ToIntraModeInfoProbe(), plane);
         }
 
         if (!modeInfo.Skip)
@@ -354,6 +380,44 @@ internal static class Vp9ResidualSyntax
             blocks);
     }
 
+    private static Vp9CoefficientBlockGroupProbe CreateSkippedIntraPlaneCoefficientBlocks(
+        Vp9FrameHeader header,
+        Vp9ModeInfoProbe modeInfo,
+        int plane)
+    {
+        var transformSize = plane == 0
+            ? modeInfo.TransformSize
+            : GetUvTransformSize(modeInfo.BlockSize, modeInfo.TransformSize);
+        var width4 = GetVisiblePlaneWidthIn4x4Blocks(header, modeInfo.BlockSize, modeInfo.MiColumn, plane);
+        var height4 = GetVisiblePlaneHeightIn4x4Blocks(header, modeInfo.BlockSize, modeInfo.MiRow, plane);
+        var step = Vp9CoefficientEntropyContext.GetTransformSizeIn4x4Blocks(transformSize);
+        var planeType = plane == 0 ? 0 : 1;
+        var blocks = new List<Vp9CoefficientBlockProbe>();
+        for (var row = 0; row < height4; row += step)
+        {
+            for (var column = 0; column < width4; column += step)
+            {
+                blocks.Add(CreateBlockProbe(
+                    modeInfo,
+                    transformSize,
+                    GetTransformType(modeInfo, plane, transformSize, row, column),
+                    row,
+                    column,
+                    planeType,
+                    IntraBlockReferenceType,
+                    initialCoefficientContext: 0,
+                    eob: 0,
+                    new int[Vp9ScanTables.GetMaximumEob(transformSize)]));
+            }
+        }
+
+        return new Vp9CoefficientBlockGroupProbe(
+            modeInfo.TileIndex,
+            modeInfo.BlockSize,
+            transformSize,
+            blocks);
+    }
+
     public static Vp9CoefficientBlockGroupProbe ReadInterPlaneCoefficientBlocks(
         ref Vp9BoolReader reader,
         Vp9FrameHeader header,
@@ -371,7 +435,14 @@ internal static class Vp9ResidualSyntax
         var modeInfo = modeBlock.ModeInfo;
         if (!modeInfo.IsInterBlock)
         {
-            throw new NotSupportedException("VP9 inter residual syntax requires an inter-predicted block.");
+            return ReadIntraPlaneCoefficientBlocks(
+                ref reader,
+                header,
+                compressedHeader.FrameContext,
+                dequantTables,
+                modeBlock.ToIntraModeInfoProbe(),
+                entropyContext,
+                plane);
         }
 
         if (modeInfo.Skip)
