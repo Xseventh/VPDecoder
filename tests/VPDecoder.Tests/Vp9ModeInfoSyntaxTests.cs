@@ -199,6 +199,29 @@ public sealed class Vp9ModeInfoSyntaxTests
     }
 
     [Fact]
+    public void TryReadSub8X8InterPredictionModes_WhenSubModeIsNewMv_RecordsNewMv()
+    {
+        var reader = new Vp9BoolReader([0x1e, 0x20]);
+
+        Assert.True(
+            Vp9InterModeInfoSyntax.TryReadSub8X8InterPredictionModes(
+                ref reader,
+                Vp9FrameContext.CreateDefault(),
+                interModeContext: 0,
+                Vp9BlockSize.Block4X4,
+                out var predictionMode,
+                out var interSubModes,
+                out var diagnostic),
+            diagnostic?.Message);
+
+        Assert.Equal(
+            [Vp9InterPredictionMode.NearestMv, Vp9InterPredictionMode.NearestMv, Vp9InterPredictionMode.NearestMv, Vp9InterPredictionMode.NewMv],
+            interSubModes);
+        Assert.Equal(Vp9InterPredictionMode.NewMv, predictionMode);
+        Assert.False(reader.HasError);
+    }
+
+    [Fact]
     public void TryReadSupportedInterBlock_WhenInterFrameIntraBlock_ReadsIntraModes()
     {
         var reader = new Vp9BoolReader([0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);

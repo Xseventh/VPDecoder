@@ -62,14 +62,14 @@ Current status:
   Ordinary inter frames can contain intra-predicted blocks; those blocks read
   inter-frame intra Y/UV mode probabilities and reuse the intra reconstruction
   path with intra-reference residual syntax.
-  Sub-8x8 inter mode-info groups are parsed for ZEROMV, NEARESTMV, and
-  zero-fallback NEARMV, including mixed sub-block mode groups when all sub-block
-  modes resolve to the same supported whole-pixel motion vector. Sub-8x8 NEWMV,
-  mixed sub-block modes that resolve to distinct motion vectors, non-zero
-  sub-8x8 NEARMV, compound references, and fractional-pixel motion compensation
-  remain explicit unsupported paths. Switchable inter interpolation filter
-  syntax is parsed and tracked at block mode-info level; fractional-pixel
-  filtering remains gated until motion compensation supports it.
+  Sub-8x8 inter mode-info groups are parsed for ZEROMV, NEARESTMV, NEARMV, and
+  NEWMV. Mixed sub-block mode groups can carry distinct sub-block motion vectors;
+  luma prediction copies 4x4 sub-blocks and YUV420 chroma prediction uses the
+  VP9 split-MV average. Fractional-pixel motion compensation, compound
+  references, and unsupported chroma layouts remain explicit unsupported paths.
+  Switchable inter interpolation filter syntax is parsed and tracked at block
+  mode-info level; fractional-pixel filtering remains gated until motion
+  compensation supports it.
 - Preserves deterministic evidence for the first Block16X16 luma TX4 group
   that previously exposed residual synchronization drift.
 - Converts decoded YUV420 frames to BGRA8888/RGBA8888 and composes alpha from

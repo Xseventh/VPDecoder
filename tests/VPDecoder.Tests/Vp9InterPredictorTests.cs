@@ -322,6 +322,52 @@ public sealed class Vp9InterPredictorTests
     }
 
     [Fact]
+    public void TrySelectSub8X8MotionVector_ForNearestMvUsesPriorSubBlock()
+    {
+        Vp9MotionVector[] subMotionVectors =
+        [
+            new Vp9MotionVector(8, 16),
+            new Vp9MotionVector(0, 0),
+            new Vp9MotionVector(24, 32),
+            new Vp9MotionVector(0, 0)
+        ];
+
+        Assert.True(Vp9InterPredictor.TrySelectSub8X8MotionVector(
+            Vp9InterPredictionMode.NearestMv,
+            3,
+            [new Vp9MotionVector(40, 48), new Vp9MotionVector(56, 64)],
+            subMotionVectors,
+            out var motionVector,
+            out var diagnostic));
+
+        Assert.Equal(subMotionVectors[2], motionVector);
+        Assert.Null(diagnostic);
+    }
+
+    [Fact]
+    public void TrySelectSub8X8MotionVector_ForNearMvUsesFirstDifferentPriorSubBlock()
+    {
+        Vp9MotionVector[] subMotionVectors =
+        [
+            new Vp9MotionVector(8, 16),
+            new Vp9MotionVector(24, 32),
+            new Vp9MotionVector(24, 32),
+            new Vp9MotionVector(0, 0)
+        ];
+
+        Assert.True(Vp9InterPredictor.TrySelectSub8X8MotionVector(
+            Vp9InterPredictionMode.NearMv,
+            3,
+            [new Vp9MotionVector(40, 48), new Vp9MotionVector(56, 64)],
+            subMotionVectors,
+            out var motionVector,
+            out var diagnostic));
+
+        Assert.Equal(subMotionVectors[0], motionVector);
+        Assert.Null(diagnostic);
+    }
+
+    [Fact]
     public void TryResolveReferenceFrame_MapsSingleReferenceKindsToHeaderSlots()
     {
         var store = new Vp9ReferenceFrameStore();

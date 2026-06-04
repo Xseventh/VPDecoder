@@ -471,16 +471,6 @@ internal static class Vp9InterModeInfoSyntax
             return false;
         }
 
-        foreach (var subMode in subModes)
-        {
-            if (subMode == Vp9InterPredictionMode.NewMv)
-            {
-                diagnostic = Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(
-                    "VP9 sub-8x8 NEWMV inter prediction mode is not supported yet.");
-                return false;
-            }
-        }
-
         predictionMode = subModes[3];
         interSubModes = subModes;
         return true;

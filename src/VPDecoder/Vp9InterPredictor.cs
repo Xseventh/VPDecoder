@@ -94,6 +94,13 @@ internal static class Vp9InterPredictor
         out Vp9MotionVector motionVector,
         out Vp9DecodeDiagnostic? diagnostic)
     {
+        if (modeBlock.InterSubMotionVectors.Count > 0)
+        {
+            motionVector = modeBlock.InterSubMotionVectors[^1];
+            diagnostic = null;
+            return true;
+        }
+
         if (modeBlock.MotionVector is { } decodedMotionVector)
         {
             motionVector = decodedMotionVector;
@@ -197,6 +204,39 @@ internal static class Vp9InterPredictor
         return candidates;
     }
 
+    public static bool TrySelectSub8X8MotionVector(
+        Vp9InterPredictionMode predictionMode,
+        int blockIndex,
+        IReadOnlyList<Vp9MotionVector> candidates,
+        IReadOnlyList<Vp9MotionVector> currentSubMotionVectors,
+        out Vp9MotionVector motionVector,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
+        motionVector = default;
+        diagnostic = null;
+        if (blockIndex is < 0 or > 3)
+        {
+            diagnostic = Vp9DecodeDiagnostic.InvalidPacket(
+                "VP9 sub-8x8 motion-vector block index is outside the 4x4 group.");
+            return false;
+        }
+
+        return predictionMode switch
+        {
+            Vp9InterPredictionMode.ZeroMv => TryReturnMotionVector(ZeroMotionVector, out motionVector, out diagnostic),
+            Vp9InterPredictionMode.NearestMv => TryReturnMotionVector(
+                GetSub8X8NearestMotionVector(blockIndex, candidates, currentSubMotionVectors),
+                out motionVector,
+                out diagnostic),
+            Vp9InterPredictionMode.NearMv => TryReturnMotionVector(
+                GetSub8X8NearMotionVector(blockIndex, candidates, currentSubMotionVectors),
+                out motionVector,
+                out diagnostic),
+            Vp9InterPredictionMode.NewMv => TryUnsupportedSub8X8NewMv(out motionVector, out diagnostic),
+            _ => TryUnsupportedPredictionMode(predictionMode, out motionVector, out diagnostic)
+        };
+    }
+
     public static bool IsWholePixelMotionVector(Vp9MotionVector motionVector)
     {
         return (motionVector.Row & 7) == 0 && (motionVector.Column & 7) == 0;
@@ -208,6 +248,98 @@ internal static class Vp9InterPredictor
             motionVector.Row < MotionVectorUpperBound &&
             motionVector.Column > MotionVectorLowerBound &&
             motionVector.Column < MotionVectorUpperBound;
+    }
+
+    private static bool TryReturnMotionVector(
+        Vp9MotionVector value,
+        out Vp9MotionVector motionVector,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
+        motionVector = value;
+        diagnostic = null;
+        return true;
+    }
+
+    private static bool TryUnsupportedSub8X8NewMv(
+        out Vp9MotionVector motionVector,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
+        motionVector = default;
+        diagnostic = Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(
+            "VP9 sub-8x8 NEWMV inter prediction mode requires explicit motion-vector syntax.");
+        return false;
+    }
+
+    private static bool TryUnsupportedPredictionMode(
+        Vp9InterPredictionMode predictionMode,
+        out Vp9MotionVector motionVector,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
+        motionVector = default;
+        diagnostic = Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(
+            $"VP9 inter prediction mode {predictionMode} is not supported.");
+        return false;
+    }
+
+    private static Vp9MotionVector GetSub8X8NearestMotionVector(
+        int blockIndex,
+        IReadOnlyList<Vp9MotionVector> candidates,
+        IReadOnlyList<Vp9MotionVector> currentSubMotionVectors)
+    {
+        return blockIndex switch
+        {
+            0 => candidates.Count >= 1 ? candidates[0] : ZeroMotionVector,
+            1 or 2 => GetCurrentSubMotionVector(currentSubMotionVectors, 0),
+            3 => GetCurrentSubMotionVector(currentSubMotionVectors, 2),
+            _ => ZeroMotionVector
+        };
+    }
+
+    private static Vp9MotionVector GetSub8X8NearMotionVector(
+        int blockIndex,
+        IReadOnlyList<Vp9MotionVector> candidates,
+        IReadOnlyList<Vp9MotionVector> currentSubMotionVectors)
+    {
+        return blockIndex switch
+        {
+            0 => candidates.Count >= 2 ? candidates[1] : ZeroMotionVector,
+            1 or 2 => FirstDifferent(
+                GetCurrentSubMotionVector(currentSubMotionVectors, 0),
+                candidates),
+            3 => FirstDifferent(
+                GetCurrentSubMotionVector(currentSubMotionVectors, 2),
+                [
+                    GetCurrentSubMotionVector(currentSubMotionVectors, 1),
+                    GetCurrentSubMotionVector(currentSubMotionVectors, 0),
+                    candidates.Count >= 1 ? candidates[0] : ZeroMotionVector,
+                    candidates.Count >= 2 ? candidates[1] : ZeroMotionVector
+                ]),
+            _ => ZeroMotionVector
+        };
+    }
+
+    private static Vp9MotionVector GetCurrentSubMotionVector(
+        IReadOnlyList<Vp9MotionVector> currentSubMotionVectors,
+        int blockIndex)
+    {
+        return blockIndex >= 0 && blockIndex < currentSubMotionVectors.Count
+            ? currentSubMotionVectors[blockIndex]
+            : ZeroMotionVector;
+    }
+
+    private static Vp9MotionVector FirstDifferent(
+        Vp9MotionVector nearest,
+        IReadOnlyList<Vp9MotionVector> candidates)
+    {
+        foreach (var candidate in candidates)
+        {
+            if (candidate != nearest)
+            {
+                return candidate;
+            }
+        }
+
+        return ZeroMotionVector;
     }
 
     private static bool TrySelectSharedSub8X8MotionVector(

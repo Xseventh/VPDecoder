@@ -1381,6 +1381,89 @@ public sealed class Vp9TileSyntaxScannerTests
     }
 
     [Fact]
+    public void TryReconstructInterFrameFromProbes_ForSub8X8NewMvSubMotionVectors_CopiesSubBlocks()
+    {
+        var header = CreateSyntheticOrdinaryInterHeader(packetLength: 0) with
+        {
+            Width = 16,
+            Height = 8,
+            RenderWidth = 16,
+            RenderHeight = 8,
+            TileInfo = new Vp9TileInfo(
+                MiColumns: 2,
+                MiRows: 1,
+                SuperblockColumns: 1,
+                MinLog2TileColumns: 0,
+                MaxLog2TileColumns: 0,
+                Log2TileColumns: 0,
+                Log2TileRows: 0)
+        };
+        var referenceFrame = CreatePatternYuvFrame(width: 16, height: 8);
+        var referenceFrames = new Vp9ReferenceFrameStore();
+        referenceFrames.Refresh(referenceFrame, Vp9ColorRange.Studio, refreshFrameFlags: 0x01);
+        Vp9MotionVector[] subMotionVectors =
+        [
+            new Vp9MotionVector(0, 0),
+            new Vp9MotionVector(0, 32),
+            new Vp9MotionVector(0, 0),
+            new Vp9MotionVector(0, 32)
+        ];
+        var modeBlock = CreateInterModeBlock(
+            0,
+            0,
+            Vp9InterPredictionMode.NewMv,
+            blockSize: Vp9BlockSize.Block4X4,
+            interSubModes:
+            [
+                Vp9InterPredictionMode.ZeroMv,
+                Vp9InterPredictionMode.NewMv,
+                Vp9InterPredictionMode.ZeroMv,
+                Vp9InterPredictionMode.NewMv
+            ],
+            interSubMotionVectors: subMotionVectors);
+        IReadOnlyList<Vp9InterSuperblockSyntaxProbe> probes =
+        [
+            new Vp9InterSuperblockSyntaxProbe(
+                TileIndex: 0,
+                Partitions: [],
+                ModeInfos: [modeBlock],
+                CoefficientGroups: [.. CreateEmptyInterTx4Groups(modeBlock.ModeInfo.BlockSize)])
+        ];
+
+        Assert.True(
+            Vp9TileSyntaxScanner.TryReconstructInterFrameFromProbes(
+                header,
+                probes,
+                referenceFrames,
+                out var reconstructedFrame,
+                out var predictedProbes,
+                out var diagnostic),
+            diagnostic?.Message);
+
+        Assert.NotNull(reconstructedFrame);
+        var frame = reconstructedFrame.Frame;
+        for (var row = 0; row < 8; row++)
+        {
+            for (var column = 0; column < 8; column++)
+            {
+                var sourceColumn = column < 4 ? column : column + 4;
+                Assert.Equal(
+                    referenceFrame.Pixels[(row * 16) + sourceColumn],
+                    frame.Pixels[(row * 16) + column]);
+            }
+        }
+
+        var uPlaneOffset = frame.Planes[1].Offset;
+        var referenceUPlaneOffset = referenceFrame.Planes[1].Offset;
+        Assert.Equal(
+            referenceFrame.Pixels[referenceUPlaneOffset + 1],
+            frame.Pixels[uPlaneOffset]);
+        var predictedMode = Assert.Single(Assert.Single(predictedProbes).ModeInfos);
+        Assert.Equal(subMotionVectors, predictedMode.InterSubMotionVectors);
+        Assert.Equal(subMotionVectors[3], predictedMode.MotionVector);
+    }
+
+    [Fact]
     public void TryReconstructInterFrameFromProbes_WhenSub8X8MixedModesResolveDistinctMvs_ReturnsUnsupportedDiagnostic()
     {
         var header = CreateSyntheticOrdinaryInterHeader(packetLength: 0) with
@@ -2315,7 +2398,8 @@ public sealed class Vp9TileSyntaxScannerTests
         Vp9MotionVector? motionVector = null,
         Vp9BlockSize blockSize = Vp9BlockSize.Block8X8,
         Vp9InterReferenceFrame referenceFrame = Vp9InterReferenceFrame.Last,
-        IReadOnlyList<Vp9InterPredictionMode>? interSubModes = null)
+        IReadOnlyList<Vp9InterPredictionMode>? interSubModes = null,
+        IReadOnlyList<Vp9MotionVector>? interSubMotionVectors = null)
     {
         var modeInfo = new Vp9InterModeInfoProbe(
             blockSize,
@@ -2342,7 +2426,10 @@ public sealed class Vp9TileSyntaxScannerTests
             miColumn,
             PartitionPath: [Vp9PartitionType.None],
             modeInfo,
-            motionVector);
+            motionVector)
+        {
+            InterSubMotionVectors = interSubMotionVectors ?? []
+        };
     }
 
     private static Vp9InterBlockModeInfoProbe CreateIntraModeBlock(
