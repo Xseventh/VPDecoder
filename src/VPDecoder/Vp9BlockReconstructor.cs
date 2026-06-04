@@ -244,8 +244,17 @@ internal static class Vp9BlockReconstructor
 
             if (visibleTransformWidth != transformSize || visibleTransformHeight != transformSize)
             {
-                throw new NotSupportedException(
-                    "VP9 inter residual reconstruction for clipped transform blocks is not supported yet.");
+                AddClippedInterResidualBlock(
+                    planePixels,
+                    planeInfo.Stride,
+                    x,
+                    y,
+                    transformSize,
+                    visibleTransformWidth,
+                    visibleTransformHeight,
+                    group.TransformSize,
+                    coefficients);
+                continue;
             }
 
             Vp9InverseTransform.AddBlock(
@@ -258,6 +267,45 @@ internal static class Vp9BlockReconstructor
                 coefficients.DequantizedCoefficients,
                 coefficients.Eob);
         }
+    }
+
+    private static void AddClippedInterResidualBlock(
+        Span<byte> plane,
+        int stride,
+        int x,
+        int y,
+        int transformSizeInPixels,
+        int visibleWidth,
+        int visibleHeight,
+        Vp9TransformSize transformSize,
+        Vp9CoefficientBlockProbe coefficients)
+    {
+        var temp = new byte[checked(transformSizeInPixels * transformSizeInPixels)];
+        for (var row = 0; row < visibleHeight; row++)
+        {
+            plane.Slice(((y + row) * stride) + x, visibleWidth)
+                .CopyTo(temp.AsSpan(row * transformSizeInPixels, visibleWidth));
+        }
+
+        Vp9InverseTransform.AddBlock(
+            temp,
+            transformSizeInPixels,
+            x: 0,
+            y: 0,
+            transformSize,
+            coefficients.TransformType,
+            coefficients.DequantizedCoefficients,
+            coefficients.Eob);
+
+        CopyVisibleBlock(
+            temp,
+            transformSizeInPixels,
+            plane,
+            stride,
+            x,
+            y,
+            visibleWidth,
+            visibleHeight);
     }
 
     private static int DivideRoundUp(int value, int divisor)

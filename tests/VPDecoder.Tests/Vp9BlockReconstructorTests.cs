@@ -268,16 +268,20 @@ public sealed class Vp9BlockReconstructorTests
     }
 
     [Fact]
-    public void AddInterResidualGroup_ForBottomClippedNonEmptyTx32_ThrowsUnsupportedDiagnostic()
+    public void AddInterResidualGroup_ForBottomClippedNonEmptyTx32_ReconstructsVisibleRows()
     {
         var frameBuffer = Vp9YuvFrameBuffer.Create(64, 8);
         Array.Fill(frameBuffer.Pixels, (byte)100, frameBuffer.YPlane.Offset, frameBuffer.YPlane.Length);
+        var fullFrameBuffer = Vp9YuvFrameBuffer.Create(64, 32);
+        Array.Fill(fullFrameBuffer.Pixels, (byte)100, fullFrameBuffer.YPlane.Offset, fullFrameBuffer.YPlane.Length);
         var modeBlock = CreateInterModeBlock(Vp9BlockSize.Block64X32, Vp9TransformSize.Tx32X32);
         var group = CreateInterTx32Group(Vp9BlockSize.Block64X32, blocksWide: 2, blocksHigh: 1, dc: 512);
 
-        var exception = Assert.Throws<NotSupportedException>(
-            () => Vp9BlockReconstructor.AddInterResidualGroup(frameBuffer, modeBlock, group, plane: 0));
-        Assert.Contains("clipped transform", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Vp9BlockReconstructor.AddInterResidualGroup(frameBuffer, modeBlock, group, plane: 0);
+        Vp9BlockReconstructor.AddInterResidualGroup(fullFrameBuffer, modeBlock, group, plane: 0);
+
+        AssertPlaneRowsEqual(frameBuffer, fullFrameBuffer, plane: 0);
+        Assert.True(frameBuffer.Pixels.AsSpan(frameBuffer.YPlane.Offset, frameBuffer.YPlane.Length).ToArray().Distinct().Count() > 1);
     }
 
     [Fact]
@@ -295,23 +299,29 @@ public sealed class Vp9BlockReconstructorTests
     }
 
     [Fact]
-    public void AddInterResidualGroup_ForBottomClippedNonEmptyChromaTx8_ThrowsUnsupportedDiagnostic()
+    public void AddInterResidualGroup_ForBottomClippedNonEmptyChromaTx8_ReconstructsVisibleRows()
     {
         var frameBuffer = Vp9YuvFrameBuffer.Create(16, 1);
         Array.Fill(frameBuffer.Pixels, (byte)100, frameBuffer.UPlane.Offset, frameBuffer.UPlane.Length);
+        var fullFrameBuffer = Vp9YuvFrameBuffer.Create(16, 16);
+        Array.Fill(fullFrameBuffer.Pixels, (byte)100, fullFrameBuffer.UPlane.Offset, fullFrameBuffer.UPlane.Length);
         var modeBlock = CreateInterModeBlock(Vp9BlockSize.Block16X16, Vp9TransformSize.Tx8X8);
         var group = CreateInterTx8Group(Vp9BlockSize.Block16X16, blocksWide: 1, blocksHigh: 1, dc: 512, planeType: 1);
 
-        var exception = Assert.Throws<NotSupportedException>(
-            () => Vp9BlockReconstructor.AddInterResidualGroup(frameBuffer, modeBlock, group, plane: 1));
-        Assert.Contains("clipped transform", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Vp9BlockReconstructor.AddInterResidualGroup(frameBuffer, modeBlock, group, plane: 1);
+        Vp9BlockReconstructor.AddInterResidualGroup(fullFrameBuffer, modeBlock, group, plane: 1);
+
+        AssertPlaneRowsEqual(frameBuffer, fullFrameBuffer, plane: 1);
+        Assert.Contains(frameBuffer.Pixels.AsSpan(frameBuffer.UPlane.Offset, frameBuffer.UPlane.Length).ToArray(), value => value != 100);
     }
 
     [Fact]
-    public void AddInterResidualGroup_ForClippedNonEmptyTransform_ThrowsUnsupportedDiagnostic()
+    public void AddInterResidualGroup_ForClippedNonEmptyTransform_ReconstructsVisibleRows()
     {
         var frameBuffer = Vp9YuvFrameBuffer.Create(16, 6);
         Array.Fill(frameBuffer.Pixels, (byte)100, frameBuffer.YPlane.Offset, frameBuffer.YPlane.Length);
+        var fullFrameBuffer = Vp9YuvFrameBuffer.Create(16, 8);
+        Array.Fill(fullFrameBuffer.Pixels, (byte)100, fullFrameBuffer.YPlane.Offset, fullFrameBuffer.YPlane.Length);
         var modeBlock = CreateInterModeBlock(Vp9BlockSize.Block64X64, Vp9TransformSize.Tx4X4);
         var group = CreateInterTx4Group(Vp9BlockSize.Block64X64, width4: 4, height4: 2, dc: 0);
         group = group with
@@ -324,9 +334,11 @@ public sealed class Vp9BlockReconstructorTests
             ]
         };
 
-        var exception = Assert.Throws<NotSupportedException>(
-            () => Vp9BlockReconstructor.AddInterResidualGroup(frameBuffer, modeBlock, group, plane: 0));
-        Assert.Contains("clipped transform", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Vp9BlockReconstructor.AddInterResidualGroup(frameBuffer, modeBlock, group, plane: 0);
+        Vp9BlockReconstructor.AddInterResidualGroup(fullFrameBuffer, modeBlock, group, plane: 0);
+
+        AssertPlaneRowsEqual(frameBuffer, fullFrameBuffer, plane: 0);
+        Assert.True(frameBuffer.Pixels.AsSpan(frameBuffer.YPlane.Offset, frameBuffer.YPlane.Length).ToArray().Distinct().Count() > 1);
     }
 
     private static Vp9CoefficientBlockProbe CreateTx4Block(int row4, int column4, int dc)
@@ -527,6 +539,32 @@ public sealed class Vp9BlockReconstructorTests
         }
 
         return max;
+    }
+
+    private static void AssertPlaneRowsEqual(Vp9YuvFrameBuffer actual, Vp9YuvFrameBuffer expected, int plane)
+    {
+        var (actualPlane, actualStride) = GetPlane(actual, plane);
+        var (expectedPlane, expectedStride) = GetPlane(expected, plane);
+
+        Assert.Equal(expectedPlane.Width, actualPlane.Width);
+        Assert.True(expectedPlane.Height >= actualPlane.Height);
+        for (var row = 0; row < actualPlane.Height; row++)
+        {
+            Assert.Equal(
+                expected.Pixels.AsSpan(expectedPlane.Offset + (row * expectedStride), actualPlane.Width).ToArray(),
+                actual.Pixels.AsSpan(actualPlane.Offset + (row * actualStride), actualPlane.Width).ToArray());
+        }
+    }
+
+    private static (Vp9DecodedPlane Plane, int Stride) GetPlane(Vp9YuvFrameBuffer frameBuffer, int plane)
+    {
+        return plane switch
+        {
+            0 => (frameBuffer.YPlane, frameBuffer.YStride),
+            1 => (frameBuffer.UPlane, frameBuffer.UvStride),
+            2 => (frameBuffer.VPlane, frameBuffer.UvStride),
+            _ => throw new ArgumentOutOfRangeException(nameof(plane), plane, "VP9 plane index must be 0, 1, or 2.")
+        };
     }
 
     private static string Hash(byte[] bytes)
