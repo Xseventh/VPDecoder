@@ -2306,6 +2306,7 @@ internal static class Vp9TileSyntaxScanner
         }
 
         var modeBlock = modes[^1];
+        var appendedGroupStart = coefficientGroups.Count;
         ReadInterBlockCoefficientGroups(
             ref reader,
             header,
@@ -2314,8 +2315,42 @@ internal static class Vp9TileSyntaxScanner
             modeBlock,
             entropyContext,
             coefficientGroups);
+        if (ShouldMarkInterBlockSkippedForSyntaxContext(modeBlock, coefficientGroups, appendedGroupStart))
+        {
+            syntaxContext.SetModeInfo(
+                miRow,
+                miColumn,
+                modeBlock.ModeInfo with
+                {
+                    Skip = true
+                });
+        }
 
         return true;
+    }
+
+    private static bool ShouldMarkInterBlockSkippedForSyntaxContext(
+        Vp9InterBlockModeInfoProbe modeBlock,
+        IReadOnlyList<Vp9CoefficientBlockGroupProbe> coefficientGroups,
+        int groupStart)
+    {
+        if (!modeBlock.ModeInfo.IsInterBlock ||
+            modeBlock.ModeInfo.Skip ||
+            modeBlock.ModeInfo.BlockSize < Vp9BlockSize.Block8X8)
+        {
+            return false;
+        }
+
+        var eobTotal = 0;
+        for (var groupIndex = groupStart; groupIndex < coefficientGroups.Count; groupIndex++)
+        {
+            foreach (var block in coefficientGroups[groupIndex].Blocks)
+            {
+                eobTotal += block.Eob;
+            }
+        }
+
+        return eobTotal == 0;
     }
 
     private static void ReadInterBlockCoefficientGroups(
