@@ -1529,7 +1529,7 @@ public sealed class Vp9TileSyntaxScannerTests
     }
 
     [Fact]
-    public void TryReconstructInterFrameFromProbes_WhenSub8X8NearMvHasNonZeroCandidate_ReturnsUnsupportedDiagnostic()
+    public void TryReconstructInterFrameFromProbes_ForSub8X8NearMvWithNonZeroVector_CopiesReference()
     {
         var header = CreateSyntheticOrdinaryInterHeader(packetLength: 0) with
         {
@@ -1564,18 +1564,21 @@ public sealed class Vp9TileSyntaxScannerTests
                 CoefficientGroups: [.. CreateEmptyInterTx4Groups(current.ModeInfo.BlockSize)])
         ];
 
-        Assert.False(Vp9TileSyntaxScanner.TryReconstructInterFrameFromProbes(
-            header,
-            probes,
-            referenceFrames,
-            out var reconstructedFrame,
-            out var predictedProbes,
-            out var diagnostic));
+        Assert.True(
+            Vp9TileSyntaxScanner.TryReconstructInterFrameFromProbes(
+                header,
+                probes,
+                referenceFrames,
+                out var reconstructedFrame,
+                out var predictedProbes,
+                out var diagnostic),
+            diagnostic?.Message);
 
-        Assert.Null(reconstructedFrame);
-        Assert.Empty(predictedProbes);
-        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedInterFrameFeature, diagnostic?.Code);
-        Assert.Contains("sub-8x8 NEARMV", diagnostic?.Message, StringComparison.Ordinal);
+        Assert.NotNull(reconstructedFrame);
+        Assert.Single(predictedProbes);
+        var predictedMode = Assert.Single(predictedProbes[0].ModeInfos);
+        Assert.Equal(new Vp9MotionVector(0, 16), predictedMode.MotionVector);
+        Assert.Equal(referenceFrame.Pixels[2], reconstructedFrame.Frame.Pixels[0]);
     }
 
     [Fact]

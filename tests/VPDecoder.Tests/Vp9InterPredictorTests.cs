@@ -368,6 +368,38 @@ public sealed class Vp9InterPredictorTests
     }
 
     [Fact]
+    public void TrySelectMotionVector_ForSub8X8NearMvSharedMode_ReturnsNonZeroCandidate()
+    {
+        var modeBlock = CreateModeBlock(
+            0,
+            0,
+            Vp9InterReferenceFrame.Last,
+            blockSize: Vp9BlockSize.Block4X4,
+            predictionMode: Vp9InterPredictionMode.NearMv,
+            interSubModes:
+            [
+                Vp9InterPredictionMode.NearMv,
+                Vp9InterPredictionMode.NearMv,
+                Vp9InterPredictionMode.NearMv,
+                Vp9InterPredictionMode.NearMv
+            ]);
+        Vp9MotionVector[] candidates =
+        [
+            new Vp9MotionVector(8, 16),
+            new Vp9MotionVector(24, 32)
+        ];
+
+        Assert.True(Vp9InterPredictor.TrySelectMotionVector(
+            modeBlock,
+            candidates,
+            out var motionVector,
+            out var diagnostic));
+
+        Assert.Equal(candidates[1], motionVector);
+        Assert.Null(diagnostic);
+    }
+
+    [Fact]
     public void TryResolveReferenceFrame_MapsSingleReferenceKindsToHeaderSlots()
     {
         var store = new Vp9ReferenceFrameStore();
@@ -450,7 +482,8 @@ public sealed class Vp9InterPredictorTests
         Vp9MotionVector? motionVector = null,
         Vp9BlockSize blockSize = Vp9BlockSize.Block8X8,
         int tileIndex = 0,
-        Vp9InterPredictionMode predictionMode = Vp9InterPredictionMode.ZeroMv)
+        Vp9InterPredictionMode predictionMode = Vp9InterPredictionMode.ZeroMv,
+        IReadOnlyList<Vp9InterPredictionMode>? interSubModes = null)
     {
         var modeInfo = new Vp9InterModeInfoProbe(
             blockSize,
@@ -466,7 +499,10 @@ public sealed class Vp9InterPredictorTests
             SingleReferenceContext1: null,
             predictionMode,
             InterModeContext: 0,
-            Vp9InterpolationFilter.EightTap);
+            Vp9InterpolationFilter.EightTap)
+        {
+            InterSubModes = interSubModes ?? []
+        };
 
         return new Vp9InterBlockModeInfoProbe(
             TileIndex: tileIndex,

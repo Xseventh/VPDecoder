@@ -2681,38 +2681,15 @@ internal static class Vp9TileSyntaxScanner
 
                 return true;
             }
-
-            foreach (var subMode in modeBlock.ModeInfo.InterSubModes)
-            {
-                if (!TryValidateSub8X8InterMotionVector(subMode, motionVector, out diagnostic))
-                {
-                    return false;
-                }
-            }
-
-            return true;
         }
 
-        return TryValidateSub8X8InterMotionVector(
-            modeBlock.ModeInfo.PredictionMode,
-            motionVector,
-            out diagnostic);
-    }
-
-    private static bool TryValidateSub8X8InterMotionVector(
-        Vp9InterPredictionMode predictionMode,
-        Vp9MotionVector motionVector,
-        out Vp9DecodeDiagnostic? diagnostic)
-    {
-        diagnostic = null;
-        if (predictionMode != Vp9InterPredictionMode.NearMv ||
-            motionVector == new Vp9MotionVector(0, 0))
+        if (Vp9InterPredictor.IsValidMotionVector(motionVector))
         {
             return true;
         }
 
-        diagnostic = Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(
-            "VP9 sub-8x8 NEARMV with non-zero derived motion vectors is not supported yet.");
+        diagnostic = Vp9DecodeDiagnostic.InvalidPacket(
+            "VP9 sub-8x8 inter mode-info decoded an out-of-range motion vector.");
         return false;
     }
 
