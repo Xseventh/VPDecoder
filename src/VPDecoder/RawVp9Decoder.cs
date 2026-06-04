@@ -155,7 +155,7 @@ public sealed class RawVp9Decoder
 
         RefreshFrameContext(header, compressedHeader.FrameContext);
         var yuvFrame = reconstructedFrame.Frame;
-        _referenceFrames.Refresh(yuvFrame, header.ColorRange, header.RefreshFrameFlags);
+        _referenceFrames.Refresh(yuvFrame, header.ColorSpace, header.ColorRange, header.RefreshFrameFlags);
         _previousFrameMotionVectors = null;
         if (!header.ShowFrame)
         {
@@ -164,7 +164,11 @@ public sealed class RawVp9Decoder
 
         var outputFrame = options.OutputFormat == Vp9OutputPixelFormat.Yuv420
             ? yuvFrame
-            : Vp9ColorConverter.ConvertYuv420ToPacked(yuvFrame, header.ColorRange, options.OutputFormat);
+            : Vp9ColorConverter.ConvertYuv420ToPacked(
+                yuvFrame,
+                header.ColorSpace,
+                header.ColorRange,
+                options.OutputFormat);
         return Vp9DecodeResult.Success(outputFrame, header, compressedHeader);
     }
 
@@ -361,6 +365,15 @@ public sealed class RawVp9Decoder
                 header);
         }
 
+        if (options.OutputFormat != Vp9OutputPixelFormat.Yuv420 &&
+            !Vp9ColorConverter.IsSupportedColorSpace(referenceFrame.ColorSpace))
+        {
+            return Vp9DecodeResult.Fail(
+                Vp9DecodeDiagnostic.UnsupportedFeature(
+                    $"VP9 color space {referenceFrame.ColorSpace} is not supported by packed output conversion."),
+                header);
+        }
+
         var diagnostic = ValidateReferenceFrame(referenceFrame.Frame, options);
         if (diagnostic is not null)
         {
@@ -373,6 +386,7 @@ public sealed class RawVp9Decoder
             Height = referenceFrame.Frame.Height,
             RenderWidth = referenceFrame.Frame.Width,
             RenderHeight = referenceFrame.Frame.Height,
+            ColorSpace = referenceFrame.ColorSpace,
             ColorRange = referenceFrame.ColorRange
         };
 
@@ -465,7 +479,7 @@ public sealed class RawVp9Decoder
 
         RefreshFrameContext(header, compressedHeader.FrameContext);
         var yuvFrame = reconstructedFrame.Frame;
-        _referenceFrames.Refresh(yuvFrame, header.ColorRange, header.RefreshFrameFlags);
+        _referenceFrames.Refresh(yuvFrame, header.ColorSpace, header.ColorRange, header.RefreshFrameFlags);
         _previousFrameMotionVectors = header.ShowFrame
             ? Vp9PreviousFrameMotionVectors.FromReconstructedFrame(header, reconstructedFrame)
             : null;
@@ -476,7 +490,11 @@ public sealed class RawVp9Decoder
 
         var outputFrame = options.OutputFormat == Vp9OutputPixelFormat.Yuv420
             ? yuvFrame
-            : Vp9ColorConverter.ConvertYuv420ToPacked(yuvFrame, header.ColorRange, options.OutputFormat);
+            : Vp9ColorConverter.ConvertYuv420ToPacked(
+                yuvFrame,
+                header.ColorSpace,
+                header.ColorRange,
+                options.OutputFormat);
         return Vp9DecodeResult.Success(outputFrame, header, compressedHeader);
     }
 
@@ -532,7 +550,11 @@ public sealed class RawVp9Decoder
     {
         return outputFormat == Vp9OutputPixelFormat.Yuv420
             ? Vp9ReferenceFrameStore.CloneFrame(referenceFrame.Frame)
-            : Vp9ColorConverter.ConvertYuv420ToPacked(referenceFrame.Frame, referenceFrame.ColorRange, outputFormat);
+            : Vp9ColorConverter.ConvertYuv420ToPacked(
+                referenceFrame.Frame,
+                referenceFrame.ColorSpace,
+                referenceFrame.ColorRange,
+                outputFormat);
     }
 
     private static Vp9DecodeDiagnostic? ValidateOptions(Vp9DecodeOptions options)
@@ -641,6 +663,13 @@ public sealed class RawVp9Decoder
         {
             return Vp9DecodeDiagnostic.UnsupportedChromaSubsampling(
                 $"VP9 chroma subsampling {header.SubsamplingX}:{header.SubsamplingY} is not supported by this decoder slice.");
+        }
+
+        if (options.OutputFormat != Vp9OutputPixelFormat.Yuv420 &&
+            !Vp9ColorConverter.IsSupportedColorSpace(header.ColorSpace))
+        {
+            return Vp9DecodeDiagnostic.UnsupportedFeature(
+                $"VP9 color space {header.ColorSpace} is not supported by packed output conversion.");
         }
 
         if (header.ShowExistingFrame)

@@ -290,7 +290,7 @@ public sealed class RawVp9DecoderTests
         Assert.NotNull(result.Frame);
         Assert.Equal(Vp9OutputPixelFormat.Bgra8888, result.Frame.PixelFormat);
         Assert.Equal(2656 * 1352 * 4, result.Frame.Pixels.Length);
-        Assert.Equal("bd018f0c6eac5ae58945a2517c96c29a40f703b6c8c0a07c99debb9a8a864902", Hash(result.Frame.Pixels));
+        Assert.Equal("fc1e22cd88fe9550f2a4fdfc0e1c52750b54ef26d79a9ea77b1ccf0ef333d3c9", Hash(result.Frame.Pixels));
         Assert.Equal([255], result.Frame.Pixels.Chunk(4).Select(pixel => pixel[3]).Distinct().ToArray());
     }
 
@@ -311,7 +311,7 @@ public sealed class RawVp9DecoderTests
         Assert.NotNull(result.Frame);
         Assert.Equal(Vp9OutputPixelFormat.Bgra8888, result.Frame.PixelFormat);
         Assert.Equal(2656 * 1352 * 4, result.Frame.Pixels.Length);
-        Assert.Equal("de5f6cf32681237d0076b8e106c2d8803a54379f639d9f6e7d10a864ad1ff306", Hash(result.Frame.Pixels));
+        Assert.Equal("725a7942c9f8885748955800a4417603282a8b723b2cc6865d8f4db5031c124b", Hash(result.Frame.Pixels));
     }
 
     [Fact]
@@ -325,18 +325,18 @@ public sealed class RawVp9DecoderTests
         Assert.True(result.Succeeded, result.Diagnostic?.Message);
         Assert.NotNull(result.Frame);
         Assert.Equal(Vp9OutputPixelFormat.Bgra8888, result.Frame.PixelFormat);
-        Assert.Equal("bd018f0c6eac5ae58945a2517c96c29a40f703b6c8c0a07c99debb9a8a864902", Hash(result.Frame.Pixels));
+        Assert.Equal("fc1e22cd88fe9550f2a4fdfc0e1c52750b54ef26d79a9ea77b1ccf0ef333d3c9", Hash(result.Frame.Pixels));
     }
 
     [Theory]
     [InlineData(
         Vp9OutputPixelFormat.Yuv420,
         5_386_368,
-        "4f276400ec1d63299b4ec18d83da40482b52d9d09b1e3fd4a100537ed63798ff")]
+        "d847248011a6a87089e0a56649451f4a2bdc277828e8e05ae21860869524add9")]
     [InlineData(
         Vp9OutputPixelFormat.Rgba8888,
         14_363_648,
-        "26d00202125b56b944707fdd55051a1365b8795b8512a9b805dea07dc05b41b4")]
+        "9e8886362a2850c9ccca452fcfb409303fea66763460f4d4d9cf9ea08d2e1dcd")]
     public void DecodeFrame_ExternalMainFrameSample_SupportsRequestedOutputFormats(
         Vp9OutputPixelFormat outputFormat,
         int expectedLength,
@@ -387,7 +387,7 @@ public sealed class RawVp9DecoderTests
         Assert.Equal(Vp9OutputPixelFormat.Bgra8888, showExisting.Frame.PixelFormat);
         Assert.Equal(2656, showExisting.Frame.Width);
         Assert.Equal(1352, showExisting.Frame.Height);
-        Assert.Equal("bd018f0c6eac5ae58945a2517c96c29a40f703b6c8c0a07c99debb9a8a864902", Hash(showExisting.Frame.Pixels));
+        Assert.Equal("fc1e22cd88fe9550f2a4fdfc0e1c52750b54ef26d79a9ea77b1ccf0ef333d3c9", Hash(showExisting.Frame.Pixels));
     }
 
     [Fact]
@@ -407,7 +407,7 @@ public sealed class RawVp9DecoderTests
         var secondReference = decoder.DecodeFrame(ShowExistingFrame0Packet, new Vp9DecodeOptions(2656, 1352));
 
         Assert.True(secondReference.Succeeded, secondReference.Diagnostic?.Message);
-        Assert.Equal("bd018f0c6eac5ae58945a2517c96c29a40f703b6c8c0a07c99debb9a8a864902", Hash(secondReference.Frame!.Pixels));
+        Assert.Equal("fc1e22cd88fe9550f2a4fdfc0e1c52750b54ef26d79a9ea77b1ccf0ef333d3c9", Hash(secondReference.Frame!.Pixels));
     }
 
     [Fact]
@@ -471,7 +471,7 @@ public sealed class RawVp9DecoderTests
         Assert.False(nonDisplay.Header.ShowFrame);
         Assert.True(showExisting.Succeeded, showExisting.Diagnostic?.Message);
         Assert.NotNull(showExisting.Frame);
-        Assert.Equal("bd018f0c6eac5ae58945a2517c96c29a40f703b6c8c0a07c99debb9a8a864902", Hash(showExisting.Frame.Pixels));
+        Assert.Equal("fc1e22cd88fe9550f2a4fdfc0e1c52750b54ef26d79a9ea77b1ccf0ef333d3c9", Hash(showExisting.Frame.Pixels));
     }
 
     [Fact]
@@ -489,7 +489,7 @@ public sealed class RawVp9DecoderTests
         Assert.NotNull(result.Frame);
         Assert.Equal(Vp9OutputPixelFormat.Bgra8888, result.Frame.PixelFormat);
         Assert.Equal(2656 * 1352 * 4, result.Frame.Pixels.Length);
-        Assert.Equal("c8095ee5e4b760a8a6f7c18d10b357b9f579c6864bb1cd815061d8d6e930a2ff", Hash(result.Frame.Pixels));
+        Assert.Equal("a463c23ed3e836a726e3d8cd801412b04681c35f166dd020810b972c7276493c", Hash(result.Frame.Pixels));
         var alphaValues = result.Frame.Pixels.Chunk(4).Select(pixel => pixel[3]).ToArray();
         Assert.Equal(0, alphaValues.Min());
         Assert.Equal(168, alphaValues.Max());
@@ -515,7 +515,7 @@ public sealed class RawVp9DecoderTests
         Assert.True(showExisting.Header.ShowExistingFrame);
         Assert.NotNull(showExisting.Frame);
         Assert.Equal(Vp9OutputPixelFormat.Bgra8888, showExisting.Frame.PixelFormat);
-        Assert.Equal("c8095ee5e4b760a8a6f7c18d10b357b9f579c6864bb1cd815061d8d6e930a2ff", Hash(showExisting.Frame.Pixels));
+        Assert.Equal("a463c23ed3e836a726e3d8cd801412b04681c35f166dd020810b972c7276493c", Hash(showExisting.Frame.Pixels));
     }
 
     [Fact]
@@ -541,7 +541,7 @@ public sealed class RawVp9DecoderTests
         Assert.False(nonDisplay.Header.ShowFrame);
         Assert.True(showExisting.Succeeded, showExisting.Diagnostic?.Message);
         Assert.NotNull(showExisting.Frame);
-        Assert.Equal("c8095ee5e4b760a8a6f7c18d10b357b9f579c6864bb1cd815061d8d6e930a2ff", Hash(showExisting.Frame.Pixels));
+        Assert.Equal("a463c23ed3e836a726e3d8cd801412b04681c35f166dd020810b972c7276493c", Hash(showExisting.Frame.Pixels));
     }
 
     [Fact]
@@ -579,7 +579,7 @@ public sealed class RawVp9DecoderTests
         Assert.Equal(Vp9DecodeDiagnosticCode.MissingReferenceFrame, failedAlpha.Diagnostic?.Code);
         Assert.True(colorShowExisting.Succeeded, colorShowExisting.Diagnostic?.Message);
         Assert.NotNull(colorShowExisting.Frame);
-        Assert.Equal("bd018f0c6eac5ae58945a2517c96c29a40f703b6c8c0a07c99debb9a8a864902", Hash(colorShowExisting.Frame.Pixels));
+        Assert.Equal("fc1e22cd88fe9550f2a4fdfc0e1c52750b54ef26d79a9ea77b1ccf0ef333d3c9", Hash(colorShowExisting.Frame.Pixels));
     }
 
     [Fact]
@@ -594,7 +594,7 @@ public sealed class RawVp9DecoderTests
         Assert.True(result.Succeeded, result.Diagnostic?.Message);
         Assert.NotNull(result.Frame);
         Assert.Equal(Vp9OutputPixelFormat.Bgra8888, result.Frame.PixelFormat);
-        Assert.Equal("c8095ee5e4b760a8a6f7c18d10b357b9f579c6864bb1cd815061d8d6e930a2ff", Hash(result.Frame.Pixels));
+        Assert.Equal("a463c23ed3e836a726e3d8cd801412b04681c35f166dd020810b972c7276493c", Hash(result.Frame.Pixels));
     }
 
     [Fact]
@@ -613,7 +613,7 @@ public sealed class RawVp9DecoderTests
         Assert.NotNull(result.Frame);
         Assert.Equal(Vp9OutputPixelFormat.Rgba8888, result.Frame.PixelFormat);
         Assert.Equal(2656 * 1352 * 4, result.Frame.Pixels.Length);
-        Assert.Equal("ac9ec4a5bcd706088dee9596536dec008854e0df4453b149e9ff55a2e2d78703", Hash(result.Frame.Pixels));
+        Assert.Equal("db89a1455d4d0bc8a523464192a0fb08c76083952273fb5385c523680dd502e2", Hash(result.Frame.Pixels));
     }
 
     [Fact]

@@ -39,6 +39,9 @@ internal static class Vp9BlockReconstructor
         var originX = plane == 0 ? modeInfo.MiColumn * 8 : modeInfo.MiColumn * 4;
         var originY = plane == 0 ? modeInfo.MiRow * 8 : modeInfo.MiRow * 4;
         var tileStartX = plane == 0 ? geometry.MiColumnStart * 8 : geometry.MiColumnStart * 4;
+        var tileEndX = Math.Min(
+            planeInfo.Metadata.Width,
+            plane == 0 ? geometry.MiColumnEnd * 8 : geometry.MiColumnEnd * 4);
         var planePixels = frameBuffer.Pixels.AsSpan(planeInfo.Metadata.Offset, planeInfo.Metadata.Length);
 
         foreach (var coefficients in group.Blocks)
@@ -70,20 +73,28 @@ internal static class Vp9BlockReconstructor
             var x = originX + (coefficients.Column4 * 4);
             var y = originY + (coefficients.Row4 * 4);
             var predictionMode = GetPredictionMode(modeInfo, coefficients, plane);
+            var requiredAboveLength = GetRequiredAboveEdgeLength(predictionMode, transformSize);
+            var readAboveLength = GetReadableAboveEdgeLength(
+                predictionMode,
+                transformSize,
+                requiredAboveLength,
+                coefficients.Column4,
+                transformStep4,
+                width4);
             var above = y > 0
                 ? ReadAboveEdge(
                     planePixels,
                     planeInfo.Stride,
-                    planeInfo.Metadata.Width,
+                    tileEndX,
                     x,
                     y,
-                    GetRequiredAboveEdgeLength(predictionMode, transformSize))
+                    readAboveLength)
                 : [];
             var left = x > tileStartX
                 ? ReadLeftEdge(planePixels, planeInfo.Stride, planeInfo.Metadata.Height, x, y, transformSize)
                 : [];
             var aboveLeft = GetAboveLeft(planePixels, planeInfo.Stride, x, y, above, left);
-            NormalizeEdges(predictionMode, transformSize, ref above, ref left, ref aboveLeft);
+            NormalizeEdges(predictionMode, transformSize, requiredAboveLength, ref above, ref left, ref aboveLeft);
 
             var visibleWidth = Math.Min(transformSize, planeInfo.Metadata.Width - x);
             var visibleHeight = Math.Min(transformSize, planeInfo.Metadata.Height - y);
@@ -393,6 +404,25 @@ internal static class Vp9BlockReconstructor
                 : transformSize;
     }
 
+    private static int GetReadableAboveEdgeLength(
+        Vp9PredictionMode mode,
+        int transformSize,
+        int requiredLength,
+        int column4,
+        int transformStep4,
+        int width4)
+    {
+        if (mode is not (Vp9PredictionMode.D45 or Vp9PredictionMode.D63))
+        {
+            return requiredLength;
+        }
+
+        var rightAvailable = column4 + transformStep4 < width4;
+        return transformSize == 4 && rightAvailable
+            ? requiredLength
+            : transformSize;
+    }
+
     private static byte? GetAboveLeft(
         ReadOnlySpan<byte> plane,
         int stride,
@@ -414,6 +444,7 @@ internal static class Vp9BlockReconstructor
     private static void NormalizeEdges(
         Vp9PredictionMode mode,
         int transformSize,
+        int requiredAboveLength,
         ref byte[] above,
         ref byte[] left,
         ref byte? aboveLeft)
@@ -425,9 +456,16 @@ internal static class Vp9BlockReconstructor
 
         if (NeedsAbove(mode) && above.Length == 0)
         {
-            above = new byte[GetRequiredAboveEdgeLength(mode, transformSize)];
+            above = new byte[requiredAboveLength];
             Array.Fill(above, (byte)127);
             aboveLeft = 127;
+        }
+        else if (NeedsAbove(mode) && above.Length < requiredAboveLength)
+        {
+            var extended = new byte[requiredAboveLength];
+            above.CopyTo(extended, 0);
+            Array.Fill(extended, above[^1], above.Length, requiredAboveLength - above.Length);
+            above = extended;
         }
 
         if (NeedsLeft(mode) && left.Length == 0)

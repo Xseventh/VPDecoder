@@ -15,7 +15,16 @@ internal sealed class Vp9ReferenceFrameStore
 
     public void Refresh(Vp9DecodedFrame frame, Vp9ColorRange colorRange, int refreshFrameFlags)
     {
-        var referenceFrame = new Vp9ReferenceFrame(CloneFrame(frame), colorRange);
+        Refresh(frame, Vp9ColorSpace.Bt601, colorRange, refreshFrameFlags);
+    }
+
+    public void Refresh(
+        Vp9DecodedFrame frame,
+        Vp9ColorSpace colorSpace,
+        Vp9ColorRange colorRange,
+        int refreshFrameFlags)
+    {
+        var referenceFrame = new Vp9ReferenceFrame(CloneFrame(frame), colorSpace, colorRange);
         for (var i = 0; i < _frames.Length; i++)
         {
             if (((refreshFrameFlags >> i) & 1) != 0)
@@ -98,4 +107,4 @@ internal sealed class Vp9ReferenceFrameStore
     }
 }
 
-internal sealed record Vp9ReferenceFrame(Vp9DecodedFrame Frame, Vp9ColorRange ColorRange);
+internal sealed record Vp9ReferenceFrame(Vp9DecodedFrame Frame, Vp9ColorSpace ColorSpace, Vp9ColorRange ColorRange);

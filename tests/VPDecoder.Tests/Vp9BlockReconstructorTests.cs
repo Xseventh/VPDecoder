@@ -174,6 +174,50 @@ public sealed class Vp9BlockReconstructorTests
     }
 
     [Fact]
+    public void ReconstructDcOnlyGroup_ForD63Tx8_ExtendsUnavailableAboveRight()
+    {
+        var frameBuffer = Vp9YuvFrameBuffer.Create(24, 24);
+        var yPlane = frameBuffer.Pixels.AsSpan(frameBuffer.YPlane.Offset, frameBuffer.YPlane.Length);
+        byte[] above = [10, 11, 12, 13, 14, 15, 16, 17, 200, 201];
+        above.CopyTo(yPlane.Slice(7 * frameBuffer.YStride, above.Length));
+        var geometry = new Vp9TileGeometry(
+            TileRow: 0,
+            TileColumn: 0,
+            MiRowStart: 0,
+            MiRowEnd: 3,
+            MiColumnStart: 0,
+            MiColumnEnd: 3,
+            new Vp9TileBuffer(Index: 0, SizeFieldOffset: null, DataOffset: 0, Size: 0));
+        var modeInfo = new Vp9ModeInfoProbe(
+            TileIndex: 0,
+            MiRow: 1,
+            MiColumn: 0,
+            Vp9BlockSize.Block16X16,
+            PartitionPath: [Vp9PartitionType.None],
+            Skip: true,
+            SkipContext: 0,
+            Vp9TransformSize.Tx8X8,
+            TransformSizeContext: 0,
+            Vp9PredictionMode.D63,
+            Vp9PredictionMode.Dc,
+            YSubModes: []);
+        var group = new Vp9CoefficientBlockGroupProbe(
+            TileIndex: 0,
+            Vp9BlockSize.Block16X16,
+            Vp9TransformSize.Tx8X8,
+            [
+                CreateTx8Block(row4: 0, column4: 0, dc: 0),
+                CreateTx8Block(row4: 0, column4: 2, dc: 0),
+                CreateTx8Block(row4: 2, column4: 0, dc: 0),
+                CreateTx8Block(row4: 2, column4: 2, dc: 0)
+            ]);
+
+        Vp9BlockReconstructor.ReconstructDcOnlyGroup(frameBuffer, geometry, modeInfo, group, plane: 0);
+
+        Assert.Equal(17, yPlane[(8 * frameBuffer.YStride) + 7]);
+    }
+
+    [Fact]
     public void AddInterResidualGroup_WhenBlocksAreEmpty_LeavesPredictionPixelsUnchanged()
     {
         var frameBuffer = Vp9YuvFrameBuffer.Create(16, 16);

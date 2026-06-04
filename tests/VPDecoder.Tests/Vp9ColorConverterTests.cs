@@ -45,6 +45,26 @@ public sealed class Vp9ColorConverterTests
     }
 
     [Fact]
+    public void ConvertYuv420ToPacked_WhenBt709StudioRange_UsesBt709Matrix()
+    {
+        var yuv = CreateSolidYuv420Frame(2, 2, y: 100, u: 150, v: 200);
+
+        var bgra = Vp9ColorConverter.ConvertYuv420ToPacked(
+            yuv,
+            Vp9ColorSpace.Bt709,
+            Vp9ColorRange.Studio,
+            Vp9OutputPixelFormat.Bgra8888);
+
+        for (var i = 0; i < bgra.Pixels.Length; i += 4)
+        {
+            Assert.Equal(144, bgra.Pixels[i]);
+            Assert.Equal(55, bgra.Pixels[i + 1]);
+            Assert.Equal(227, bgra.Pixels[i + 2]);
+            Assert.Equal(255, bgra.Pixels[i + 3]);
+        }
+    }
+
+    [Fact]
     public void ConvertYuv420ToPacked_WhenFullRangeChromaVaries_UsesSharedUvSamples()
     {
         var yuv = CreateSolidYuv420Frame(2, 2, y: 76, u: 84, v: 255);

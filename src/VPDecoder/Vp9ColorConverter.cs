@@ -7,6 +7,15 @@ public static class Vp9ColorConverter
         Vp9ColorRange colorRange,
         Vp9OutputPixelFormat outputFormat)
     {
+        return ConvertYuv420ToPacked(yuvFrame, Vp9ColorSpace.Bt601, colorRange, outputFormat);
+    }
+
+    public static Vp9DecodedFrame ConvertYuv420ToPacked(
+        Vp9DecodedFrame yuvFrame,
+        Vp9ColorSpace colorSpace,
+        Vp9ColorRange colorRange,
+        Vp9OutputPixelFormat outputFormat)
+    {
         if (yuvFrame.PixelFormat != Vp9OutputPixelFormat.Yuv420)
         {
             throw new ArgumentException("VP9 color conversion requires a YUV420 source frame.", nameof(yuvFrame));
@@ -35,7 +44,7 @@ public static class Vp9ColorConverter
                 var ySample = yuvFrame.Pixels[yRow + x];
                 var uSample = yuvFrame.Pixels[uRow + (x / 2)];
                 var vSample = yuvFrame.Pixels[vRow + (x / 2)];
-                var (r, g, b) = ConvertSample(ySample, uSample, vSample, colorRange);
+                var (r, g, b) = ConvertSample(ySample, uSample, vSample, colorSpace, colorRange);
                 var offset = outRow + (x * 4);
                 if (outputFormat == Vp9OutputPixelFormat.Bgra8888)
                 {
@@ -62,8 +71,23 @@ public static class Vp9ColorConverter
             stride);
     }
 
-    private static (byte R, byte G, byte B) ConvertSample(int y, int u, int v, Vp9ColorRange colorRange)
+    public static bool IsSupportedColorSpace(Vp9ColorSpace colorSpace)
     {
+        return colorSpace is
+            Vp9ColorSpace.Unknown or
+            Vp9ColorSpace.Bt601 or
+            Vp9ColorSpace.Bt709 or
+            Vp9ColorSpace.Smpte170;
+    }
+
+    private static (byte R, byte G, byte B) ConvertSample(
+        int y,
+        int u,
+        int v,
+        Vp9ColorSpace colorSpace,
+        Vp9ColorRange colorRange)
+    {
+        var matrix = GetMatrix(colorSpace);
         var c = colorRange == Vp9ColorRange.Studio
             ? Math.Max(0, y - 16) * 298
             : y * 256;
@@ -71,15 +95,56 @@ public static class Vp9ColorConverter
         var e = v - 128;
 
         var r = colorRange == Vp9ColorRange.Studio
-            ? (c + (409 * e) + 128) >> 8
-            : y + ((359 * e) >> 8);
+            ? (c + (matrix.LimitedCrToR * e) + 128) >> 8
+            : y + ((matrix.FullCrToR * e) >> 8);
         var g = colorRange == Vp9ColorRange.Studio
-            ? (c - (100 * d) - (208 * e) + 128) >> 8
-            : y - ((88 * d + 183 * e) >> 8);
+            ? (c - (matrix.LimitedCbToG * d) - (matrix.LimitedCrToG * e) + 128) >> 8
+            : y - ((matrix.FullCbToG * d + matrix.FullCrToG * e) >> 8);
         var b = colorRange == Vp9ColorRange.Studio
-            ? (c + (516 * d) + 128) >> 8
-            : y + ((454 * d) >> 8);
+            ? (c + (matrix.LimitedCbToB * d) + 128) >> 8
+            : y + ((matrix.FullCbToB * d) >> 8);
 
         return ((byte)Math.Clamp(r, 0, 255), (byte)Math.Clamp(g, 0, 255), (byte)Math.Clamp(b, 0, 255));
     }
+
+    private static Vp9YuvToRgbMatrix GetMatrix(Vp9ColorSpace colorSpace)
+    {
+        return colorSpace switch
+        {
+            Vp9ColorSpace.Bt709 => new Vp9YuvToRgbMatrix(
+                LimitedCrToR: 459,
+                LimitedCbToG: 55,
+                LimitedCrToG: 136,
+                LimitedCbToB: 541,
+                FullCrToR: 403,
+                FullCbToG: 48,
+                FullCrToG: 120,
+                FullCbToB: 475),
+            Vp9ColorSpace.Unknown or
+                Vp9ColorSpace.Bt601 or
+                Vp9ColorSpace.Smpte170 => new Vp9YuvToRgbMatrix(
+                    LimitedCrToR: 409,
+                    LimitedCbToG: 100,
+                    LimitedCrToG: 208,
+                    LimitedCbToB: 516,
+                    FullCrToR: 359,
+                    FullCbToG: 88,
+                    FullCrToG: 183,
+                    FullCbToB: 454),
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(colorSpace),
+                colorSpace,
+                "VP9 color conversion does not support this color space.")
+        };
+    }
+
+    private readonly record struct Vp9YuvToRgbMatrix(
+        int LimitedCrToR,
+        int LimitedCbToG,
+        int LimitedCrToG,
+        int LimitedCbToB,
+        int FullCrToR,
+        int FullCbToG,
+        int FullCrToG,
+        int FullCbToB);
 }
