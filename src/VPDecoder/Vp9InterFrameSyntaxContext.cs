@@ -169,6 +169,34 @@ internal sealed class Vp9InterFrameSyntaxContext
         return context;
     }
 
+    public int GetSwitchableInterpolationContext(int miRow, int miColumn, int tileMiColumnStart)
+    {
+        ValidateMiPosition(miRow, miColumn);
+        var leftType = TryGetLeft(miRow, miColumn, tileMiColumnStart, out var leftInfo)
+            ? GetSwitchableInterpolationType(leftInfo)
+            : Vp9FrameContextConstants.SwitchableFilters;
+        var aboveType = TryGetAbove(miRow, miColumn, out var aboveInfo)
+            ? GetSwitchableInterpolationType(aboveInfo)
+            : Vp9FrameContextConstants.SwitchableFilters;
+
+        if (leftType == aboveType)
+        {
+            return leftType;
+        }
+
+        if (leftType == Vp9FrameContextConstants.SwitchableFilters)
+        {
+            return aboveType;
+        }
+
+        if (aboveType == Vp9FrameContextConstants.SwitchableFilters)
+        {
+            return leftType;
+        }
+
+        return Vp9FrameContextConstants.SwitchableFilters;
+    }
+
     public void SetModeInfo(int miRow, int miColumn, Vp9InterModeInfoProbe modeInfo)
     {
         ValidateMiPosition(miRow, miColumn);
@@ -184,7 +212,8 @@ internal sealed class Vp9InterFrameSyntaxContext
             modeInfo.TransformSize,
             modeInfo.IsInterBlock,
             modeInfo.ReferenceFrame,
-            modeInfo.PredictionMode);
+            modeInfo.PredictionMode,
+            modeInfo.InterpolationFilter);
         for (var row = 0; row < height; row++)
         {
             var offset = ((miRow + row) * _miColumns) + miColumn;
@@ -395,12 +424,32 @@ internal sealed class Vp9InterFrameSyntaxContext
         };
     }
 
+    private static int GetSwitchableInterpolationType(Vp9InterModeInfoContextEntry entry)
+    {
+        if (!entry.IsInterBlock)
+        {
+            return Vp9FrameContextConstants.SwitchableFilters;
+        }
+
+        return entry.InterpolationFilter switch
+        {
+            Vp9InterpolationFilter.EightTap => 0,
+            Vp9InterpolationFilter.EightTapSmooth => 1,
+            Vp9InterpolationFilter.EightTapSharp => 2,
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(entry),
+                entry.InterpolationFilter,
+                "VP9 switchable interpolation context can reference only switchable inter filters.")
+        };
+    }
+
     private readonly record struct Vp9InterModeInfoContextEntry(
         bool Skip,
         Vp9TransformSize TransformSize,
         bool IsInterBlock,
         Vp9InterReferenceFrame ReferenceFrame,
-        Vp9InterPredictionMode PredictionMode)
+        Vp9InterPredictionMode PredictionMode,
+        Vp9InterpolationFilter InterpolationFilter)
     {
         public bool IsLastReference => ReferenceFrame == Vp9InterReferenceFrame.Last;
     }

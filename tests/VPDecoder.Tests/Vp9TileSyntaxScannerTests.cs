@@ -165,7 +165,7 @@ public sealed class Vp9TileSyntaxScannerTests
     }
 
     [Fact]
-    public void TryProbeFirstInterSuperblockModeInfo_WhenSwitchableInterpolation_ReturnsUnsupportedDiagnostic()
+    public void TryProbeFirstInterSuperblockModeInfo_WhenSwitchableInterpolation_ReadsBlockFilter()
     {
         byte[] tilePayload = [0x03, 0x00, 0x00];
         var packet = tilePayload;
@@ -179,18 +179,18 @@ public sealed class Vp9TileSyntaxScannerTests
             new Vp9TileBuffer(Index: 0, SizeFieldOffset: null, DataOffset: 0, Size: tilePayload.Length)
         ];
 
-        Assert.False(
+        Assert.True(
             Vp9TileSyntaxScanner.TryProbeFirstInterSuperblockModeInfo(
                 packet,
                 header,
                 compressedHeader,
                 tileBuffers,
                 out var probes,
-                out var diagnostic));
+                out var diagnostic),
+            diagnostic?.Message);
 
-        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedInterFrameFeature, diagnostic?.Code);
-        Assert.Contains("switchable", diagnostic?.Message, StringComparison.OrdinalIgnoreCase);
-        Assert.Empty(probes);
+        var modeInfo = Assert.Single(Assert.Single(probes).ModeInfos).ModeInfo;
+        Assert.Equal(Vp9InterpolationFilter.EightTap, modeInfo.InterpolationFilter);
     }
 
     [Fact]

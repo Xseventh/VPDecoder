@@ -51,8 +51,11 @@ Current status:
   keeping unsupported inter syntax strictly gated.
 - Reads gated VP9 NEWMV syntax when a same-reference spatial MV candidate is
   already available; different-reference and previous-frame MV fallback,
-  compound references, switchable interpolation, sub-8x8 inter blocks, and
-  fractional-pixel motion compensation remain explicit unsupported paths.
+  compound references, sub-8x8 inter blocks, and fractional-pixel motion
+  compensation remain explicit unsupported paths. Switchable inter
+  interpolation filter syntax is parsed and tracked at block mode-info level;
+  fractional-pixel filtering remains gated until motion compensation supports
+  it.
 - Preserves deterministic evidence for the first Block16X16 luma TX4 group
   that previously exposed residual synchronization drift.
 - Converts decoded YUV420 frames to BGRA8888/RGBA8888 and composes alpha from

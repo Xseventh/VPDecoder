@@ -1860,7 +1860,10 @@ internal static class Vp9TileSyntaxScanner
                 miColumn,
                 blockSize,
                 geometry.MiColumnStart,
-                geometry.MiColumnEnd));
+                geometry.MiColumnEnd),
+            SwitchableInterpolation: header.InterpolationFilter == Vp9InterpolationFilter.Switchable
+                ? syntaxContext.GetSwitchableInterpolationContext(miRow, miColumn, geometry.MiColumnStart)
+                : 0);
         if (!Vp9InterModeInfoSyntax.TryReadSupportedInterBlock(
                 ref reader,
                 header,

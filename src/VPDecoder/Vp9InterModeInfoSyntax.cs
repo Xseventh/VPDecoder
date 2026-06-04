@@ -23,7 +23,8 @@ internal readonly record struct Vp9InterModeInfoContexts(
     int TransformSize,
     int SingleReference0,
     int SingleReference1,
-    int InterMode);
+    int InterMode,
+    int SwitchableInterpolation);
 
 internal sealed record Vp9InterModeInfoProbe(
     Vp9BlockSize BlockSize,
@@ -48,6 +49,12 @@ internal static class Vp9InterModeInfoSyntax
         -2, 2,
         0, 4,
         -1, -3
+    ];
+
+    private static ReadOnlySpan<sbyte> SwitchableInterpolationTree =>
+    [
+        -1, 2,
+        0, -2
     ];
 
     public static bool TryReadSupportedInterBlock(
@@ -80,13 +87,6 @@ internal static class Vp9InterModeInfoSyntax
         {
             diagnostic = Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(
                 "VP9 compound or selectable block reference modes are not supported yet.");
-            return false;
-        }
-
-        if (frameHeader.InterpolationFilter == Vp9InterpolationFilter.Switchable)
-        {
-            diagnostic = Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(
-                "VP9 switchable inter interpolation filters are not supported yet.");
             return false;
         }
 
@@ -127,6 +127,11 @@ internal static class Vp9InterModeInfoSyntax
             ref reader,
             compressedHeader.FrameContext,
             contexts.InterMode);
+        var interpolationFilter = ReadInterBlockInterpolationFilter(
+            ref reader,
+            frameHeader,
+            compressedHeader.FrameContext,
+            contexts.SwitchableInterpolation);
 
         if (reader.HasError)
         {
@@ -148,7 +153,7 @@ internal static class Vp9InterModeInfoSyntax
             singleReferenceContext1,
             predictionMode,
             contexts.InterMode,
-            frameHeader.InterpolationFilter);
+            interpolationFilter);
         return true;
     }
 
@@ -202,6 +207,50 @@ internal static class Vp9InterModeInfoSyntax
         }
 
         return (Vp9InterPredictionMode)Vp9TreeReader.ReadTree(ref reader, InterModeTree, probabilities);
+    }
+
+    public static Vp9InterpolationFilter ReadSwitchableInterpolationFilter(
+        ref Vp9BoolReader reader,
+        Vp9FrameContext frameContext,
+        int switchableInterpolationContext)
+    {
+        if (switchableInterpolationContext is < 0 or >= Vp9FrameContextConstants.SwitchableFilterContexts)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(switchableInterpolationContext),
+                "VP9 switchable interpolation context is outside the probability table.");
+        }
+
+        var probabilities = new byte[Vp9FrameContextConstants.SwitchableFilters - 1];
+        for (var i = 0; i < probabilities.Length; i++)
+        {
+            probabilities[i] = frameContext.SwitchableInterpolationProbabilities[switchableInterpolationContext, i];
+        }
+
+        return (Vp9InterpolationFilter)Vp9TreeReader.ReadTree(ref reader, SwitchableInterpolationTree, probabilities);
+    }
+
+    private static Vp9InterpolationFilter ReadInterBlockInterpolationFilter(
+        ref Vp9BoolReader reader,
+        Vp9FrameHeader frameHeader,
+        Vp9FrameContext frameContext,
+        int switchableInterpolationContext)
+    {
+        return frameHeader.InterpolationFilter switch
+        {
+            Vp9InterpolationFilter.Switchable => ReadSwitchableInterpolationFilter(
+                ref reader,
+                frameContext,
+                switchableInterpolationContext),
+            Vp9InterpolationFilter.EightTapSmooth or
+                Vp9InterpolationFilter.EightTap or
+                Vp9InterpolationFilter.EightTapSharp or
+                Vp9InterpolationFilter.Bilinear => frameHeader.InterpolationFilter,
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(frameHeader),
+                frameHeader.InterpolationFilter,
+                "VP9 inter frame has an invalid interpolation filter.")
+        };
     }
 
     private static void ValidateReferenceContext(int context, string parameterName)

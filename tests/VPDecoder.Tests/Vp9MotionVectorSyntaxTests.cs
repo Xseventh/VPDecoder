@@ -85,7 +85,8 @@ public sealed class Vp9MotionVectorSyntaxTests
             TransformSize: 0,
             SingleReference0: 0,
             SingleReference1: 0,
-            InterMode: 0);
+            InterMode: 0,
+            SwitchableInterpolation: 0);
 
         Assert.True(Vp9InterModeInfoSyntax.TryReadSupportedInterBlock(
             ref reader,

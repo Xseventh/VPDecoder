@@ -153,13 +153,54 @@ public sealed class Vp9InterFrameSyntaxContextTests
         Assert.Equal(2, context.GetInterModeContext(2, 1, Vp9BlockSize.Block16X16, tileMiColumnStart: 1, tileMiColumnEnd: 16));
     }
 
+    [Fact]
+    public void GetSwitchableInterpolationContext_UsesLibvpxAboveLeftRules()
+    {
+        var context = Vp9InterFrameSyntaxContext.Create(CreateHeader(miColumns: 16, miRows: 16));
+
+        Assert.Equal(3, context.GetSwitchableInterpolationContext(0, 0, tileMiColumnStart: 0));
+
+        context.SetModeInfo(
+            0,
+            1,
+            CreateModeInfo(
+                Vp9BlockSize.Block8X8,
+                skip: false,
+                Vp9TransformSize.Tx4X4,
+                interpolationFilter: Vp9InterpolationFilter.EightTapSmooth));
+        context.SetModeInfo(
+            1,
+            0,
+            CreateModeInfo(
+                Vp9BlockSize.Block8X8,
+                skip: false,
+                Vp9TransformSize.Tx4X4,
+                interpolationFilter: Vp9InterpolationFilter.EightTapSmooth));
+
+        Assert.Equal(1, context.GetSwitchableInterpolationContext(1, 1, tileMiColumnStart: 0));
+        Assert.Equal(1, context.GetSwitchableInterpolationContext(1, 1, tileMiColumnStart: 1));
+
+        context.SetModeInfo(
+            1,
+            0,
+            CreateModeInfo(
+                Vp9BlockSize.Block8X8,
+                skip: false,
+                Vp9TransformSize.Tx4X4,
+                interpolationFilter: Vp9InterpolationFilter.EightTapSharp));
+
+        Assert.Equal(3, context.GetSwitchableInterpolationContext(1, 1, tileMiColumnStart: 0));
+        Assert.Equal(1, context.GetSwitchableInterpolationContext(1, 1, tileMiColumnStart: 1));
+    }
+
     private static Vp9InterModeInfoProbe CreateModeInfo(
         Vp9BlockSize blockSize,
         bool skip,
         Vp9TransformSize transformSize,
         bool isInterBlock = true,
         Vp9InterReferenceFrame referenceFrame = Vp9InterReferenceFrame.Last,
-        Vp9InterPredictionMode predictionMode = Vp9InterPredictionMode.ZeroMv)
+        Vp9InterPredictionMode predictionMode = Vp9InterPredictionMode.ZeroMv,
+        Vp9InterpolationFilter interpolationFilter = Vp9InterpolationFilter.EightTap)
     {
         return new Vp9InterModeInfoProbe(
             blockSize,
@@ -175,7 +216,7 @@ public sealed class Vp9InterFrameSyntaxContextTests
             SingleReferenceContext1: null,
             PredictionMode: predictionMode,
             InterModeContext: 0,
-            InterpolationFilter: Vp9InterpolationFilter.EightTap);
+            InterpolationFilter: interpolationFilter);
     }
 
     private static Vp9FrameHeader CreateHeader(int miColumns, int miRows)

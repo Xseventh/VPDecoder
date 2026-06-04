@@ -97,6 +97,20 @@ public sealed class Vp9ModeInfoSyntaxTests
     }
 
     [Fact]
+    public void ReadSwitchableInterpolationFilter_AllZeroBoolReader_ReturnsEightTap()
+    {
+        var reader = new Vp9BoolReader([0x00, 0x00]);
+
+        var interpolationFilter = Vp9InterModeInfoSyntax.ReadSwitchableInterpolationFilter(
+            ref reader,
+            Vp9FrameContext.CreateDefault(),
+            switchableInterpolationContext: 0);
+
+        Assert.Equal(Vp9InterpolationFilter.EightTap, interpolationFilter);
+        Assert.False(reader.HasError);
+    }
+
+    [Fact]
     public void TryReadSupportedInterBlock_WhenReferenceModeIsNotSingle_ReturnsUnsupportedDiagnostic()
     {
         var reader = new Vp9BoolReader([0x00, 0x00]);
@@ -208,6 +222,7 @@ public sealed class Vp9ModeInfoSyntaxTests
             TransformSize: 0,
             SingleReference0: 0,
             SingleReference1: 1,
-            InterMode: 0);
+            InterMode: 0,
+            SwitchableInterpolation: 0);
     }
 }
