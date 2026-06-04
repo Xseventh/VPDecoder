@@ -18,19 +18,18 @@ public sealed class Vp9InterPredictorTests
     [Theory]
     [InlineData((int)Vp9InterPredictionMode.NearestMv)]
     [InlineData((int)Vp9InterPredictionMode.NearMv)]
-    public void TrySelectMotionVector_WhenReferenceCandidatesAreMissing_ReturnsSpecificUnsupportedDiagnostic(int modeValue)
+    public void TrySelectMotionVector_WhenReferenceCandidatesAreMissing_ReturnsZeroVector(int modeValue)
     {
         var mode = (Vp9InterPredictionMode)modeValue;
 
-        Assert.False(Vp9InterPredictor.TrySelectMotionVector(
+        Assert.True(Vp9InterPredictor.TrySelectMotionVector(
             mode,
             candidates: [],
             out var motionVector,
             out var diagnostic));
 
-        Assert.Equal(default, motionVector);
-        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedInterFrameFeature, diagnostic?.Code);
-        Assert.Contains(mode == Vp9InterPredictionMode.NearestMv ? "NEARESTMV" : "NEARMV", diagnostic?.Message, StringComparison.Ordinal);
+        Assert.Equal(new Vp9MotionVector(0, 0), motionVector);
+        Assert.Null(diagnostic);
     }
 
     [Fact]
@@ -68,6 +67,19 @@ public sealed class Vp9InterPredictorTests
             out var diagnostic));
 
         Assert.Equal(candidates[1], motionVector);
+        Assert.Null(diagnostic);
+    }
+
+    [Fact]
+    public void TrySelectMotionVector_ForNearMvWithOneCandidate_ReturnsZeroVector()
+    {
+        Assert.True(Vp9InterPredictor.TrySelectMotionVector(
+            Vp9InterPredictionMode.NearMv,
+            candidates: [new Vp9MotionVector(8, -16)],
+            out var motionVector,
+            out var diagnostic));
+
+        Assert.Equal(new Vp9MotionVector(0, 0), motionVector);
         Assert.Null(diagnostic);
     }
 

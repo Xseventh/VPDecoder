@@ -1044,7 +1044,7 @@ public sealed class Vp9TileSyntaxScannerTests
     }
 
     [Fact]
-    public void TryReconstructInterFrameFromProbes_WhenNearestCandidateIsInOtherTile_ReturnsUnsupportedDiagnostic()
+    public void TryReconstructInterFrameFromProbes_WhenNearestCandidateIsInOtherTile_UsesZeroMvFallback()
     {
         var header = CreateSyntheticOrdinaryInterHeader(packetLength: 0) with
         {
@@ -1080,22 +1080,23 @@ public sealed class Vp9TileSyntaxScannerTests
                 CoefficientGroups: [.. CreateEmptyInterTx4Groups(nearest.ModeInfo.BlockSize)])
         ];
 
-        Assert.False(Vp9TileSyntaxScanner.TryReconstructInterFrameFromProbes(
-            header,
-            probes,
-            referenceFrames,
-            out var reconstructedFrame,
-            out var predictedProbes,
-            out var diagnostic));
+        Assert.True(
+            Vp9TileSyntaxScanner.TryReconstructInterFrameFromProbes(
+                header,
+                probes,
+                referenceFrames,
+                out var reconstructedFrame,
+                out var predictedProbes,
+                out var diagnostic),
+            diagnostic?.Message);
 
-        Assert.Null(reconstructedFrame);
-        Assert.Empty(predictedProbes);
-        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedInterFrameFeature, diagnostic?.Code);
-        Assert.Contains("NEARESTMV", diagnostic?.Message, StringComparison.Ordinal);
+        Assert.NotNull(reconstructedFrame);
+        Assert.Equal(Hash(referenceFrame.Pixels), Hash(reconstructedFrame.Frame.Pixels));
+        Assert.Equal(new Vp9MotionVector(0, 0), predictedProbes[1].ModeInfos[0].MotionVector);
     }
 
     [Fact]
-    public void TryReconstructInterFrameFromProbes_WhenNearMvHasOnlyOneCandidate_ReturnsUnsupportedDiagnostic()
+    public void TryReconstructInterFrameFromProbes_WhenNearMvHasOnlyOneCandidate_UsesZeroMvFallback()
     {
         var header = CreateSyntheticOrdinaryInterHeader(packetLength: 0) with
         {
@@ -1130,18 +1131,21 @@ public sealed class Vp9TileSyntaxScannerTests
                 ])
         ];
 
-        Assert.False(Vp9TileSyntaxScanner.TryReconstructInterFrameFromProbes(
-            header,
-            probes,
-            referenceFrames,
-            out var reconstructedFrame,
-            out var predictedProbes,
-            out var diagnostic));
+        Assert.True(
+            Vp9TileSyntaxScanner.TryReconstructInterFrameFromProbes(
+                header,
+                probes,
+                referenceFrames,
+                out var reconstructedFrame,
+                out var predictedProbes,
+                out var diagnostic),
+            diagnostic?.Message);
 
-        Assert.Null(reconstructedFrame);
-        Assert.Empty(predictedProbes);
-        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedInterFrameFeature, diagnostic?.Code);
-        Assert.Contains("NEARMV", diagnostic?.Message, StringComparison.Ordinal);
+        Assert.NotNull(reconstructedFrame);
+        Assert.Equal(Hash(referenceFrame.Pixels), Hash(reconstructedFrame.Frame.Pixels));
+        var predictedModes = Assert.Single(predictedProbes).ModeInfos;
+        Assert.Equal(new Vp9MotionVector(0, 0), predictedModes[0].MotionVector);
+        Assert.Equal(new Vp9MotionVector(0, 0), predictedModes[1].MotionVector);
     }
 
     [Fact]

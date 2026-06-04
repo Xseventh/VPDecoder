@@ -5,6 +5,7 @@ internal static class Vp9InterPredictor
     private const int MotionVectorLowerBound = -(1 << 14);
     private const int MotionVectorUpperBound = (1 << 14) - 1;
     private const int MotionVectorReferenceNeighborCount = 8;
+    private static readonly Vp9MotionVector ZeroMotionVector = new(0, 0);
 
     private static ReadOnlySpan<sbyte> MotionVectorReferencePositions =>
     [
@@ -64,29 +65,15 @@ internal static class Vp9InterPredictor
         switch (predictionMode)
         {
             case Vp9InterPredictionMode.ZeroMv:
-                motionVector = new Vp9MotionVector(0, 0);
+                motionVector = ZeroMotionVector;
                 return true;
 
             case Vp9InterPredictionMode.NearestMv:
-                if (candidates.Count < 1)
-                {
-                    diagnostic = Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(
-                        "VP9 NEARESTMV requires a derived reference MV candidate, which is not available yet.");
-                    return false;
-                }
-
-                motionVector = candidates[0];
+                motionVector = candidates.Count >= 1 ? candidates[0] : ZeroMotionVector;
                 return true;
 
             case Vp9InterPredictionMode.NearMv:
-                if (candidates.Count < 2)
-                {
-                    diagnostic = Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(
-                        "VP9 NEARMV requires derived reference MV candidates, which are not available yet.");
-                    return false;
-                }
-
-                motionVector = candidates[1];
+                motionVector = candidates.Count >= 2 ? candidates[1] : ZeroMotionVector;
                 return true;
 
             case Vp9InterPredictionMode.NewMv:
