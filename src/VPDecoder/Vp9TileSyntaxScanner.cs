@@ -942,7 +942,8 @@ internal static class Vp9TileSyntaxScanner
 
                     var candidates = Vp9InterPredictor.BuildSpatialMotionVectorCandidates(
                         modeBlock,
-                        predictedModeBlocks);
+                        predictedModeBlocks,
+                        header.ReferenceFrameSignBiases);
                     if (!Vp9InterPredictor.TrySelectMotionVector(
                             modeBlock,
                             candidates,
@@ -2187,7 +2188,8 @@ internal static class Vp9TileSyntaxScanner
 
         var candidates = Vp9InterPredictor.BuildSpatialMotionVectorCandidates(
             modeBlock,
-            predictedModeBlocks);
+            predictedModeBlocks,
+            header.ReferenceFrameSignBiases);
         if (!Vp9InterPredictor.TrySelectMotionVector(
                 modeBlock,
                 candidates,
@@ -2232,7 +2234,8 @@ internal static class Vp9TileSyntaxScanner
         resolvedModeBlock = modeBlock;
         var candidates = Vp9InterPredictor.BuildSpatialMotionVectorCandidates(
             modeBlock,
-            decodedModeBlocks);
+            decodedModeBlocks,
+            header.ReferenceFrameSignBiases);
         Vp9MotionVector motionVector;
         if (modeBlock.ModeInfo.PredictionMode == Vp9InterPredictionMode.NewMv)
         {
@@ -2246,7 +2249,7 @@ internal static class Vp9TileSyntaxScanner
             if (candidates.Count < 1)
             {
                 diagnostic = Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(
-                    "VP9 NEWMV requires a same-reference spatial MV candidate; different-reference and previous-frame MV fallback are not supported yet.");
+                    "VP9 NEWMV requires a spatial or previous-frame MV candidate; previous-frame MV fallback is not supported yet.");
                 return false;
             }
 

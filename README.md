@@ -39,29 +39,31 @@ Current status:
   far enough to expose reference, refresh, size, motion, loop-filter,
   quantization, segmentation, and tile metadata. Restricted ordinary inter
   reconstruction is supported for the current gated shape: profile0/8-bit
-  YUV420, single-reference blocks, same-size references, decoded spatial MV
-  candidates, whole-pixel motion compensation, DCT residual groups, and scalar
-  loop filtering. Unsupported inter features still return explicit diagnostics
-  before pixels are emitted.
+  YUV420, single-reference blocks, same-size references, decoded same-reference
+  and sign-bias-scaled different-reference spatial MV candidates, whole-pixel
+  motion compensation, DCT residual groups, and scalar loop filtering.
+  Unsupported inter features still return explicit diagnostics before pixels
+  are emitted.
 - Maintains decoder-owned VP9 frame-context slots for compressed-header
   probability state, commits refreshed contexts only after successful decode,
   and resets them with `Reset()`.
 - Carries libvpx-derived VP9 inter probability defaults and drains ordinary
   inter compressed-header probability syntax for no-update streams, while
   keeping unsupported inter syntax strictly gated.
-- Reads gated VP9 NEWMV syntax when a same-reference spatial MV candidate is
-  already available. NEARESTMV and NEARMV use same-reference spatial candidates
-  with libvpx-style zero-vector fallback for empty candidate slots.
+- Reads gated VP9 NEWMV syntax with spatial MV candidates. NEARESTMV and NEARMV
+  use same-reference candidates first, then different-reference spatial
+  candidates scaled by VP9 reference sign bias, with libvpx-style zero-vector
+  fallback for empty candidate slots.
   Ordinary inter frames can contain intra-predicted blocks; those blocks read
   inter-frame intra Y/UV mode probabilities and reuse the intra reconstruction
   path with intra-reference residual syntax.
   Uniform sub-8x8 inter mode-info groups are parsed for ZEROMV, NEARESTMV, and
   zero-fallback NEARMV; mixed sub-block modes, sub-8x8 NEWMV, non-zero
-  sub-8x8 NEARMV, different-reference and previous-frame MV candidate
-  enrichment, compound references, and fractional-pixel motion compensation
-  remain explicit unsupported paths. Switchable inter interpolation filter
-  syntax is parsed and tracked at block mode-info level; fractional-pixel
-  filtering remains gated until motion compensation supports it.
+  sub-8x8 NEARMV, previous-frame MV candidate enrichment, compound references,
+  and fractional-pixel motion compensation remain explicit unsupported paths.
+  Switchable inter interpolation filter syntax is parsed and tracked at block
+  mode-info level; fractional-pixel filtering remains gated until motion
+  compensation supports it.
 - Preserves deterministic evidence for the first Block16X16 luma TX4 group
   that previously exposed residual synchronization drift.
 - Converts decoded YUV420 frames to BGRA8888/RGBA8888 and composes alpha from

@@ -110,7 +110,8 @@ internal static class Vp9InterPredictor
 
     public static IReadOnlyList<Vp9MotionVector> BuildSpatialMotionVectorCandidates(
         Vp9InterBlockModeInfoProbe currentBlock,
-        IReadOnlyList<Vp9InterBlockModeInfoProbe> decodedBlocks)
+        IReadOnlyList<Vp9InterBlockModeInfoProbe> decodedBlocks,
+        IReadOnlyList<bool>? referenceFrameSignBiases = null)
     {
         var candidates = new List<Vp9MotionVector>(capacity: 2);
         var positionOffset = (int)currentBlock.ModeInfo.BlockSize * MotionVectorReferenceNeighborCount * 2;
@@ -118,16 +119,50 @@ internal static class Vp9InterPredictor
         {
             var rowOffset = MotionVectorReferencePositions[positionOffset + (i * 2)];
             var columnOffset = MotionVectorReferencePositions[positionOffset + (i * 2) + 1];
-            AddCandidate(
-                candidates,
-                FindCandidateAtMiPosition(
+            if (TryFindSpatialCandidateAtMiPosition(
                     currentBlock,
                     decodedBlocks,
                     currentBlock.MiRow + rowOffset,
-                    currentBlock.MiColumn + columnOffset));
+                    currentBlock.MiColumn + columnOffset,
+                    out var candidate) &&
+                candidate.ModeInfo.ReferenceFrame == currentBlock.ModeInfo.ReferenceFrame)
+            {
+                AddCandidate(candidates, candidate.MotionVector);
+            }
+
             if (candidates.Count == 2)
             {
-                break;
+                return candidates;
+            }
+        }
+
+        if (referenceFrameSignBiases is null)
+        {
+            return candidates;
+        }
+
+        for (var i = 0; i < MotionVectorReferenceNeighborCount; i++)
+        {
+            var rowOffset = MotionVectorReferencePositions[positionOffset + (i * 2)];
+            var columnOffset = MotionVectorReferencePositions[positionOffset + (i * 2) + 1];
+            if (TryFindSpatialCandidateAtMiPosition(
+                    currentBlock,
+                    decodedBlocks,
+                    currentBlock.MiRow + rowOffset,
+                    currentBlock.MiColumn + columnOffset,
+                    out var candidate) &&
+                TryScaleDifferentReferenceCandidate(
+                    currentBlock,
+                    candidate,
+                    referenceFrameSignBiases,
+                    out var scaledMotionVector))
+            {
+                AddCandidate(candidates, scaledMotionVector);
+            }
+
+            if (candidates.Count == 2)
+            {
+                return candidates;
             }
         }
 
@@ -157,37 +192,89 @@ internal static class Vp9InterPredictor
         candidates.Add(motionVector);
     }
 
-    private static Vp9MotionVector? FindCandidateAtMiPosition(
+    private static bool TryFindSpatialCandidateAtMiPosition(
         Vp9InterBlockModeInfoProbe currentBlock,
         IReadOnlyList<Vp9InterBlockModeInfoProbe> decodedBlocks,
         int miRow,
-        int miColumn)
+        int miColumn,
+        out Vp9InterBlockModeInfoProbe candidate)
     {
         foreach (var block in decodedBlocks)
         {
-            if (!CanUseCandidate(block, currentBlock))
+            if (!CanUseSpatialCandidate(block, currentBlock))
             {
                 continue;
             }
 
             if (ContainsMiPosition(block, miRow, miColumn))
             {
-                return block.MotionVector;
+                candidate = block;
+                return true;
             }
         }
 
-        return null;
+        candidate = default!;
+        return false;
     }
 
-    private static bool CanUseCandidate(
+    private static bool CanUseSpatialCandidate(
         Vp9InterBlockModeInfoProbe candidate,
         Vp9InterBlockModeInfoProbe currentBlock)
     {
         return candidate.MotionVector.HasValue &&
             candidate.TileIndex == currentBlock.TileIndex &&
             candidate.ModeInfo.IsInterBlock &&
-            candidate.ModeInfo.ReferenceMode == Vp9ReferenceMode.Single &&
-            candidate.ModeInfo.ReferenceFrame == currentBlock.ModeInfo.ReferenceFrame;
+            candidate.ModeInfo.ReferenceMode == Vp9ReferenceMode.Single;
+    }
+
+    private static bool TryScaleDifferentReferenceCandidate(
+        Vp9InterBlockModeInfoProbe currentBlock,
+        Vp9InterBlockModeInfoProbe candidate,
+        IReadOnlyList<bool> referenceFrameSignBiases,
+        out Vp9MotionVector motionVector)
+    {
+        motionVector = default;
+        if (candidate.ModeInfo.ReferenceFrame == currentBlock.ModeInfo.ReferenceFrame ||
+            !candidate.MotionVector.HasValue)
+        {
+            return false;
+        }
+
+        if (!TryGetReferenceFrameSignBias(
+                referenceFrameSignBiases,
+                currentBlock.ModeInfo.ReferenceFrame,
+                out var currentSignBias) ||
+            !TryGetReferenceFrameSignBias(
+                referenceFrameSignBiases,
+                candidate.ModeInfo.ReferenceFrame,
+                out var candidateSignBias))
+        {
+            return false;
+        }
+
+        motionVector = candidate.MotionVector.Value;
+        if (candidateSignBias != currentSignBias)
+        {
+            motionVector = new Vp9MotionVector(-motionVector.Row, -motionVector.Column);
+        }
+
+        return true;
+    }
+
+    private static bool TryGetReferenceFrameSignBias(
+        IReadOnlyList<bool> referenceFrameSignBiases,
+        Vp9InterReferenceFrame referenceFrame,
+        out bool signBias)
+    {
+        var index = (int)referenceFrame - 1;
+        if (index < 0 || index >= referenceFrameSignBiases.Count)
+        {
+            signBias = default;
+            return false;
+        }
+
+        signBias = referenceFrameSignBiases[index];
+        return true;
     }
 
     private static bool ContainsMiPosition(Vp9InterBlockModeInfoProbe block, int miRow, int miColumn)

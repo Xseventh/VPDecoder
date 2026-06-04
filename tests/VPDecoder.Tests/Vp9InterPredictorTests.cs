@@ -194,6 +194,49 @@ public sealed class Vp9InterPredictorTests
     }
 
     [Fact]
+    public void BuildSpatialMotionVectorCandidates_WhenSameReferenceIsMissing_UsesDifferentReferenceCandidate()
+    {
+        var above = CreateModeBlock(0, 1, Vp9InterReferenceFrame.Golden, new Vp9MotionVector(8, -16));
+        var current = CreateModeBlock(1, 1, Vp9InterReferenceFrame.Last);
+
+        var candidates = Vp9InterPredictor.BuildSpatialMotionVectorCandidates(
+            current,
+            [above],
+            referenceFrameSignBiases: [false, false, false]);
+
+        Assert.Equal([above.MotionVector!.Value], candidates);
+    }
+
+    [Fact]
+    public void BuildSpatialMotionVectorCandidates_WhenDifferentReferenceSignBiasDiffers_FlipsMotionVector()
+    {
+        var above = CreateModeBlock(0, 1, Vp9InterReferenceFrame.Golden, new Vp9MotionVector(8, -16));
+        var current = CreateModeBlock(1, 1, Vp9InterReferenceFrame.Last);
+
+        var candidates = Vp9InterPredictor.BuildSpatialMotionVectorCandidates(
+            current,
+            [above],
+            referenceFrameSignBiases: [false, true, false]);
+
+        Assert.Equal([new Vp9MotionVector(-8, 16)], candidates);
+    }
+
+    [Fact]
+    public void BuildSpatialMotionVectorCandidates_PrefersSameReferenceBeforeDifferentReference()
+    {
+        var left = CreateModeBlock(1, 0, Vp9InterReferenceFrame.Last, new Vp9MotionVector(8, -16));
+        var above = CreateModeBlock(0, 1, Vp9InterReferenceFrame.Golden, new Vp9MotionVector(24, 32));
+        var current = CreateModeBlock(1, 1, Vp9InterReferenceFrame.Last);
+
+        var candidates = Vp9InterPredictor.BuildSpatialMotionVectorCandidates(
+            current,
+            [left, above],
+            referenceFrameSignBiases: [false, false, false]);
+
+        Assert.Equal([left.MotionVector!.Value, above.MotionVector!.Value], candidates);
+    }
+
+    [Fact]
     public void TrySelectMotionVector_ForNearMvWithDerivedSpatialCandidates_ReturnsAboveCandidate()
     {
         var left = CreateModeBlock(1, 0, Vp9InterReferenceFrame.Last, new Vp9MotionVector(8, -16));
