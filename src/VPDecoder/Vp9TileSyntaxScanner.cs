@@ -2580,7 +2580,7 @@ internal static class Vp9TileSyntaxScanner
                 out diagnostic);
         }
 
-        if (!Vp9MotionCompensator.TryCopyWholePixelPlaneBlock(
+        if (!Vp9MotionCompensator.TryCopyPlaneBlock(
                 referenceFrame,
                 destination,
                 Vp9Plane.Y,
@@ -2588,13 +2588,14 @@ internal static class Vp9TileSyntaxScanner
                 destinationY,
                 visibleWidth,
                 visibleHeight,
-                motionVector,
+                ScaleLumaMotionVectorToQ4(motionVector),
+                modeBlock.ModeInfo.InterpolationFilter,
                 out diagnostic))
         {
             return false;
         }
 
-        var chromaMotionVector = new Vp9MotionVector(motionVector.Row / 2, motionVector.Column / 2);
+        var chromaMotionVector = ScaleYuv420ChromaMotionVectorToQ4(motionVector);
         var chromaDestinationX = destinationX / 2;
         var chromaDestinationY = destinationY / 2;
         var chromaWidth = Math.Min((visibleWidth + 1) / 2, ((header.Width + 1) / 2) - chromaDestinationX);
@@ -2606,7 +2607,7 @@ internal static class Vp9TileSyntaxScanner
             return false;
         }
 
-        if (!Vp9MotionCompensator.TryCopyWholePixelPlaneBlock(
+        if (!Vp9MotionCompensator.TryCopyPlaneBlock(
                 referenceFrame,
                 destination,
                 Vp9Plane.U,
@@ -2615,12 +2616,13 @@ internal static class Vp9TileSyntaxScanner
                 chromaWidth,
                 chromaHeight,
                 chromaMotionVector,
+                modeBlock.ModeInfo.InterpolationFilter,
                 out diagnostic))
         {
             return false;
         }
 
-        return Vp9MotionCompensator.TryCopyWholePixelPlaneBlock(
+        return Vp9MotionCompensator.TryCopyPlaneBlock(
             referenceFrame,
             destination,
             Vp9Plane.V,
@@ -2629,6 +2631,7 @@ internal static class Vp9TileSyntaxScanner
             chromaWidth,
             chromaHeight,
             chromaMotionVector,
+            modeBlock.ModeInfo.InterpolationFilter,
             out diagnostic);
     }
 
@@ -2662,7 +2665,7 @@ internal static class Vp9TileSyntaxScanner
                 continue;
             }
 
-            if (!Vp9MotionCompensator.TryCopyWholePixelPlaneBlock(
+            if (!Vp9MotionCompensator.TryCopyPlaneBlock(
                     referenceFrame,
                     destination,
                     Vp9Plane.Y,
@@ -2670,7 +2673,8 @@ internal static class Vp9TileSyntaxScanner
                     subY,
                     subVisibleWidth,
                     subVisibleHeight,
-                    modeBlock.InterSubMotionVectors[block],
+                    ScaleLumaMotionVectorToQ4(modeBlock.InterSubMotionVectors[block]),
+                    modeBlock.ModeInfo.InterpolationFilter,
                     out diagnostic))
             {
                 return false;
@@ -2678,9 +2682,7 @@ internal static class Vp9TileSyntaxScanner
         }
 
         var averageMotionVector = AverageSub8X8MotionVectors(modeBlock.InterSubMotionVectors);
-        var chromaMotionVector = new Vp9MotionVector(
-            averageMotionVector.Row / 2,
-            averageMotionVector.Column / 2);
+        var chromaMotionVector = ScaleYuv420ChromaMotionVectorToQ4(averageMotionVector);
         var chromaDestinationX = destinationX / 2;
         var chromaDestinationY = destinationY / 2;
         var chromaWidth = Math.Min((visibleWidth + 1) / 2, ((header.Width + 1) / 2) - chromaDestinationX);
@@ -2692,7 +2694,7 @@ internal static class Vp9TileSyntaxScanner
             return false;
         }
 
-        if (!Vp9MotionCompensator.TryCopyWholePixelPlaneBlock(
+        if (!Vp9MotionCompensator.TryCopyPlaneBlock(
                 referenceFrame,
                 destination,
                 Vp9Plane.U,
@@ -2701,12 +2703,13 @@ internal static class Vp9TileSyntaxScanner
                 chromaWidth,
                 chromaHeight,
                 chromaMotionVector,
+                modeBlock.ModeInfo.InterpolationFilter,
                 out diagnostic))
         {
             return false;
         }
 
-        return Vp9MotionCompensator.TryCopyWholePixelPlaneBlock(
+        return Vp9MotionCompensator.TryCopyPlaneBlock(
             referenceFrame,
             destination,
             Vp9Plane.V,
@@ -2715,7 +2718,18 @@ internal static class Vp9TileSyntaxScanner
             chromaWidth,
             chromaHeight,
             chromaMotionVector,
+            modeBlock.ModeInfo.InterpolationFilter,
             out diagnostic);
+    }
+
+    private static Vp9MotionVector ScaleLumaMotionVectorToQ4(Vp9MotionVector motionVector)
+    {
+        return new Vp9MotionVector(checked(motionVector.Row * 2), checked(motionVector.Column * 2));
+    }
+
+    private static Vp9MotionVector ScaleYuv420ChromaMotionVectorToQ4(Vp9MotionVector motionVector)
+    {
+        return motionVector;
     }
 
     private static Vp9MotionVector AverageSub8X8MotionVectors(IReadOnlyList<Vp9MotionVector> motionVectors)

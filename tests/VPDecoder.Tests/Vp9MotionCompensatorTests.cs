@@ -120,6 +120,50 @@ public sealed class Vp9MotionCompensatorTests
     }
 
     [Fact]
+    public void TryCopyPlaneBlock_WithHorizontalFractionalBilinearMv_CopiesInterpolatedBlock()
+    {
+        var reference = CreatePatternYuvFrame(width: 4, height: 4);
+        var destination = Vp9YuvFrameBuffer.Create(4, 4);
+
+        Assert.True(Vp9MotionCompensator.TryCopyPlaneBlock(
+            reference,
+            destination,
+            Vp9Plane.Y,
+            destinationX: 0,
+            destinationY: 0,
+            width: 2,
+            height: 2,
+            new Vp9MotionVector(Row: 0, Column: 8),
+            Vp9InterpolationFilter.Bilinear,
+            out var diagnostic), diagnostic?.Message);
+
+        Assert.Equal([1, 2], destination.Pixels.AsSpan(0, 2).ToArray());
+        Assert.Equal([5, 6], destination.Pixels.AsSpan(destination.YPlane.Stride, 2).ToArray());
+    }
+
+    [Fact]
+    public void TryCopyPlaneBlock_WithTwoDimensionalFractionalBilinearMv_CopiesInterpolatedBlock()
+    {
+        var reference = CreatePatternYuvFrame(width: 4, height: 4);
+        var destination = Vp9YuvFrameBuffer.Create(4, 4);
+
+        Assert.True(Vp9MotionCompensator.TryCopyPlaneBlock(
+            reference,
+            destination,
+            Vp9Plane.Y,
+            destinationX: 0,
+            destinationY: 0,
+            width: 2,
+            height: 2,
+            new Vp9MotionVector(Row: 8, Column: 8),
+            Vp9InterpolationFilter.Bilinear,
+            out var diagnostic), diagnostic?.Message);
+
+        Assert.Equal([3, 4], destination.Pixels.AsSpan(0, 2).ToArray());
+        Assert.Equal([7, 8], destination.Pixels.AsSpan(destination.YPlane.Stride, 2).ToArray());
+    }
+
+    [Fact]
     public void TryCopyWholePixelPlaneBlock_WithFractionalMv_ReturnsUnsupportedDiagnostic()
     {
         var reference = CreatePatternYuvFrame(width: 4, height: 4);
@@ -137,7 +181,7 @@ public sealed class Vp9MotionCompensatorTests
             out var diagnostic));
 
         Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedInterFrameFeature, diagnostic?.Code);
-        Assert.Contains("fractional", diagnostic?.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("whole-pixel", diagnostic?.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
