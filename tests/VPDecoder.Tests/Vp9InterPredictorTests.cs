@@ -237,6 +237,73 @@ public sealed class Vp9InterPredictorTests
     }
 
     [Fact]
+    public void BuildSpatialMotionVectorCandidates_WhenSpatialCandidatesAreMissing_UsesPreviousFrameSameReferenceCandidate()
+    {
+        var previous = Vp9PreviousFrameMotionVectors.FromModeBlocks(
+            width: 16,
+            height: 16,
+            miRows: 2,
+            miColumns: 2,
+            [CreateModeBlock(1, 1, Vp9InterReferenceFrame.Last, new Vp9MotionVector(16, -16))]);
+        var current = CreateModeBlock(1, 1, Vp9InterReferenceFrame.Last);
+
+        var candidates = Vp9InterPredictor.BuildSpatialMotionVectorCandidates(
+            current,
+            decodedBlocks: [],
+            referenceFrameSignBiases: [false, false, false],
+            previousFrameMotionVectors: previous);
+
+        Assert.Equal([new Vp9MotionVector(16, -16)], candidates);
+    }
+
+    [Fact]
+    public void BuildSpatialMotionVectorCandidates_WhenPreviousFrameReferenceDiffers_ScalesBySignBias()
+    {
+        var previous = Vp9PreviousFrameMotionVectors.FromModeBlocks(
+            width: 16,
+            height: 16,
+            miRows: 2,
+            miColumns: 2,
+            [CreateModeBlock(1, 1, Vp9InterReferenceFrame.Golden, new Vp9MotionVector(16, -16))]);
+        var current = CreateModeBlock(1, 1, Vp9InterReferenceFrame.Last);
+
+        var candidates = Vp9InterPredictor.BuildSpatialMotionVectorCandidates(
+            current,
+            decodedBlocks: [],
+            referenceFrameSignBiases: [false, true, false],
+            previousFrameMotionVectors: previous);
+
+        Assert.Equal([new Vp9MotionVector(-16, 16)], candidates);
+    }
+
+    [Fact]
+    public void CanUseFor_WhenHeaderIsErrorResilient_ReturnsFalse()
+    {
+        var previous = Vp9PreviousFrameMotionVectors.FromModeBlocks(
+            width: 16,
+            height: 16,
+            miRows: 2,
+            miColumns: 2,
+            [CreateModeBlock(1, 1, Vp9InterReferenceFrame.Last, new Vp9MotionVector(16, -16))]);
+        var header = CreateInterHeader(referenceSlots: [0, 1, 7]) with
+        {
+            ErrorResilientMode = true,
+            Width = 16,
+            Height = 16,
+            TileInfo = new Vp9TileInfo(
+                MiColumns: 2,
+                MiRows: 2,
+                SuperblockColumns: 1,
+                MinLog2TileColumns: 0,
+                MaxLog2TileColumns: 0,
+                Log2TileColumns: 0,
+                Log2TileRows: 0)
+        };
+
+        Assert.False(previous.CanUseFor(header));
+    }
+
+    [Fact]
     public void TrySelectMotionVector_ForNearMvWithDerivedSpatialCandidates_ReturnsAboveCandidate()
     {
         var left = CreateModeBlock(1, 0, Vp9InterReferenceFrame.Last, new Vp9MotionVector(8, -16));

@@ -111,7 +111,8 @@ internal static class Vp9InterPredictor
     public static IReadOnlyList<Vp9MotionVector> BuildSpatialMotionVectorCandidates(
         Vp9InterBlockModeInfoProbe currentBlock,
         IReadOnlyList<Vp9InterBlockModeInfoProbe> decodedBlocks,
-        IReadOnlyList<bool>? referenceFrameSignBiases = null)
+        IReadOnlyList<bool>? referenceFrameSignBiases = null,
+        Vp9PreviousFrameMotionVectors? previousFrameMotionVectors = null)
     {
         var candidates = new List<Vp9MotionVector>(capacity: 2);
         var positionOffset = (int)currentBlock.ModeInfo.BlockSize * MotionVectorReferenceNeighborCount * 2;
@@ -134,6 +135,17 @@ internal static class Vp9InterPredictor
             {
                 return candidates;
             }
+        }
+
+        AddPreviousFrameCandidate(
+            candidates,
+            currentBlock,
+            previousFrameMotionVectors,
+            referenceFrameSignBiases,
+            sameReferenceOnly: true);
+        if (candidates.Count == 2)
+        {
+            return candidates;
         }
 
         if (referenceFrameSignBiases is null)
@@ -166,6 +178,12 @@ internal static class Vp9InterPredictor
             }
         }
 
+        AddPreviousFrameCandidate(
+            candidates,
+            currentBlock,
+            previousFrameMotionVectors,
+            referenceFrameSignBiases,
+            sameReferenceOnly: false);
         return candidates;
     }
 
@@ -259,6 +277,52 @@ internal static class Vp9InterPredictor
         }
 
         return true;
+    }
+
+    private static void AddPreviousFrameCandidate(
+        List<Vp9MotionVector> candidates,
+        Vp9InterBlockModeInfoProbe currentBlock,
+        Vp9PreviousFrameMotionVectors? previousFrameMotionVectors,
+        IReadOnlyList<bool>? referenceFrameSignBiases,
+        bool sameReferenceOnly)
+    {
+        if (previousFrameMotionVectors is null ||
+            !previousFrameMotionVectors.TryGetEntryAtMi(currentBlock.MiRow, currentBlock.MiColumn, out var entry))
+        {
+            return;
+        }
+
+        if (entry.ReferenceFrame == currentBlock.ModeInfo.ReferenceFrame)
+        {
+            if (sameReferenceOnly)
+            {
+                AddCandidate(candidates, entry.MotionVector);
+            }
+
+            return;
+        }
+
+        if (sameReferenceOnly ||
+            referenceFrameSignBiases is null ||
+            !TryGetReferenceFrameSignBias(
+                referenceFrameSignBiases,
+                currentBlock.ModeInfo.ReferenceFrame,
+                out var currentSignBias) ||
+            !TryGetReferenceFrameSignBias(
+                referenceFrameSignBiases,
+                entry.ReferenceFrame,
+                out var previousSignBias))
+        {
+            return;
+        }
+
+        var motionVector = entry.MotionVector;
+        if (previousSignBias != currentSignBias)
+        {
+            motionVector = new Vp9MotionVector(-motionVector.Row, -motionVector.Column);
+        }
+
+        AddCandidate(candidates, motionVector);
     }
 
     private static bool TryGetReferenceFrameSignBias(

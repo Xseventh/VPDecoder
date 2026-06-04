@@ -231,6 +231,26 @@ public sealed class RawVp9DecoderTests
     }
 
     [Fact]
+    public void DecodeFrame_WhenNewMvNeedsPreviousFrameCandidate_UsesPreviousFrameMotionVector()
+    {
+        var decoder = new RawVp9Decoder();
+        var reference = CreatePatternYuvFrame(width: 16, height: 8);
+        SeedReferenceFrame(decoder, reference, Vp9ColorRange.Studio, refreshFrameFlags: 0xff);
+        var first = decoder.DecodeFrame(
+            CreatePaddedOrdinaryInterFramePacket(),
+            new Vp9DecodeOptions(16, 8, Vp9OutputPixelFormat.Yuv420));
+
+        var second = decoder.DecodeFrame(
+            CreatePaddedOrdinaryInterFramePacket(tilePayload: [0x0c, 0x10, 0x00, 0x00]),
+            new Vp9DecodeOptions(16, 8, Vp9OutputPixelFormat.Yuv420));
+
+        Assert.True(first.Succeeded, first.Diagnostic?.Message);
+        Assert.True(second.Succeeded, second.Diagnostic?.Message);
+        Assert.NotNull(second.Frame);
+        Assert.Equal(Hash(reference.Pixels), Hash(second.Frame.Pixels));
+    }
+
+    [Fact]
     public void DecodeFrame_WhenRestrictedOrdinaryInterFrameHasLoopFilter_AppliesFilterDeterministically()
     {
         var reference = CreateEdgeYuvFrame(width: 16, height: 8);

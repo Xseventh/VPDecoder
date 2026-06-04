@@ -158,7 +158,8 @@ internal static class Vp9TileSyntaxScanner
         Vp9CompressedHeader compressedHeader,
         IReadOnlyList<Vp9TileBuffer> tileBuffers,
         out IReadOnlyList<Vp9InterSuperblockModeInfoProbe> probes,
-        out Vp9DecodeDiagnostic? diagnostic)
+        out Vp9DecodeDiagnostic? diagnostic,
+        Vp9PreviousFrameMotionVectors? previousFrameMotionVectors = null)
     {
         probes = [];
         diagnostic = null;
@@ -172,6 +173,9 @@ internal static class Vp9TileSyntaxScanner
 
         try
         {
+            var eligiblePreviousFrameMotionVectors = GetEligiblePreviousFrameMotionVectors(
+                header,
+                previousFrameMotionVectors);
             var geometries = Vp9TileGeometryBuilder.Build(header, tileBuffers);
             var parsed = new List<Vp9InterSuperblockModeInfoProbe>(geometries.Count);
             for (var i = 0; i < geometries.Count; i++)
@@ -200,7 +204,8 @@ internal static class Vp9TileSyntaxScanner
                         [],
                         partitions,
                         modes,
-                        out diagnostic))
+                        out diagnostic,
+                        eligiblePreviousFrameMotionVectors))
                 {
                     probes = parsed;
                     return false;
@@ -437,7 +442,8 @@ internal static class Vp9TileSyntaxScanner
         IReadOnlyList<Vp9TileBuffer> tileBuffers,
         out IReadOnlyList<Vp9InterSuperblockModeInfoProbe> probes,
         out IReadOnlyList<Vp9CoefficientBlockGroupProbe> residualGroups,
-        out Vp9DecodeDiagnostic? diagnostic)
+        out Vp9DecodeDiagnostic? diagnostic,
+        Vp9PreviousFrameMotionVectors? previousFrameMotionVectors = null)
     {
         probes = [];
         residualGroups = [];
@@ -457,6 +463,9 @@ internal static class Vp9TileSyntaxScanner
 
         try
         {
+            var eligiblePreviousFrameMotionVectors = GetEligiblePreviousFrameMotionVectors(
+                header,
+                previousFrameMotionVectors);
             var geometries = Vp9TileGeometryBuilder.Build(header, tileBuffers);
             var parsed = new List<Vp9InterSuperblockModeInfoProbe>(geometries.Count);
             var parsedResidualGroups = new List<Vp9CoefficientBlockGroupProbe>();
@@ -485,7 +494,8 @@ internal static class Vp9TileSyntaxScanner
                         geometry.MiRowStart,
                         geometry.MiColumnStart,
                         out var syntaxProbe,
-                        out diagnostic))
+                        out diagnostic,
+                        eligiblePreviousFrameMotionVectors))
                 {
                     probes = parsed;
                     residualGroups = parsedResidualGroups;
@@ -553,7 +563,8 @@ internal static class Vp9TileSyntaxScanner
         Vp9CompressedHeader compressedHeader,
         IReadOnlyList<Vp9TileBuffer> tileBuffers,
         out IReadOnlyList<Vp9InterSuperblockSyntaxProbe> probes,
-        out Vp9DecodeDiagnostic? diagnostic)
+        out Vp9DecodeDiagnostic? diagnostic,
+        Vp9PreviousFrameMotionVectors? previousFrameMotionVectors = null)
     {
         var parsed = new List<Vp9InterSuperblockSyntaxProbe>();
         probes = parsed;
@@ -573,6 +584,9 @@ internal static class Vp9TileSyntaxScanner
 
         try
         {
+            var eligiblePreviousFrameMotionVectors = GetEligiblePreviousFrameMotionVectors(
+                header,
+                previousFrameMotionVectors);
             var dequantTables = Vp9DequantTables.Create(header.Quantization, header.BitDepth);
             var geometries = Vp9TileGeometryBuilder.Build(header, tileBuffers);
             foreach (var geometry in geometries)
@@ -606,7 +620,8 @@ internal static class Vp9TileSyntaxScanner
                                 miRow,
                                 miColumn,
                                 out var syntaxProbe,
-                                out diagnostic))
+                                out diagnostic,
+                                eligiblePreviousFrameMotionVectors))
                         {
                             return false;
                         }
@@ -832,7 +847,8 @@ internal static class Vp9TileSyntaxScanner
         Vp9ReferenceFrameStore referenceFrames,
         out Vp9ReconstructedFrame? reconstructedFrame,
         out IReadOnlyList<Vp9InterSuperblockSyntaxProbe> probes,
-        out Vp9DecodeDiagnostic? diagnostic)
+        out Vp9DecodeDiagnostic? diagnostic,
+        Vp9PreviousFrameMotionVectors? previousFrameMotionVectors = null)
     {
         reconstructedFrame = null;
         probes = [];
@@ -844,7 +860,8 @@ internal static class Vp9TileSyntaxScanner
                 compressedHeader,
                 tileBuffers,
                 out probes,
-                out diagnostic))
+                out diagnostic,
+                previousFrameMotionVectors))
         {
             return false;
         }
@@ -855,7 +872,8 @@ internal static class Vp9TileSyntaxScanner
                 referenceFrames,
                 out reconstructedFrame,
                 out var predictedProbes,
-                out diagnostic))
+                out diagnostic,
+                previousFrameMotionVectors))
         {
             return false;
         }
@@ -870,7 +888,8 @@ internal static class Vp9TileSyntaxScanner
         Vp9ReferenceFrameStore referenceFrames,
         out Vp9ReconstructedFrame? reconstructedFrame,
         out IReadOnlyList<Vp9InterSuperblockSyntaxProbe> predictedProbes,
-        out Vp9DecodeDiagnostic? diagnostic)
+        out Vp9DecodeDiagnostic? diagnostic,
+        Vp9PreviousFrameMotionVectors? previousFrameMotionVectors = null)
     {
         reconstructedFrame = null;
         predictedProbes = [];
@@ -878,6 +897,9 @@ internal static class Vp9TileSyntaxScanner
 
         try
         {
+            var eligiblePreviousFrameMotionVectors = GetEligiblePreviousFrameMotionVectors(
+                header,
+                previousFrameMotionVectors);
             var destination = Vp9YuvFrameBuffer.Create(header.Width, header.Height);
             var tileGeometries = CreateReconstructionTileGeometries(header, syntaxProbes);
             var reconstructedProbes = new List<Vp9InterSuperblockSyntaxProbe>(syntaxProbes.Count);
@@ -943,7 +965,8 @@ internal static class Vp9TileSyntaxScanner
                     var candidates = Vp9InterPredictor.BuildSpatialMotionVectorCandidates(
                         modeBlock,
                         predictedModeBlocks,
-                        header.ReferenceFrameSignBiases);
+                        header.ReferenceFrameSignBiases,
+                        eligiblePreviousFrameMotionVectors);
                     if (!Vp9InterPredictor.TrySelectMotionVector(
                             modeBlock,
                             candidates,
@@ -1058,6 +1081,15 @@ internal static class Vp9TileSyntaxScanner
         }
 
         return expanded;
+    }
+
+    private static Vp9PreviousFrameMotionVectors? GetEligiblePreviousFrameMotionVectors(
+        Vp9FrameHeader header,
+        Vp9PreviousFrameMotionVectors? previousFrameMotionVectors)
+    {
+        return previousFrameMotionVectors?.CanUseFor(header) == true
+            ? previousFrameMotionVectors
+            : null;
     }
 
     public static bool TryProbeFirstLeafCoefficientToken(
@@ -1683,7 +1715,8 @@ internal static class Vp9TileSyntaxScanner
         IReadOnlyList<Vp9PartitionType> partitionPath,
         List<Vp9PartitionProbe> partitions,
         List<Vp9InterBlockModeInfoProbe> modes,
-        out Vp9DecodeDiagnostic? diagnostic)
+        out Vp9DecodeDiagnostic? diagnostic,
+        Vp9PreviousFrameMotionVectors? previousFrameMotionVectors)
     {
         diagnostic = null;
         if (miRow >= header.TileInfo.MiRows || miColumn >= header.TileInfo.MiColumns)
@@ -1729,7 +1762,8 @@ internal static class Vp9TileSyntaxScanner
                     subsize,
                     childPath,
                     modes,
-                    out diagnostic))
+                    out diagnostic,
+                    previousFrameMotionVectors))
             {
                 return false;
             }
@@ -1752,7 +1786,8 @@ internal static class Vp9TileSyntaxScanner
                         subsize,
                         childPath,
                         modes,
-                        out diagnostic))
+                        out diagnostic,
+                        previousFrameMotionVectors))
                 {
                     return false;
                 }
@@ -1771,7 +1806,8 @@ internal static class Vp9TileSyntaxScanner
                         subsize,
                         childPath,
                         modes,
-                        out diagnostic))
+                        out diagnostic,
+                        previousFrameMotionVectors))
                 {
                     return false;
                 }
@@ -1789,7 +1825,8 @@ internal static class Vp9TileSyntaxScanner
                             subsize,
                             childPath,
                             modes,
-                            out diagnostic))
+                            out diagnostic,
+                            previousFrameMotionVectors))
                     {
                         return false;
                     }
@@ -1809,7 +1846,8 @@ internal static class Vp9TileSyntaxScanner
                         subsize,
                         childPath,
                         modes,
-                        out diagnostic))
+                        out diagnostic,
+                        previousFrameMotionVectors))
                 {
                     return false;
                 }
@@ -1827,7 +1865,8 @@ internal static class Vp9TileSyntaxScanner
                             subsize,
                             childPath,
                             modes,
-                            out diagnostic))
+                            out diagnostic,
+                            previousFrameMotionVectors))
                     {
                         return false;
                     }
@@ -1848,7 +1887,8 @@ internal static class Vp9TileSyntaxScanner
                         childPath,
                         partitions,
                         modes,
-                        out diagnostic))
+                        out diagnostic,
+                        previousFrameMotionVectors))
                 {
                     return false;
                 }
@@ -1866,7 +1906,8 @@ internal static class Vp9TileSyntaxScanner
                         childPath,
                         partitions,
                         modes,
-                        out diagnostic))
+                        out diagnostic,
+                        previousFrameMotionVectors))
                 {
                     return false;
                 }
@@ -1884,7 +1925,8 @@ internal static class Vp9TileSyntaxScanner
                         childPath,
                         partitions,
                         modes,
-                        out diagnostic))
+                        out diagnostic,
+                        previousFrameMotionVectors))
                 {
                     return false;
                 }
@@ -1903,7 +1945,8 @@ internal static class Vp9TileSyntaxScanner
                             childPath,
                             partitions,
                             modes,
-                            out diagnostic))
+                            out diagnostic,
+                            previousFrameMotionVectors))
                     {
                         return false;
                     }
@@ -1935,7 +1978,8 @@ internal static class Vp9TileSyntaxScanner
         Vp9BlockSize blockSize,
         IReadOnlyList<Vp9PartitionType> partitionPath,
         List<Vp9InterBlockModeInfoProbe> modes,
-        out Vp9DecodeDiagnostic? diagnostic)
+        out Vp9DecodeDiagnostic? diagnostic,
+        Vp9PreviousFrameMotionVectors? previousFrameMotionVectors)
     {
         var singleReferenceContexts = syntaxContext.GetSingleReferenceContexts(
             miRow,
@@ -1995,7 +2039,8 @@ internal static class Vp9TileSyntaxScanner
                 modeBlock,
                 modes,
                 out modeBlock,
-                out diagnostic))
+                out diagnostic,
+                previousFrameMotionVectors))
         {
             return false;
         }
@@ -2016,7 +2061,8 @@ internal static class Vp9TileSyntaxScanner
         int miRow,
         int miColumn,
         out Vp9InterSuperblockSyntaxProbe? probe,
-        out Vp9DecodeDiagnostic? diagnostic)
+        out Vp9DecodeDiagnostic? diagnostic,
+        Vp9PreviousFrameMotionVectors? previousFrameMotionVectors)
     {
         probe = null;
         var partitions = new List<Vp9PartitionProbe>();
@@ -2033,7 +2079,8 @@ internal static class Vp9TileSyntaxScanner
                 [],
                 partitions,
                 modes,
-                out diagnostic))
+                out diagnostic,
+                previousFrameMotionVectors))
         {
             return false;
         }
@@ -2166,7 +2213,8 @@ internal static class Vp9TileSyntaxScanner
         Vp9InterBlockModeInfoProbe modeBlock,
         IReadOnlyList<Vp9InterBlockModeInfoProbe> predictedModeBlocks,
         out Vp9InterBlockModeInfoProbe predictedModeBlock,
-        out Vp9DecodeDiagnostic? diagnostic)
+        out Vp9DecodeDiagnostic? diagnostic,
+        Vp9PreviousFrameMotionVectors? previousFrameMotionVectors = null)
     {
         predictedModeBlock = modeBlock;
         if (!Vp9InterPredictor.TryResolveReferenceFrame(
@@ -2189,7 +2237,8 @@ internal static class Vp9TileSyntaxScanner
         var candidates = Vp9InterPredictor.BuildSpatialMotionVectorCandidates(
             modeBlock,
             predictedModeBlocks,
-            header.ReferenceFrameSignBiases);
+            header.ReferenceFrameSignBiases,
+            GetEligiblePreviousFrameMotionVectors(header, previousFrameMotionVectors));
         if (!Vp9InterPredictor.TrySelectMotionVector(
                 modeBlock,
                 candidates,
@@ -2229,13 +2278,15 @@ internal static class Vp9TileSyntaxScanner
         Vp9InterBlockModeInfoProbe modeBlock,
         IReadOnlyList<Vp9InterBlockModeInfoProbe> decodedModeBlocks,
         out Vp9InterBlockModeInfoProbe resolvedModeBlock,
-        out Vp9DecodeDiagnostic? diagnostic)
+        out Vp9DecodeDiagnostic? diagnostic,
+        Vp9PreviousFrameMotionVectors? previousFrameMotionVectors)
     {
         resolvedModeBlock = modeBlock;
         var candidates = Vp9InterPredictor.BuildSpatialMotionVectorCandidates(
             modeBlock,
             decodedModeBlocks,
-            header.ReferenceFrameSignBiases);
+            header.ReferenceFrameSignBiases,
+            previousFrameMotionVectors);
         Vp9MotionVector motionVector;
         if (modeBlock.ModeInfo.PredictionMode == Vp9InterPredictionMode.NewMv)
         {
@@ -2249,7 +2300,7 @@ internal static class Vp9TileSyntaxScanner
             if (candidates.Count < 1)
             {
                 diagnostic = Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(
-                    "VP9 NEWMV requires a spatial or previous-frame MV candidate; previous-frame MV fallback is not supported yet.");
+                    "VP9 NEWMV requires a spatial or eligible previous-frame MV candidate.");
                 return false;
             }
 

@@ -9,6 +9,7 @@ public sealed class RawVp9Decoder
 
     private readonly Vp9ReferenceFrameStore _referenceFrames = new();
     private readonly Vp9FrameContext[] _frameContexts = CreateDefaultFrameContexts();
+    private Vp9PreviousFrameMotionVectors? _previousFrameMotionVectors;
     private RawVp9Decoder? _alphaDecoder;
 
     public Vp9DecodeResult DecodeFrame(ReadOnlyMemory<byte> packet, Vp9DecodeOptions? options = null)
@@ -139,6 +140,7 @@ public sealed class RawVp9Decoder
         RefreshFrameContext(header, compressedHeader.FrameContext);
         var yuvFrame = reconstructedFrame.Frame;
         _referenceFrames.Refresh(yuvFrame, header.ColorRange, header.RefreshFrameFlags);
+        _previousFrameMotionVectors = null;
         if (!header.ShowFrame)
         {
             return Vp9DecodeResult.NoDisplay(header, compressedHeader);
@@ -220,6 +222,7 @@ public sealed class RawVp9Decoder
     public void Reset()
     {
         _referenceFrames.Reset();
+        _previousFrameMotionVectors = null;
         ResetFrameContexts();
         _alphaDecoder?.Reset();
     }
@@ -330,7 +333,8 @@ public sealed class RawVp9Decoder
                 _referenceFrames,
                 out var reconstructedFrame,
                 out _,
-                out var diagnostic))
+                out var diagnostic,
+                _previousFrameMotionVectors))
         {
             return Vp9DecodeResult.Fail(
                 diagnostic ?? Vp9DecodeDiagnostic.InternalDecodeFailure(
@@ -359,6 +363,9 @@ public sealed class RawVp9Decoder
         RefreshFrameContext(header, compressedHeader.FrameContext);
         var yuvFrame = reconstructedFrame.Frame;
         _referenceFrames.Refresh(yuvFrame, header.ColorRange, header.RefreshFrameFlags);
+        _previousFrameMotionVectors = header.ShowFrame
+            ? Vp9PreviousFrameMotionVectors.FromReconstructedFrame(header, reconstructedFrame)
+            : null;
         if (!header.ShowFrame)
         {
             return Vp9DecodeResult.NoDisplay(header, compressedHeader);

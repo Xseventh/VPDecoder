@@ -250,6 +250,40 @@ public sealed class Vp9TileSyntaxScannerTests
     }
 
     [Fact]
+    public void TryProbeFirstInterSuperblockModeInfo_WhenNewMvHasPreviousFrameCandidate_ReadsMotionVector()
+    {
+        byte[] tilePayload = [0x24, 0x00, 0x00, 0x00];
+        var packet = tilePayload;
+        var header = CreateSyntheticOrdinaryInterHeader(packet.Length);
+        var compressedHeader = CreateSyntheticInterCompressedHeader();
+        var previousFrameMotionVectors = Vp9PreviousFrameMotionVectors.FromModeBlocks(
+            width: header.Width,
+            height: header.Height,
+            miRows: header.TileInfo.MiRows,
+            miColumns: header.TileInfo.MiColumns,
+            [CreateInterModeBlock(0, 0, Vp9InterPredictionMode.ZeroMv, motionVector: new Vp9MotionVector(0, 0))]);
+        IReadOnlyList<Vp9TileBuffer> tileBuffers =
+        [
+            new Vp9TileBuffer(Index: 0, SizeFieldOffset: null, DataOffset: 0, Size: tilePayload.Length)
+        ];
+
+        Assert.True(
+            Vp9TileSyntaxScanner.TryProbeFirstInterSuperblockModeInfo(
+                packet,
+                header,
+                compressedHeader,
+                tileBuffers,
+                out var probes,
+                out var diagnostic,
+                previousFrameMotionVectors),
+            diagnostic?.Message);
+
+        var modeInfo = Assert.Single(Assert.Single(probes).ModeInfos);
+        Assert.Equal(Vp9InterPredictionMode.NewMv, modeInfo.ModeInfo.PredictionMode);
+        Assert.Equal(new Vp9MotionVector(0, 0), modeInfo.MotionVector);
+    }
+
+    [Fact]
     public void TryProbeFirstInterSuperblockModeInfo_WhenNewMvHasSpatialCandidate_ReadsMotionVector()
     {
         byte[] tilePayload = [0x6f, 0x13, 0x90, 0x00, 0x00, 0x00];
