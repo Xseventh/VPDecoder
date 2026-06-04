@@ -408,6 +408,12 @@ public sealed class RawVp9Decoder
 
     private void RefreshFrameContext(Vp9FrameHeader header, Vp9FrameContext frameContext)
     {
+        if (header.FrameType == Vp9FrameType.KeyFrame || header.IntraOnly || header.ErrorResilientMode)
+        {
+            ResetFrameContexts();
+            return;
+        }
+
         if (header.RefreshFrameContext)
         {
             _frameContexts[header.FrameContextIndex] = frameContext.Clone();

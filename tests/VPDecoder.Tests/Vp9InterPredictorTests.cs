@@ -160,6 +160,58 @@ public sealed class Vp9InterPredictorTests
         Assert.Equal([aboveRight.MotionVector!.Value, leftBelow.MotionVector!.Value], candidates);
     }
 
+    [Theory]
+    [InlineData(0, 2, 1)]
+    [InlineData(1, 3, 1)]
+    [InlineData(2, 2, 3)]
+    [InlineData(3, 3, 3)]
+    public void BuildSub8X8MotionVectorCandidates_UsesLibvpxSubBlockMapping(
+        int blockIndex,
+        int expectedAboveSubBlock,
+        int expectedLeftSubBlock)
+    {
+        Vp9MotionVector[] aboveSubMotionVectors =
+        [
+            new Vp9MotionVector(8, 8),
+            new Vp9MotionVector(16, 16),
+            new Vp9MotionVector(24, 24),
+            new Vp9MotionVector(32, 32)
+        ];
+        Vp9MotionVector[] leftSubMotionVectors =
+        [
+            new Vp9MotionVector(40, 40),
+            new Vp9MotionVector(48, 48),
+            new Vp9MotionVector(56, 56),
+            new Vp9MotionVector(64, 64)
+        ];
+        var above = CreateModeBlock(
+            0,
+            1,
+            Vp9InterReferenceFrame.Last,
+            new Vp9MotionVector(80, 80),
+            Vp9BlockSize.Block4X4,
+            interSubMotionVectors: aboveSubMotionVectors);
+        var left = CreateModeBlock(
+            1,
+            0,
+            Vp9InterReferenceFrame.Last,
+            new Vp9MotionVector(88, 88),
+            Vp9BlockSize.Block4X4,
+            interSubMotionVectors: leftSubMotionVectors);
+        var current = CreateModeBlock(
+            1,
+            1,
+            Vp9InterReferenceFrame.Last,
+            blockSize: Vp9BlockSize.Block4X4);
+
+        var candidates = Vp9InterPredictor.BuildSub8X8MotionVectorCandidates(
+            current,
+            [above, left],
+            blockIndex);
+
+        Assert.Equal([aboveSubMotionVectors[expectedAboveSubBlock], leftSubMotionVectors[expectedLeftSubBlock]], candidates);
+    }
+
     [Fact]
     public void BuildSpatialMotionVectorCandidates_IgnoresCandidatesFromOtherTiles()
     {
@@ -483,7 +535,8 @@ public sealed class Vp9InterPredictorTests
         Vp9BlockSize blockSize = Vp9BlockSize.Block8X8,
         int tileIndex = 0,
         Vp9InterPredictionMode predictionMode = Vp9InterPredictionMode.ZeroMv,
-        IReadOnlyList<Vp9InterPredictionMode>? interSubModes = null)
+        IReadOnlyList<Vp9InterPredictionMode>? interSubModes = null,
+        IReadOnlyList<Vp9MotionVector>? interSubMotionVectors = null)
     {
         var modeInfo = new Vp9InterModeInfoProbe(
             blockSize,
@@ -510,7 +563,10 @@ public sealed class Vp9InterPredictorTests
             miColumn,
             PartitionPath: [Vp9PartitionType.None],
             modeInfo,
-            motionVector);
+            motionVector)
+        {
+            InterSubMotionVectors = interSubMotionVectors ?? []
+        };
     }
 
     private static Vp9FrameHeader CreateInterHeader(IReadOnlyList<int> referenceSlots)

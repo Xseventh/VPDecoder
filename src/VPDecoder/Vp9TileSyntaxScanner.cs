@@ -194,6 +194,7 @@ internal static class Vp9TileSyntaxScanner
                 var syntaxContext = Vp9InterFrameSyntaxContext.Create(header);
                 var partitions = new List<Vp9PartitionProbe>();
                 var modes = new List<Vp9InterBlockModeInfoProbe>();
+                var decodedModeBlocks = new List<Vp9InterBlockModeInfoProbe>();
                 if (!TryReadInterPartitionModeInfo(
                         ref reader,
                         header,
@@ -206,6 +207,7 @@ internal static class Vp9TileSyntaxScanner
                         [],
                         partitions,
                         modes,
+                        decodedModeBlocks,
                         out diagnostic,
                         eligiblePreviousFrameMotionVectors))
                 {
@@ -485,6 +487,7 @@ internal static class Vp9TileSyntaxScanner
                 var reader = new Vp9BoolReader(tileBytes);
                 var syntaxContext = Vp9InterFrameSyntaxContext.Create(header);
                 var entropyContext = Vp9CoefficientEntropyContext.Create(header);
+                var decodedModeBlocks = new List<Vp9InterBlockModeInfoProbe>();
                 if (!TryReadInterSuperblockResidualSyntax(
                         ref reader,
                         header,
@@ -493,6 +496,7 @@ internal static class Vp9TileSyntaxScanner
                         geometry,
                         syntaxContext,
                         entropyContext,
+                        decodedModeBlocks,
                         geometry.MiRowStart,
                         geometry.MiColumnStart,
                         out var syntaxProbe,
@@ -603,6 +607,7 @@ internal static class Vp9TileSyntaxScanner
                 var reader = new Vp9BoolReader(tileBytes);
                 var syntaxContext = Vp9InterFrameSyntaxContext.Create(header);
                 var entropyContext = Vp9CoefficientEntropyContext.Create(header);
+                var decodedModeBlocks = new List<Vp9InterBlockModeInfoProbe>();
 
                 for (var miRow = geometry.MiRowStart; miRow < geometry.MiRowEnd; miRow += SuperblockSizeInMiUnits)
                 {
@@ -619,6 +624,7 @@ internal static class Vp9TileSyntaxScanner
                                 geometry,
                                 syntaxContext,
                                 entropyContext,
+                                decodedModeBlocks,
                                 miRow,
                                 miColumn,
                                 out var syntaxProbe,
@@ -1717,6 +1723,7 @@ internal static class Vp9TileSyntaxScanner
         IReadOnlyList<Vp9PartitionType> partitionPath,
         List<Vp9PartitionProbe> partitions,
         List<Vp9InterBlockModeInfoProbe> modes,
+        List<Vp9InterBlockModeInfoProbe> decodedModeBlocks,
         out Vp9DecodeDiagnostic? diagnostic,
         Vp9PreviousFrameMotionVectors? previousFrameMotionVectors)
     {
@@ -1764,6 +1771,7 @@ internal static class Vp9TileSyntaxScanner
                     subsize,
                     childPath,
                     modes,
+                    decodedModeBlocks,
                     out diagnostic,
                     previousFrameMotionVectors))
             {
@@ -1788,6 +1796,7 @@ internal static class Vp9TileSyntaxScanner
                         subsize,
                         childPath,
                         modes,
+                        decodedModeBlocks,
                         out diagnostic,
                         previousFrameMotionVectors))
                 {
@@ -1808,6 +1817,7 @@ internal static class Vp9TileSyntaxScanner
                         subsize,
                         childPath,
                         modes,
+                        decodedModeBlocks,
                         out diagnostic,
                         previousFrameMotionVectors))
                 {
@@ -1827,6 +1837,7 @@ internal static class Vp9TileSyntaxScanner
                             subsize,
                             childPath,
                             modes,
+                            decodedModeBlocks,
                             out diagnostic,
                             previousFrameMotionVectors))
                     {
@@ -1848,6 +1859,7 @@ internal static class Vp9TileSyntaxScanner
                         subsize,
                         childPath,
                         modes,
+                        decodedModeBlocks,
                         out diagnostic,
                         previousFrameMotionVectors))
                 {
@@ -1867,6 +1879,7 @@ internal static class Vp9TileSyntaxScanner
                             subsize,
                             childPath,
                             modes,
+                            decodedModeBlocks,
                             out diagnostic,
                             previousFrameMotionVectors))
                     {
@@ -1889,6 +1902,7 @@ internal static class Vp9TileSyntaxScanner
                         childPath,
                         partitions,
                         modes,
+                        decodedModeBlocks,
                         out diagnostic,
                         previousFrameMotionVectors))
                 {
@@ -1908,6 +1922,7 @@ internal static class Vp9TileSyntaxScanner
                         childPath,
                         partitions,
                         modes,
+                        decodedModeBlocks,
                         out diagnostic,
                         previousFrameMotionVectors))
                 {
@@ -1927,6 +1942,7 @@ internal static class Vp9TileSyntaxScanner
                         childPath,
                         partitions,
                         modes,
+                        decodedModeBlocks,
                         out diagnostic,
                         previousFrameMotionVectors))
                 {
@@ -1947,6 +1963,7 @@ internal static class Vp9TileSyntaxScanner
                             childPath,
                             partitions,
                             modes,
+                            decodedModeBlocks,
                             out diagnostic,
                             previousFrameMotionVectors))
                     {
@@ -1969,6 +1986,392 @@ internal static class Vp9TileSyntaxScanner
         return true;
     }
 
+    private static bool TryReadInterPartitionResidualSyntax(
+        ref Vp9BoolReader reader,
+        Vp9FrameHeader header,
+        Vp9CompressedHeader compressedHeader,
+        Vp9DequantTables dequantTables,
+        Vp9TileGeometry geometry,
+        Vp9InterFrameSyntaxContext syntaxContext,
+        Vp9CoefficientEntropyContext entropyContext,
+        int miRow,
+        int miColumn,
+        Vp9BlockSize blockSize,
+        IReadOnlyList<Vp9PartitionType> partitionPath,
+        List<Vp9PartitionProbe> partitions,
+        List<Vp9InterBlockModeInfoProbe> modes,
+        List<Vp9InterBlockModeInfoProbe> decodedModeBlocks,
+        List<Vp9CoefficientBlockGroupProbe> coefficientGroups,
+        out Vp9DecodeDiagnostic? diagnostic,
+        Vp9PreviousFrameMotionVectors? previousFrameMotionVectors)
+    {
+        diagnostic = null;
+        if (miRow >= header.TileInfo.MiRows || miColumn >= header.TileInfo.MiColumns)
+        {
+            return true;
+        }
+
+        var hbs = Vp9ModeInfoSyntax.GetHalfBlockSizeInMiUnits(blockSize);
+        var hasRows = miRow + hbs < header.TileInfo.MiRows;
+        var hasColumns = miColumn + hbs < header.TileInfo.MiColumns;
+        var partitionContext = syntaxContext.GetPartitionContext(miRow, miColumn, blockSize);
+        var partition = Vp9PartitionSyntax.ReadPartition(
+            ref reader,
+            compressedHeader.FrameContext,
+            partitionContext,
+            hasRows,
+            hasColumns);
+        if (reader.HasError)
+        {
+            diagnostic = Vp9DecodeDiagnostic.TruncatedPacket("VP9 inter partition residual probe ended unexpectedly.");
+            return false;
+        }
+
+        partitions.Add(new Vp9PartitionProbe(
+            geometry.Buffer.Index,
+            miRow,
+            miColumn,
+            partitionContext,
+            partition));
+
+        var subsize = Vp9ModeInfoSyntax.GetSubsize(blockSize, partition);
+        var childPath = partitionPath.Concat([partition]).ToArray();
+        if (hbs == 0)
+        {
+            if (!TryReadInterBlockModeInfoAndResidual(
+                    ref reader,
+                    header,
+                    compressedHeader,
+                    dequantTables,
+                    geometry,
+                    syntaxContext,
+                    entropyContext,
+                    miRow,
+                    miColumn,
+                    subsize,
+                    childPath,
+                    modes,
+                    decodedModeBlocks,
+                    coefficientGroups,
+                    out diagnostic,
+                    previousFrameMotionVectors))
+            {
+                return false;
+            }
+
+            syntaxContext.UpdatePartitionContext(miRow, miColumn, blockSize, subsize);
+            return true;
+        }
+
+        switch (partition)
+        {
+            case Vp9PartitionType.None:
+                if (!TryReadInterBlockModeInfoAndResidual(
+                        ref reader,
+                        header,
+                        compressedHeader,
+                        dequantTables,
+                        geometry,
+                        syntaxContext,
+                        entropyContext,
+                        miRow,
+                        miColumn,
+                        subsize,
+                        childPath,
+                        modes,
+                        decodedModeBlocks,
+                        coefficientGroups,
+                        out diagnostic,
+                        previousFrameMotionVectors))
+                {
+                    return false;
+                }
+
+                break;
+
+            case Vp9PartitionType.Horizontal:
+                if (!TryReadInterBlockModeInfoAndResidual(
+                        ref reader,
+                        header,
+                        compressedHeader,
+                        dequantTables,
+                        geometry,
+                        syntaxContext,
+                        entropyContext,
+                        miRow,
+                        miColumn,
+                        subsize,
+                        childPath,
+                        modes,
+                        decodedModeBlocks,
+                        coefficientGroups,
+                        out diagnostic,
+                        previousFrameMotionVectors))
+                {
+                    return false;
+                }
+
+                if (hasRows)
+                {
+                    if (!TryReadInterBlockModeInfoAndResidual(
+                            ref reader,
+                            header,
+                            compressedHeader,
+                            dequantTables,
+                            geometry,
+                            syntaxContext,
+                            entropyContext,
+                            miRow + hbs,
+                            miColumn,
+                            subsize,
+                            childPath,
+                            modes,
+                            decodedModeBlocks,
+                            coefficientGroups,
+                            out diagnostic,
+                            previousFrameMotionVectors))
+                    {
+                        return false;
+                    }
+                }
+
+                break;
+
+            case Vp9PartitionType.Vertical:
+                if (!TryReadInterBlockModeInfoAndResidual(
+                        ref reader,
+                        header,
+                        compressedHeader,
+                        dequantTables,
+                        geometry,
+                        syntaxContext,
+                        entropyContext,
+                        miRow,
+                        miColumn,
+                        subsize,
+                        childPath,
+                        modes,
+                        decodedModeBlocks,
+                        coefficientGroups,
+                        out diagnostic,
+                        previousFrameMotionVectors))
+                {
+                    return false;
+                }
+
+                if (hasColumns)
+                {
+                    if (!TryReadInterBlockModeInfoAndResidual(
+                            ref reader,
+                            header,
+                            compressedHeader,
+                            dequantTables,
+                            geometry,
+                            syntaxContext,
+                            entropyContext,
+                            miRow,
+                            miColumn + hbs,
+                            subsize,
+                            childPath,
+                            modes,
+                            decodedModeBlocks,
+                            coefficientGroups,
+                            out diagnostic,
+                            previousFrameMotionVectors))
+                    {
+                        return false;
+                    }
+                }
+
+                break;
+
+            case Vp9PartitionType.Split:
+                if (!TryReadInterPartitionResidualSyntax(
+                        ref reader,
+                        header,
+                        compressedHeader,
+                        dequantTables,
+                        geometry,
+                        syntaxContext,
+                        entropyContext,
+                        miRow,
+                        miColumn,
+                        subsize,
+                        childPath,
+                        partitions,
+                        modes,
+                        decodedModeBlocks,
+                        coefficientGroups,
+                        out diagnostic,
+                        previousFrameMotionVectors))
+                {
+                    return false;
+                }
+
+                if (hasColumns &&
+                    !TryReadInterPartitionResidualSyntax(
+                        ref reader,
+                        header,
+                        compressedHeader,
+                        dequantTables,
+                        geometry,
+                        syntaxContext,
+                        entropyContext,
+                        miRow,
+                        miColumn + hbs,
+                        subsize,
+                        childPath,
+                        partitions,
+                        modes,
+                        decodedModeBlocks,
+                        coefficientGroups,
+                        out diagnostic,
+                        previousFrameMotionVectors))
+                {
+                    return false;
+                }
+
+                if (hasRows &&
+                    !TryReadInterPartitionResidualSyntax(
+                        ref reader,
+                        header,
+                        compressedHeader,
+                        dequantTables,
+                        geometry,
+                        syntaxContext,
+                        entropyContext,
+                        miRow + hbs,
+                        miColumn,
+                        subsize,
+                        childPath,
+                        partitions,
+                        modes,
+                        decodedModeBlocks,
+                        coefficientGroups,
+                        out diagnostic,
+                        previousFrameMotionVectors))
+                {
+                    return false;
+                }
+
+                if (hasRows && hasColumns)
+                {
+                    if (!TryReadInterPartitionResidualSyntax(
+                            ref reader,
+                            header,
+                            compressedHeader,
+                            dequantTables,
+                            geometry,
+                            syntaxContext,
+                            entropyContext,
+                            miRow + hbs,
+                            miColumn + hbs,
+                            subsize,
+                            childPath,
+                            partitions,
+                            modes,
+                            decodedModeBlocks,
+                            coefficientGroups,
+                            out diagnostic,
+                            previousFrameMotionVectors))
+                    {
+                        return false;
+                    }
+                }
+
+                break;
+
+            default:
+                throw new ArgumentOutOfRangeException(nameof(partition), partition, "Unsupported VP9 partition type.");
+        }
+
+        if (blockSize >= Vp9BlockSize.Block8X8 &&
+            (blockSize == Vp9BlockSize.Block8X8 || partition != Vp9PartitionType.Split))
+        {
+            syntaxContext.UpdatePartitionContext(miRow, miColumn, blockSize, subsize);
+        }
+
+        return true;
+    }
+
+    private static bool TryReadInterBlockModeInfoAndResidual(
+        ref Vp9BoolReader reader,
+        Vp9FrameHeader header,
+        Vp9CompressedHeader compressedHeader,
+        Vp9DequantTables dequantTables,
+        Vp9TileGeometry geometry,
+        Vp9InterFrameSyntaxContext syntaxContext,
+        Vp9CoefficientEntropyContext entropyContext,
+        int miRow,
+        int miColumn,
+        Vp9BlockSize blockSize,
+        IReadOnlyList<Vp9PartitionType> partitionPath,
+        List<Vp9InterBlockModeInfoProbe> modes,
+        List<Vp9InterBlockModeInfoProbe> decodedModeBlocks,
+        List<Vp9CoefficientBlockGroupProbe> coefficientGroups,
+        out Vp9DecodeDiagnostic? diagnostic,
+        Vp9PreviousFrameMotionVectors? previousFrameMotionVectors)
+    {
+        var modeCount = modes.Count;
+        if (!TryReadInterBlockModeInfo(
+                ref reader,
+                header,
+                compressedHeader,
+                geometry,
+                syntaxContext,
+                miRow,
+                miColumn,
+                blockSize,
+                partitionPath,
+                modes,
+                decodedModeBlocks,
+                out diagnostic,
+                previousFrameMotionVectors))
+        {
+            return false;
+        }
+
+        if (modes.Count != modeCount + 1)
+        {
+            diagnostic = Vp9DecodeDiagnostic.InternalDecodeFailure(
+                "VP9 inter block mode-info did not append exactly one mode block.");
+            return false;
+        }
+
+        ReadInterBlockCoefficientGroups(
+            ref reader,
+            header,
+            compressedHeader,
+            dequantTables,
+            modes[^1],
+            entropyContext,
+            coefficientGroups);
+        return true;
+    }
+
+    private static void ReadInterBlockCoefficientGroups(
+        ref Vp9BoolReader reader,
+        Vp9FrameHeader header,
+        Vp9CompressedHeader compressedHeader,
+        Vp9DequantTables dequantTables,
+        Vp9InterBlockModeInfoProbe modeBlock,
+        Vp9CoefficientEntropyContext entropyContext,
+        List<Vp9CoefficientBlockGroupProbe> coefficientGroups)
+    {
+        for (var plane = 0; plane < 3; plane++)
+        {
+            coefficientGroups.Add(
+                Vp9ResidualSyntax.ReadInterPlaneCoefficientBlocks(
+                    ref reader,
+                    header,
+                    compressedHeader,
+                    dequantTables,
+                    modeBlock,
+                    entropyContext,
+                    plane));
+        }
+    }
+
     private static bool TryReadInterBlockModeInfo(
         ref Vp9BoolReader reader,
         Vp9FrameHeader header,
@@ -1980,6 +2383,7 @@ internal static class Vp9TileSyntaxScanner
         Vp9BlockSize blockSize,
         IReadOnlyList<Vp9PartitionType> partitionPath,
         List<Vp9InterBlockModeInfoProbe> modes,
+        List<Vp9InterBlockModeInfoProbe> decodedModeBlocks,
         out Vp9DecodeDiagnostic? diagnostic,
         Vp9PreviousFrameMotionVectors? previousFrameMotionVectors)
     {
@@ -2011,6 +2415,12 @@ internal static class Vp9TileSyntaxScanner
                 out var modeInfo,
                 out diagnostic))
         {
+            if (diagnostic?.Code == Vp9DecodeDiagnosticCode.TruncatedPacket)
+            {
+                diagnostic = Vp9DecodeDiagnostic.TruncatedPacket(
+                    $"{diagnostic.Message} at tile {geometry.Buffer.Index} MI ({miRow},{miColumn}) block {blockSize}.");
+            }
+
             return false;
         }
 
@@ -2030,7 +2440,8 @@ internal static class Vp9TileSyntaxScanner
         if (!modeInfo.IsInterBlock)
         {
             modes.Add(modeBlock);
-            syntaxContext.SetModeInfo(miRow, miColumn, modeInfo);
+            decodedModeBlocks.Add(modeBlock);
+            syntaxContext.SetModeInfo(miRow, miColumn, modeBlock.ModeInfo);
             return true;
         }
 
@@ -2039,7 +2450,7 @@ internal static class Vp9TileSyntaxScanner
                 header,
                 compressedHeader,
                 modeBlock,
-                modes,
+                decodedModeBlocks,
                 out modeBlock,
                 out diagnostic,
                 previousFrameMotionVectors))
@@ -2048,7 +2459,8 @@ internal static class Vp9TileSyntaxScanner
         }
 
         modes.Add(modeBlock);
-        syntaxContext.SetModeInfo(miRow, miColumn, modeInfo);
+        decodedModeBlocks.Add(modeBlock);
+        syntaxContext.SetModeInfo(miRow, miColumn, modeBlock.ModeInfo);
         return true;
     }
 
@@ -2060,6 +2472,7 @@ internal static class Vp9TileSyntaxScanner
         Vp9TileGeometry geometry,
         Vp9InterFrameSyntaxContext syntaxContext,
         Vp9CoefficientEntropyContext entropyContext,
+        List<Vp9InterBlockModeInfoProbe> decodedModeBlocks,
         int miRow,
         int miColumn,
         out Vp9InterSuperblockSyntaxProbe? probe,
@@ -2069,39 +2482,35 @@ internal static class Vp9TileSyntaxScanner
         probe = null;
         var partitions = new List<Vp9PartitionProbe>();
         var modes = new List<Vp9InterBlockModeInfoProbe>();
-        if (!TryReadInterPartitionModeInfo(
+        var coefficientGroups = new List<Vp9CoefficientBlockGroupProbe>();
+        if (!TryReadInterPartitionResidualSyntax(
                 ref reader,
                 header,
                 compressedHeader,
+                dequantTables,
                 geometry,
                 syntaxContext,
+                entropyContext,
                 miRow,
                 miColumn,
                 Vp9BlockSize.Block64X64,
                 [],
                 partitions,
                 modes,
+                decodedModeBlocks,
+                coefficientGroups,
                 out diagnostic,
                 previousFrameMotionVectors))
         {
             return false;
         }
 
-        var coefficientGroups = new List<Vp9CoefficientBlockGroupProbe>(checked(modes.Count * 3));
-        foreach (var modeBlock in modes)
+        var expectedGroupCount = checked(modes.Count * 3);
+        if (coefficientGroups.Count != expectedGroupCount)
         {
-            for (var plane = 0; plane < 3; plane++)
-            {
-                coefficientGroups.Add(
-                    Vp9ResidualSyntax.ReadInterPlaneCoefficientBlocks(
-                        ref reader,
-                        header,
-                        compressedHeader,
-                        dequantTables,
-                        modeBlock,
-                        entropyContext,
-                        plane));
-            }
+            diagnostic = Vp9DecodeDiagnostic.InternalDecodeFailure(
+                "VP9 inter residual probe produced mismatched mode/coefficient groups.");
+            return false;
         }
 
         probe = new Vp9InterSuperblockSyntaxProbe(
@@ -2412,15 +2821,18 @@ internal static class Vp9TileSyntaxScanner
             previousFrameMotionVectors);
         Vp9MotionVector motionVector;
         IReadOnlyList<Vp9MotionVector> interSubMotionVectors = [];
-        if (modeBlock.ModeInfo.BlockSize < Vp9BlockSize.Block8X8 &&
-            modeBlock.ModeInfo.InterSubModes.Count > 0)
+        var resolvedModeInfo = modeBlock.ModeInfo;
+        if (modeBlock.ModeInfo.BlockSize < Vp9BlockSize.Block8X8)
         {
             if (!TryReadSub8X8InterBlockMotionVectors(
                     ref reader,
                     header,
                     compressedHeader,
                     modeBlock,
+                    decodedModeBlocks,
                     candidates,
+                    previousFrameMotionVectors,
+                    out resolvedModeInfo,
                     out interSubMotionVectors,
                     out motionVector,
                     out diagnostic))
@@ -2452,6 +2864,12 @@ internal static class Vp9TileSyntaxScanner
         {
             return false;
         }
+        else if (modeBlock.ModeInfo.PredictionMode != Vp9InterPredictionMode.ZeroMv)
+        {
+            motionVector = Vp9MotionVectorSyntax.LowerPrecision(
+                motionVector,
+                header.AllowHighPrecisionMv);
+        }
 
         if (!TryValidateSub8X8InterMotionVector(modeBlock, motionVector, out diagnostic))
         {
@@ -2467,6 +2885,7 @@ internal static class Vp9TileSyntaxScanner
 
         resolvedModeBlock = modeBlock with
         {
+            ModeInfo = resolvedModeInfo,
             MotionVector = motionVector,
             InterSubMotionVectors = interSubMotionVectors
         };
@@ -2479,21 +2898,20 @@ internal static class Vp9TileSyntaxScanner
         Vp9FrameHeader header,
         Vp9CompressedHeader compressedHeader,
         Vp9InterBlockModeInfoProbe modeBlock,
+        IReadOnlyList<Vp9InterBlockModeInfoProbe> decodedModeBlocks,
         IReadOnlyList<Vp9MotionVector> candidates,
+        Vp9PreviousFrameMotionVectors? previousFrameMotionVectors,
+        out Vp9InterModeInfoProbe resolvedModeInfo,
         out IReadOnlyList<Vp9MotionVector> interSubMotionVectors,
         out Vp9MotionVector motionVector,
         out Vp9DecodeDiagnostic? diagnostic)
     {
+        resolvedModeInfo = modeBlock.ModeInfo;
         interSubMotionVectors = [];
         motionVector = default;
         diagnostic = null;
-        if (modeBlock.ModeInfo.InterSubModes.Count != 4)
-        {
-            diagnostic = Vp9DecodeDiagnostic.InvalidPacket(
-                "VP9 sub-8x8 inter mode-info requires four sub-block prediction modes.");
-            return false;
-        }
 
+        var subModes = new Vp9InterPredictionMode[4];
         var subMotionVectors = new Vp9MotionVector[4];
         var newMvReferenceMotionVector = Vp9MotionVectorSyntax.LowerPrecision(
             candidates.Count >= 1 ? candidates[0] : new Vp9MotionVector(0, 0),
@@ -2506,11 +2924,14 @@ internal static class Vp9TileSyntaxScanner
                     if (!TryReadSub8X8PrimaryMotionVector(
                             ref reader,
                             compressedHeader,
-                            header.AllowHighPrecisionMv,
+                            header,
                             modeBlock,
+                            decodedModeBlocks,
                             candidates,
+                            previousFrameMotionVectors,
                             newMvReferenceMotionVector,
                             block,
+                            subModes,
                             subMotionVectors,
                             out diagnostic))
                     {
@@ -2524,32 +2945,40 @@ internal static class Vp9TileSyntaxScanner
                 if (!TryReadSub8X8PrimaryMotionVector(
                         ref reader,
                         compressedHeader,
-                        header.AllowHighPrecisionMv,
+                        header,
                         modeBlock,
+                        decodedModeBlocks,
                         candidates,
+                        previousFrameMotionVectors,
                         newMvReferenceMotionVector,
                         0,
+                        subModes,
                         subMotionVectors,
                         out diagnostic))
                 {
                     return false;
                 }
 
+                subModes[2] = subModes[0];
                 subMotionVectors[2] = subMotionVectors[0];
                 if (!TryReadSub8X8PrimaryMotionVector(
                         ref reader,
                         compressedHeader,
-                        header.AllowHighPrecisionMv,
+                        header,
                         modeBlock,
+                        decodedModeBlocks,
                         candidates,
+                        previousFrameMotionVectors,
                         newMvReferenceMotionVector,
                         1,
+                        subModes,
                         subMotionVectors,
                         out diagnostic))
                 {
                     return false;
                 }
 
+                subModes[3] = subModes[1];
                 subMotionVectors[3] = subMotionVectors[1];
                 break;
 
@@ -2557,32 +2986,40 @@ internal static class Vp9TileSyntaxScanner
                 if (!TryReadSub8X8PrimaryMotionVector(
                         ref reader,
                         compressedHeader,
-                        header.AllowHighPrecisionMv,
+                        header,
                         modeBlock,
+                        decodedModeBlocks,
                         candidates,
+                        previousFrameMotionVectors,
                         newMvReferenceMotionVector,
                         0,
+                        subModes,
                         subMotionVectors,
                         out diagnostic))
                 {
                     return false;
                 }
 
+                subModes[1] = subModes[0];
                 subMotionVectors[1] = subMotionVectors[0];
                 if (!TryReadSub8X8PrimaryMotionVector(
                         ref reader,
                         compressedHeader,
-                        header.AllowHighPrecisionMv,
+                        header,
                         modeBlock,
+                        decodedModeBlocks,
                         candidates,
+                        previousFrameMotionVectors,
                         newMvReferenceMotionVector,
                         2,
+                        subModes,
                         subMotionVectors,
                         out diagnostic))
                 {
                     return false;
                 }
 
+                subModes[3] = subModes[2];
                 subMotionVectors[3] = subMotionVectors[2];
                 break;
 
@@ -2592,6 +3029,17 @@ internal static class Vp9TileSyntaxScanner
                 return false;
         }
 
+        if (reader.HasError)
+        {
+            diagnostic = Vp9DecodeDiagnostic.TruncatedPacket("VP9 sub-8x8 inter mode-info ended unexpectedly.");
+            return false;
+        }
+
+        resolvedModeInfo = modeBlock.ModeInfo with
+        {
+            PredictionMode = subModes[3],
+            InterSubModes = subModes
+        };
         interSubMotionVectors = subMotionVectors;
         motionVector = subMotionVectors[3];
         return true;
@@ -2600,15 +3048,22 @@ internal static class Vp9TileSyntaxScanner
     private static bool TryReadSub8X8PrimaryMotionVector(
         ref Vp9BoolReader reader,
         Vp9CompressedHeader compressedHeader,
-        bool allowHighPrecisionMv,
+        Vp9FrameHeader header,
         Vp9InterBlockModeInfoProbe modeBlock,
+        IReadOnlyList<Vp9InterBlockModeInfoProbe> decodedModeBlocks,
         IReadOnlyList<Vp9MotionVector> candidates,
+        Vp9PreviousFrameMotionVectors? previousFrameMotionVectors,
         Vp9MotionVector newMvReferenceMotionVector,
         int blockIndex,
+        Vp9InterPredictionMode[] subModes,
         Vp9MotionVector[] subMotionVectors,
         out Vp9DecodeDiagnostic? diagnostic)
     {
-        var predictionMode = modeBlock.ModeInfo.InterSubModes[blockIndex];
+        var predictionMode = Vp9InterModeInfoSyntax.ReadInterPredictionMode(
+            ref reader,
+            compressedHeader.FrameContext,
+            modeBlock.ModeInfo.InterModeContext);
+        subModes[blockIndex] = predictionMode;
         Vp9MotionVector motionVector;
         if (predictionMode == Vp9InterPredictionMode.NewMv)
         {
@@ -2616,7 +3071,7 @@ internal static class Vp9TileSyntaxScanner
                 ref reader,
                 compressedHeader.FrameContext.MotionVectorProbabilities,
                 newMvReferenceMotionVector,
-                allowHighPrecisionMv);
+                header.AllowHighPrecisionMv);
             if (reader.HasError)
             {
                 diagnostic = Vp9DecodeDiagnostic.TruncatedPacket(
@@ -2624,15 +3079,24 @@ internal static class Vp9TileSyntaxScanner
                 return false;
             }
         }
-        else if (!Vp9InterPredictor.TrySelectSub8X8MotionVector(
-                     predictionMode,
-                     blockIndex,
-                     candidates,
-                     subMotionVectors,
-                     out motionVector,
-                     out diagnostic))
+        else
         {
-            return false;
+            var subBlockCandidates = Vp9InterPredictor.BuildSub8X8MotionVectorCandidates(
+                modeBlock,
+                decodedModeBlocks,
+                blockIndex,
+                header.ReferenceFrameSignBiases,
+                previousFrameMotionVectors);
+            if (!Vp9InterPredictor.TrySelectSub8X8MotionVector(
+                    predictionMode,
+                    blockIndex,
+                    subBlockCandidates,
+                    subMotionVectors,
+                    out motionVector,
+                    out diagnostic))
+            {
+                return false;
+            }
         }
 
         if (!Vp9InterPredictor.IsValidMotionVector(motionVector))

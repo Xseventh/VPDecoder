@@ -154,6 +154,33 @@ public sealed class Vp9InterFrameSyntaxContextTests
     }
 
     [Fact]
+    public void GetInterModeContext_AfterSub8X8Block_UsesResolvedPredictionMode()
+    {
+        var nearContext = Vp9InterFrameSyntaxContext.Create(CreateHeader(miColumns: 16, miRows: 16));
+        nearContext.SetModeInfo(
+            1,
+            0,
+            CreateModeInfo(
+                Vp9BlockSize.Block4X8,
+                skip: true,
+                Vp9TransformSize.Tx4X4,
+                predictionMode: Vp9InterPredictionMode.NearMv));
+
+        var zeroContext = Vp9InterFrameSyntaxContext.Create(CreateHeader(miColumns: 16, miRows: 16));
+        zeroContext.SetModeInfo(
+            1,
+            0,
+            CreateModeInfo(
+                Vp9BlockSize.Block4X8,
+                skip: true,
+                Vp9TransformSize.Tx4X4,
+                predictionMode: Vp9InterPredictionMode.ZeroMv));
+
+        Assert.Equal(2, nearContext.GetInterModeContext(1, 1, Vp9BlockSize.Block8X4, tileMiColumnStart: 0, tileMiColumnEnd: 16));
+        Assert.Equal(1, zeroContext.GetInterModeContext(1, 1, Vp9BlockSize.Block8X4, tileMiColumnStart: 0, tileMiColumnEnd: 16));
+    }
+
+    [Fact]
     public void GetSwitchableInterpolationContext_UsesLibvpxAboveLeftRules()
     {
         var context = Vp9InterFrameSyntaxContext.Create(CreateHeader(miColumns: 16, miRows: 16));

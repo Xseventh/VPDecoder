@@ -184,17 +184,7 @@ internal static class Vp9InterModeInfoSyntax
                 frameHeader,
                 compressedHeader.FrameContext,
                 contexts.SwitchableInterpolation);
-            if (!TryReadSub8X8InterPredictionModes(
-                    ref reader,
-                    compressedHeader.FrameContext,
-                    contexts.InterMode,
-                    blockSize,
-                    out predictionMode,
-                    out interSubModes,
-                    out diagnostic))
-            {
-                return false;
-            }
+            predictionMode = Vp9InterPredictionMode.ZeroMv;
         }
         else
         {

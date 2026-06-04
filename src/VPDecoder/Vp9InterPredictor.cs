@@ -131,6 +131,41 @@ internal static class Vp9InterPredictor
         IReadOnlyList<bool>? referenceFrameSignBiases = null,
         Vp9PreviousFrameMotionVectors? previousFrameMotionVectors = null)
     {
+        return BuildSpatialMotionVectorCandidates(
+            currentBlock,
+            decodedBlocks,
+            sub8X8BlockIndex: null,
+            referenceFrameSignBiases,
+            previousFrameMotionVectors);
+    }
+
+    public static IReadOnlyList<Vp9MotionVector> BuildSub8X8MotionVectorCandidates(
+        Vp9InterBlockModeInfoProbe currentBlock,
+        IReadOnlyList<Vp9InterBlockModeInfoProbe> decodedBlocks,
+        int blockIndex,
+        IReadOnlyList<bool>? referenceFrameSignBiases = null,
+        Vp9PreviousFrameMotionVectors? previousFrameMotionVectors = null)
+    {
+        if (blockIndex is < 0 or > 3)
+        {
+            return [];
+        }
+
+        return BuildSpatialMotionVectorCandidates(
+            currentBlock,
+            decodedBlocks,
+            blockIndex,
+            referenceFrameSignBiases,
+            previousFrameMotionVectors);
+    }
+
+    private static IReadOnlyList<Vp9MotionVector> BuildSpatialMotionVectorCandidates(
+        Vp9InterBlockModeInfoProbe currentBlock,
+        IReadOnlyList<Vp9InterBlockModeInfoProbe> decodedBlocks,
+        int? sub8X8BlockIndex,
+        IReadOnlyList<bool>? referenceFrameSignBiases,
+        Vp9PreviousFrameMotionVectors? previousFrameMotionVectors)
+    {
         var candidates = new List<Vp9MotionVector>(capacity: 2);
         var positionOffset = (int)currentBlock.ModeInfo.BlockSize * MotionVectorReferenceNeighborCount * 2;
         for (var i = 0; i < MotionVectorReferenceNeighborCount; i++)
@@ -143,9 +178,15 @@ internal static class Vp9InterPredictor
                     currentBlock.MiRow + rowOffset,
                     currentBlock.MiColumn + columnOffset,
                     out var candidate) &&
-                candidate.ModeInfo.ReferenceFrame == currentBlock.ModeInfo.ReferenceFrame)
+                TryGetSameReferenceCandidateMotionVector(
+                    currentBlock,
+                    candidate,
+                    i,
+                    columnOffset,
+                    sub8X8BlockIndex,
+                    out var candidateMotionVector))
             {
-                AddCandidate(candidates, candidate.MotionVector);
+                AddCandidate(candidates, candidateMotionVector);
             }
 
             if (candidates.Count == 2)
@@ -460,6 +501,48 @@ internal static class Vp9InterPredictor
         }
 
         return true;
+    }
+
+    private static bool TryGetSameReferenceCandidateMotionVector(
+        Vp9InterBlockModeInfoProbe currentBlock,
+        Vp9InterBlockModeInfoProbe candidate,
+        int neighborIndex,
+        int columnOffset,
+        int? sub8X8BlockIndex,
+        out Vp9MotionVector motionVector)
+    {
+        motionVector = default;
+        if (candidate.ModeInfo.ReferenceFrame != currentBlock.ModeInfo.ReferenceFrame ||
+            !candidate.MotionVector.HasValue)
+        {
+            return false;
+        }
+
+        if (sub8X8BlockIndex is { } blockIndex &&
+            neighborIndex < 2 &&
+            candidate.ModeInfo.BlockSize < Vp9BlockSize.Block8X8 &&
+            candidate.InterSubMotionVectors.Count == 4)
+        {
+            motionVector = candidate.InterSubMotionVectors[
+                GetSub8X8CandidateMotionVectorIndex(blockIndex, columnOffset)];
+            return true;
+        }
+
+        motionVector = candidate.MotionVector.Value;
+        return true;
+    }
+
+    private static int GetSub8X8CandidateMotionVectorIndex(int blockIndex, int columnOffset)
+    {
+        var isAboveCandidate = columnOffset == 0;
+        return blockIndex switch
+        {
+            0 => isAboveCandidate ? 2 : 1,
+            1 => isAboveCandidate ? 3 : 1,
+            2 => isAboveCandidate ? 2 : 3,
+            3 => 3,
+            _ => 3
+        };
     }
 
     private static void AddPreviousFrameCandidate(
