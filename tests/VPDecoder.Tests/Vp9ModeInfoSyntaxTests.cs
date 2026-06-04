@@ -176,24 +176,26 @@ public sealed class Vp9ModeInfoSyntaxTests
     }
 
     [Fact]
-    public void TryReadSupportedInterBlock_WhenSub8X8BlockHasMixedSubModes_ReturnsUnsupportedDiagnostic()
+    public void TryReadSub8X8InterPredictionModes_WhenSubModesAreMixed_RecordsSubModes()
     {
-        var reader = new Vp9BoolReader([0x0c, 0x00, 0x00, 0x00]);
-        var frameHeader = CreateOrdinaryInterFrameHeader();
-        var compressedHeader = CreateCompressedHeader();
+        var reader = new Vp9BoolReader([0x02, 0x80]);
 
-        Assert.False(Vp9InterModeInfoSyntax.TryReadSupportedInterBlock(
-            ref reader,
-            frameHeader,
-            compressedHeader,
-            Vp9BlockSize.Block4X4,
-            CreateDefaultInterContexts(),
-            out var probe,
-            out var diagnostic));
+        Assert.True(
+            Vp9InterModeInfoSyntax.TryReadSub8X8InterPredictionModes(
+                ref reader,
+                Vp9FrameContext.CreateDefault(),
+                interModeContext: 0,
+                Vp9BlockSize.Block4X4,
+                out var predictionMode,
+                out var interSubModes,
+                out var diagnostic),
+            diagnostic?.Message);
 
-        Assert.Null(probe);
-        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedInterFrameFeature, diagnostic?.Code);
-        Assert.Contains("mixed sub-block", diagnostic?.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(4, interSubModes.Count);
+        Assert.Contains(interSubModes, mode => mode != interSubModes[0]);
+        Assert.DoesNotContain(Vp9InterPredictionMode.NewMv, interSubModes);
+        Assert.Equal(interSubModes[3], predictionMode);
+        Assert.False(reader.HasError);
     }
 
     [Fact]

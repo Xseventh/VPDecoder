@@ -62,8 +62,10 @@ Current status:
   Ordinary inter frames can contain intra-predicted blocks; those blocks read
   inter-frame intra Y/UV mode probabilities and reuse the intra reconstruction
   path with intra-reference residual syntax.
-  Uniform sub-8x8 inter mode-info groups are parsed for ZEROMV, NEARESTMV, and
-  zero-fallback NEARMV; mixed sub-block modes, sub-8x8 NEWMV, non-zero
+  Sub-8x8 inter mode-info groups are parsed for ZEROMV, NEARESTMV, and
+  zero-fallback NEARMV, including mixed sub-block mode groups when all sub-block
+  modes resolve to the same supported whole-pixel motion vector. Sub-8x8 NEWMV,
+  mixed sub-block modes that resolve to distinct motion vectors, non-zero
   sub-8x8 NEARMV, compound references, and fractional-pixel motion compensation
   remain explicit unsupported paths. Switchable inter interpolation filter
   syntax is parsed and tracked at block mode-info level; fractional-pixel

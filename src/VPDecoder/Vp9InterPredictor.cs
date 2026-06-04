@@ -101,6 +101,16 @@ internal static class Vp9InterPredictor
             return true;
         }
 
+        if (modeBlock.ModeInfo.BlockSize < Vp9BlockSize.Block8X8 &&
+            modeBlock.ModeInfo.InterSubModes.Count > 0)
+        {
+            return TrySelectSharedSub8X8MotionVector(
+                modeBlock.ModeInfo.InterSubModes,
+                candidates,
+                out motionVector,
+                out diagnostic);
+        }
+
         return TrySelectMotionVector(
             modeBlock.ModeInfo.PredictionMode,
             candidates,
@@ -198,6 +208,47 @@ internal static class Vp9InterPredictor
             motionVector.Row < MotionVectorUpperBound &&
             motionVector.Column > MotionVectorLowerBound &&
             motionVector.Column < MotionVectorUpperBound;
+    }
+
+    private static bool TrySelectSharedSub8X8MotionVector(
+        IReadOnlyList<Vp9InterPredictionMode> subModes,
+        IReadOnlyList<Vp9MotionVector> candidates,
+        out Vp9MotionVector motionVector,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
+        motionVector = default;
+        diagnostic = null;
+        Vp9MotionVector? sharedMotionVector = null;
+        foreach (var subMode in subModes)
+        {
+            if (subMode == Vp9InterPredictionMode.NewMv)
+            {
+                diagnostic = Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(
+                    "VP9 sub-8x8 NEWMV inter prediction mode is not supported yet.");
+                return false;
+            }
+
+            if (!TrySelectMotionVector(subMode, candidates, out var subMotionVector, out diagnostic))
+            {
+                return false;
+            }
+
+            if (sharedMotionVector is null)
+            {
+                sharedMotionVector = subMotionVector;
+                continue;
+            }
+
+            if (sharedMotionVector.Value != subMotionVector)
+            {
+                diagnostic = Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(
+                    "VP9 sub-8x8 mixed inter prediction modes with distinct motion vectors are not supported yet.");
+                return false;
+            }
+        }
+
+        motionVector = sharedMotionVector ?? ZeroMotionVector;
+        return true;
     }
 
     private static void AddCandidate(List<Vp9MotionVector> candidates, Vp9MotionVector? candidate)

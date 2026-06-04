@@ -2312,7 +2312,7 @@ internal static class Vp9TileSyntaxScanner
             }
         }
         else if (!Vp9InterPredictor.TrySelectMotionVector(
-                     modeBlock.ModeInfo.PredictionMode,
+                     modeBlock,
                      candidates,
                      out motionVector,
                      out diagnostic))
@@ -2351,7 +2351,32 @@ internal static class Vp9TileSyntaxScanner
             return true;
         }
 
-        if (modeBlock.ModeInfo.PredictionMode != Vp9InterPredictionMode.NearMv ||
+        if (modeBlock.ModeInfo.InterSubModes.Count > 0)
+        {
+            foreach (var subMode in modeBlock.ModeInfo.InterSubModes)
+            {
+                if (!TryValidateSub8X8InterMotionVector(subMode, motionVector, out diagnostic))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        return TryValidateSub8X8InterMotionVector(
+            modeBlock.ModeInfo.PredictionMode,
+            motionVector,
+            out diagnostic);
+    }
+
+    private static bool TryValidateSub8X8InterMotionVector(
+        Vp9InterPredictionMode predictionMode,
+        Vp9MotionVector motionVector,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
+        diagnostic = null;
+        if (predictionMode != Vp9InterPredictionMode.NearMv ||
             motionVector == new Vp9MotionVector(0, 0))
         {
             return true;

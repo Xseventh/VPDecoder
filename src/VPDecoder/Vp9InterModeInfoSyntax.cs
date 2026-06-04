@@ -47,6 +47,8 @@ internal sealed record Vp9InterModeInfoProbe(
     public Vp9PredictionMode UvMode { get; init; } = Vp9PredictionMode.Dc;
 
     public IReadOnlyList<Vp9PredictionMode> YSubModes { get; init; } = [];
+
+    public IReadOnlyList<Vp9InterPredictionMode> InterSubModes { get; init; } = [];
 }
 
 internal static class Vp9InterModeInfoSyntax
@@ -173,6 +175,7 @@ internal static class Vp9InterModeInfoSyntax
             contexts.SingleReference0,
             contexts.SingleReference1);
         Vp9InterPredictionMode predictionMode;
+        IReadOnlyList<Vp9InterPredictionMode> interSubModes = [];
         Vp9InterpolationFilter interpolationFilter;
         if (blockSize < Vp9BlockSize.Block8X8)
         {
@@ -181,12 +184,13 @@ internal static class Vp9InterModeInfoSyntax
                 frameHeader,
                 compressedHeader.FrameContext,
                 contexts.SwitchableInterpolation);
-            if (!TryReadUniformSub8X8InterPredictionMode(
+            if (!TryReadSub8X8InterPredictionModes(
                     ref reader,
                     compressedHeader.FrameContext,
                     contexts.InterMode,
                     blockSize,
                     out predictionMode,
+                    out interSubModes,
                     out diagnostic))
             {
                 return false;
@@ -225,7 +229,10 @@ internal static class Vp9InterModeInfoSyntax
             singleReferenceContext1,
             predictionMode,
             contexts.InterMode,
-            interpolationFilter);
+            interpolationFilter)
+        {
+            InterSubModes = interSubModes
+        };
         return true;
     }
 
@@ -407,10 +414,30 @@ internal static class Vp9InterModeInfoSyntax
         out Vp9InterPredictionMode predictionMode,
         out Vp9DecodeDiagnostic? diagnostic)
     {
+        return TryReadSub8X8InterPredictionModes(
+            ref reader,
+            frameContext,
+            interModeContext,
+            blockSize,
+            out predictionMode,
+            out _,
+            out diagnostic);
+    }
+
+    public static bool TryReadSub8X8InterPredictionModes(
+        ref Vp9BoolReader reader,
+        Vp9FrameContext frameContext,
+        int interModeContext,
+        Vp9BlockSize blockSize,
+        out Vp9InterPredictionMode predictionMode,
+        out IReadOnlyList<Vp9InterPredictionMode> interSubModes,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
         predictionMode = default;
+        interSubModes = [];
         diagnostic = null;
 
-        Span<Vp9InterPredictionMode> subModes = stackalloc Vp9InterPredictionMode[4];
+        var subModes = new Vp9InterPredictionMode[4];
         switch (blockSize)
         {
             case Vp9BlockSize.Block4X4:
@@ -444,24 +471,18 @@ internal static class Vp9InterModeInfoSyntax
             return false;
         }
 
-        predictionMode = subModes[0];
-        for (var i = 1; i < subModes.Length; i++)
+        foreach (var subMode in subModes)
         {
-            if (subModes[i] != predictionMode)
+            if (subMode == Vp9InterPredictionMode.NewMv)
             {
                 diagnostic = Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(
-                    "VP9 sub-8x8 inter blocks with mixed sub-block prediction modes are not supported yet.");
+                    "VP9 sub-8x8 NEWMV inter prediction mode is not supported yet.");
                 return false;
             }
         }
 
-        if (predictionMode == Vp9InterPredictionMode.NewMv)
-        {
-            diagnostic = Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(
-                "VP9 sub-8x8 NEWMV inter prediction mode is not supported yet.");
-            return false;
-        }
-
+        predictionMode = subModes[3];
+        interSubModes = subModes;
         return true;
     }
 
