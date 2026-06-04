@@ -205,12 +205,18 @@ internal static class Vp9BlockReconstructor
 
             if (coefficients.Row4 < 0 ||
                 coefficients.Column4 < 0 ||
-                coefficients.Row4 + transformStep4 > height4 ||
-                coefficients.Column4 + transformStep4 > width4 ||
+                coefficients.Row4 >= height4 ||
+                coefficients.Column4 >= width4 ||
                 coefficients.Row4 % transformStep4 != 0 ||
                 coefficients.Column4 % transformStep4 != 0)
             {
-                throw new ArgumentException("VP9 inter coefficient block transform offset does not fit the block geometry.", nameof(group));
+                throw new ArgumentException(
+                    $"VP9 inter coefficient block transform offset does not fit the block geometry: " +
+                    $"MI ({modeBlock.MiRow},{modeBlock.MiColumn}) plane {plane} block {modeInfo.BlockSize} " +
+                    $"transform {group.TransformSize} step4 {transformStep4} offset ({coefficients.Row4},{coefficients.Column4}) " +
+                    $"visible4 {width4}x{height4} visiblePixels {visibleWidth}x{visibleHeight} " +
+                    $"blocks {group.Blocks.Count}/{expectedBlockCount} eob {coefficients.Eob}.",
+                    nameof(group));
             }
 
             var blockRow = coefficients.Row4 / transformStep4;
