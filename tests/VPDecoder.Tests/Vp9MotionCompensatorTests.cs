@@ -164,6 +164,31 @@ public sealed class Vp9MotionCompensatorTests
     }
 
     [Fact]
+    public void TryAveragePlaneBlock_WithZeroMv_AveragesTwoReferencePredictors()
+    {
+        var reference0 = CreatePatternYuvFrame(width: 4, height: 4);
+        var reference1 = CreateOffsetPatternYuvFrame(width: 4, height: 4, yOffset: 11);
+        var destination = Vp9YuvFrameBuffer.Create(4, 4);
+
+        Assert.True(Vp9MotionCompensator.TryAveragePlaneBlock(
+            reference0,
+            reference1,
+            destination,
+            Vp9Plane.Y,
+            destinationX: 1,
+            destinationY: 1,
+            width: 2,
+            height: 2,
+            new Vp9MotionVector(0, 0),
+            new Vp9MotionVector(0, 0),
+            Vp9InterpolationFilter.EightTap,
+            out var diagnostic), diagnostic?.Message);
+
+        Assert.Equal([11, 12], destination.Pixels.AsSpan(5, 2).ToArray());
+        Assert.Equal([15, 16], destination.Pixels.AsSpan(9, 2).ToArray());
+    }
+
+    [Fact]
     public void TryCopyWholePixelPlaneBlock_WithFractionalMv_ReturnsUnsupportedDiagnostic()
     {
         var reference = CreatePatternYuvFrame(width: 4, height: 4);
@@ -232,6 +257,27 @@ public sealed class Vp9MotionCompensatorTests
         for (var i = 0; i < buffer.YPlane.Length; i++)
         {
             buffer.Pixels[buffer.YPlane.Offset + i] = (byte)i;
+        }
+
+        for (var i = 0; i < buffer.UPlane.Length; i++)
+        {
+            buffer.Pixels[buffer.UPlane.Offset + i] = (byte)(100 + i);
+        }
+
+        for (var i = 0; i < buffer.VPlane.Length; i++)
+        {
+            buffer.Pixels[buffer.VPlane.Offset + i] = (byte)(200 + i);
+        }
+
+        return buffer.ToDecodedFrame();
+    }
+
+    private static Vp9DecodedFrame CreateOffsetPatternYuvFrame(int width, int height, int yOffset)
+    {
+        var buffer = Vp9YuvFrameBuffer.Create(width, height);
+        for (var i = 0; i < buffer.YPlane.Length; i++)
+        {
+            buffer.Pixels[buffer.YPlane.Offset + i] = (byte)(i + yOffset);
         }
 
         for (var i = 0; i < buffer.UPlane.Length; i++)

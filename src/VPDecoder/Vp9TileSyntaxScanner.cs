@@ -24,7 +24,11 @@ internal sealed record Vp9InterBlockModeInfoProbe(
     Vp9InterModeInfoProbe ModeInfo,
     Vp9MotionVector? MotionVector = null)
 {
+    public Vp9MotionVector? CompoundMotionVector { get; init; }
+
     public IReadOnlyList<Vp9MotionVector> InterSubMotionVectors { get; init; } = [];
+
+    public IReadOnlyList<Vp9MotionVector> CompoundInterSubMotionVectors { get; init; } = [];
 
     public Vp9ModeInfoProbe ToIntraModeInfoProbe()
     {
@@ -953,57 +957,19 @@ internal static class Vp9TileSyntaxScanner
                         continue;
                     }
 
-                    if (!Vp9InterPredictor.TryResolveReferenceFrame(
+                    if (!TryPredictInterBlock(
                             referenceFrames,
                             header,
-                            modeBlock.ModeInfo.ReferenceFrame,
-                            out var referenceFrame,
-                            out diagnostic))
-                    {
-                        return false;
-                    }
-
-                    if (referenceFrame is null)
-                    {
-                        diagnostic = Vp9DecodeDiagnostic.InternalDecodeFailure(
-                            "VP9 inter reference lookup succeeded without returning a reference frame.");
-                        return false;
-                    }
-
-                    var candidates = Vp9InterPredictor.BuildSpatialMotionVectorCandidates(
-                        modeBlock,
-                        predictedModeBlocks,
-                        header.ReferenceFrameSignBiases,
-                        eligiblePreviousFrameMotionVectors);
-                    if (!Vp9InterPredictor.TrySelectMotionVector(
-                            modeBlock,
-                            candidates,
-                            out var motionVector,
-                            out diagnostic))
-                    {
-                        return false;
-                    }
-
-                    if (!TryValidateSub8X8InterMotionVector(modeBlock, motionVector, out diagnostic))
-                    {
-                        return false;
-                    }
-
-                    if (!TryCopyInterPredictionBlock(
-                            referenceFrame.Frame,
                             destination,
-                            header,
                             modeBlock,
-                            motionVector,
-                            out diagnostic))
+                            predictedModeBlocks,
+                            out var predictedModeBlock,
+                            out diagnostic,
+                            previousFrameMotionVectors))
                     {
                         return false;
                     }
 
-                    var predictedModeBlock = modeBlock with
-                    {
-                        MotionVector = motionVector
-                    };
                     predictedModeBlocks.Add(predictedModeBlock);
                     predictedProbeModeBlocks.Add(predictedModeBlock);
 
@@ -2023,7 +1989,8 @@ internal static class Vp9TileSyntaxScanner
             hasColumns);
         if (reader.HasError)
         {
-            diagnostic = Vp9DecodeDiagnostic.TruncatedPacket("VP9 inter partition residual probe ended unexpectedly.");
+            diagnostic = Vp9DecodeDiagnostic.TruncatedPacket(
+                $"VP9 inter partition residual probe ended unexpectedly at tile {geometry.Buffer.Index} MI ({miRow},{miColumn}) block {blockSize}.");
             return false;
         }
 
@@ -2338,14 +2305,16 @@ internal static class Vp9TileSyntaxScanner
             return false;
         }
 
+        var modeBlock = modes[^1];
         ReadInterBlockCoefficientGroups(
             ref reader,
             header,
             compressedHeader,
             dequantTables,
-            modes[^1],
+            modeBlock,
             entropyContext,
             coefficientGroups);
+
         return true;
     }
 
@@ -2360,15 +2329,15 @@ internal static class Vp9TileSyntaxScanner
     {
         for (var plane = 0; plane < 3; plane++)
         {
-            coefficientGroups.Add(
-                Vp9ResidualSyntax.ReadInterPlaneCoefficientBlocks(
-                    ref reader,
-                    header,
-                    compressedHeader,
-                    dequantTables,
-                    modeBlock,
-                    entropyContext,
-                    plane));
+            var group = Vp9ResidualSyntax.ReadInterPlaneCoefficientBlocks(
+                ref reader,
+                header,
+                compressedHeader,
+                dequantTables,
+                modeBlock,
+                entropyContext,
+                plane);
+            coefficientGroups.Add(group);
         }
     }
 
@@ -2391,10 +2360,22 @@ internal static class Vp9TileSyntaxScanner
             miRow,
             miColumn,
             geometry.MiColumnStart);
+        var compoundReferenceSetup = Vp9InterModeInfoSyntax.GetCompoundReferenceSetup(header.ReferenceFrameSignBiases);
         var contexts = new Vp9InterModeInfoContexts(
             Skip: syntaxContext.GetSkipContext(miRow, miColumn, geometry.MiColumnStart),
             IntraInter: syntaxContext.GetIntraInterContext(miRow, miColumn, geometry.MiColumnStart),
             TransformSize: syntaxContext.GetTransformSizeContext(miRow, miColumn, geometry.MiColumnStart, blockSize),
+            CompoundInter: syntaxContext.GetCompoundInterContext(
+                miRow,
+                miColumn,
+                geometry.MiColumnStart,
+                compoundReferenceSetup.FixedReferenceFrame),
+            CompoundReference: syntaxContext.GetCompoundReferenceContext(
+                miRow,
+                miColumn,
+                geometry.MiColumnStart,
+                compoundReferenceSetup,
+                header.ReferenceFrameSignBiases),
             SingleReference0: singleReferenceContexts.Context0,
             SingleReference1: singleReferenceContexts.Context1,
             InterMode: syntaxContext.GetInterModeContext(
@@ -2635,6 +2616,204 @@ internal static class Vp9TileSyntaxScanner
             out diagnostic);
     }
 
+    private static bool TryCopyCompoundInterPredictionBlock(
+        Vp9DecodedFrame referenceFrame0,
+        Vp9DecodedFrame referenceFrame1,
+        Vp9YuvFrameBuffer destination,
+        Vp9FrameHeader header,
+        Vp9InterBlockModeInfoProbe modeBlock,
+        Vp9MotionVector motionVector0,
+        Vp9MotionVector motionVector1,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
+        if (modeBlock.ModeInfo.BlockSize < Vp9BlockSize.Block8X8)
+        {
+            diagnostic = Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(
+                "VP9 compound sub-8x8 inter prediction is not supported yet.");
+            return false;
+        }
+
+        var destinationX = modeBlock.MiColumn * 8;
+        var destinationY = modeBlock.MiRow * 8;
+        var blockWidth = Vp9ModeInfoSyntax.GetBlockWidthInMiUnits(modeBlock.ModeInfo.BlockSize) * 8;
+        var blockHeight = Vp9ModeInfoSyntax.GetBlockHeightInMiUnits(modeBlock.ModeInfo.BlockSize) * 8;
+        var visibleWidth = Math.Min(blockWidth, header.Width - destinationX);
+        var visibleHeight = Math.Min(blockHeight, header.Height - destinationY);
+        if (visibleWidth <= 0 || visibleHeight <= 0)
+        {
+            diagnostic = Vp9DecodeDiagnostic.InvalidPacket(
+                "VP9 compound inter prediction block lies outside the visible frame.");
+            return false;
+        }
+
+        if (!Vp9MotionCompensator.TryAveragePlaneBlock(
+                referenceFrame0,
+                referenceFrame1,
+                destination,
+                Vp9Plane.Y,
+                destinationX,
+                destinationY,
+                visibleWidth,
+                visibleHeight,
+                ScaleLumaMotionVectorToQ4(motionVector0),
+                ScaleLumaMotionVectorToQ4(motionVector1),
+                modeBlock.ModeInfo.InterpolationFilter,
+                out diagnostic))
+        {
+            return false;
+        }
+
+        var chromaMotionVector0 = ScaleYuv420ChromaMotionVectorToQ4(motionVector0);
+        var chromaMotionVector1 = ScaleYuv420ChromaMotionVectorToQ4(motionVector1);
+        var chromaDestinationX = destinationX / 2;
+        var chromaDestinationY = destinationY / 2;
+        var chromaWidth = Math.Min((visibleWidth + 1) / 2, ((header.Width + 1) / 2) - chromaDestinationX);
+        var chromaHeight = Math.Min((visibleHeight + 1) / 2, ((header.Height + 1) / 2) - chromaDestinationY);
+        if (chromaWidth <= 0 || chromaHeight <= 0)
+        {
+            diagnostic = Vp9DecodeDiagnostic.InvalidPacket(
+                "VP9 compound inter prediction chroma block lies outside the visible frame.");
+            return false;
+        }
+
+        if (!Vp9MotionCompensator.TryAveragePlaneBlock(
+                referenceFrame0,
+                referenceFrame1,
+                destination,
+                Vp9Plane.U,
+                chromaDestinationX,
+                chromaDestinationY,
+                chromaWidth,
+                chromaHeight,
+                chromaMotionVector0,
+                chromaMotionVector1,
+                modeBlock.ModeInfo.InterpolationFilter,
+                out diagnostic))
+        {
+            return false;
+        }
+
+        return Vp9MotionCompensator.TryAveragePlaneBlock(
+            referenceFrame0,
+            referenceFrame1,
+            destination,
+            Vp9Plane.V,
+            chromaDestinationX,
+            chromaDestinationY,
+            chromaWidth,
+            chromaHeight,
+            chromaMotionVector0,
+            chromaMotionVector1,
+            modeBlock.ModeInfo.InterpolationFilter,
+            out diagnostic);
+    }
+
+    private static bool TryCopyCompoundSub8X8InterPredictionBlock(
+        Vp9DecodedFrame referenceFrame0,
+        Vp9DecodedFrame referenceFrame1,
+        Vp9YuvFrameBuffer destination,
+        Vp9FrameHeader header,
+        Vp9InterBlockModeInfoProbe modeBlock,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
+        diagnostic = null;
+        if (modeBlock.InterSubMotionVectors.Count != 4 ||
+            modeBlock.CompoundInterSubMotionVectors.Count != 4)
+        {
+            diagnostic = Vp9DecodeDiagnostic.InvalidPacket(
+                "VP9 compound sub-8x8 inter prediction requires four sub-block motion vectors for both references.");
+            return false;
+        }
+
+        var destinationX = modeBlock.MiColumn * 8;
+        var destinationY = modeBlock.MiRow * 8;
+        var blockWidth = Vp9ModeInfoSyntax.GetBlockWidthInMiUnits(modeBlock.ModeInfo.BlockSize) * 8;
+        var blockHeight = Vp9ModeInfoSyntax.GetBlockHeightInMiUnits(modeBlock.ModeInfo.BlockSize) * 8;
+        var visibleWidth = Math.Min(blockWidth, header.Width - destinationX);
+        var visibleHeight = Math.Min(blockHeight, header.Height - destinationY);
+        if (visibleWidth <= 0 || visibleHeight <= 0)
+        {
+            diagnostic = Vp9DecodeDiagnostic.InvalidPacket(
+                "VP9 compound sub-8x8 inter prediction block lies outside the visible frame.");
+            return false;
+        }
+
+        for (var block = 0; block < 4; block++)
+        {
+            var subX = destinationX + ((block & 1) * 4);
+            var subY = destinationY + ((block >> 1) * 4);
+            var subVisibleWidth = Math.Min(4, header.Width - subX);
+            var subVisibleHeight = Math.Min(4, header.Height - subY);
+            if (subVisibleWidth <= 0 || subVisibleHeight <= 0)
+            {
+                continue;
+            }
+
+            if (!Vp9MotionCompensator.TryAveragePlaneBlock(
+                    referenceFrame0,
+                    referenceFrame1,
+                    destination,
+                    Vp9Plane.Y,
+                    subX,
+                    subY,
+                    subVisibleWidth,
+                    subVisibleHeight,
+                    ScaleLumaMotionVectorToQ4(modeBlock.InterSubMotionVectors[block]),
+                    ScaleLumaMotionVectorToQ4(modeBlock.CompoundInterSubMotionVectors[block]),
+                    modeBlock.ModeInfo.InterpolationFilter,
+                    out diagnostic))
+            {
+                return false;
+            }
+        }
+
+        var averageMotionVector0 = AverageSub8X8MotionVectors(modeBlock.InterSubMotionVectors);
+        var averageMotionVector1 = AverageSub8X8MotionVectors(modeBlock.CompoundInterSubMotionVectors);
+        var chromaMotionVector0 = ScaleYuv420ChromaMotionVectorToQ4(averageMotionVector0);
+        var chromaMotionVector1 = ScaleYuv420ChromaMotionVectorToQ4(averageMotionVector1);
+        var chromaDestinationX = destinationX / 2;
+        var chromaDestinationY = destinationY / 2;
+        var chromaWidth = Math.Min((visibleWidth + 1) / 2, ((header.Width + 1) / 2) - chromaDestinationX);
+        var chromaHeight = Math.Min((visibleHeight + 1) / 2, ((header.Height + 1) / 2) - chromaDestinationY);
+        if (chromaWidth <= 0 || chromaHeight <= 0)
+        {
+            diagnostic = Vp9DecodeDiagnostic.InvalidPacket(
+                "VP9 compound sub-8x8 inter prediction chroma block lies outside the visible frame.");
+            return false;
+        }
+
+        if (!Vp9MotionCompensator.TryAveragePlaneBlock(
+                referenceFrame0,
+                referenceFrame1,
+                destination,
+                Vp9Plane.U,
+                chromaDestinationX,
+                chromaDestinationY,
+                chromaWidth,
+                chromaHeight,
+                chromaMotionVector0,
+                chromaMotionVector1,
+                modeBlock.ModeInfo.InterpolationFilter,
+                out diagnostic))
+        {
+            return false;
+        }
+
+        return Vp9MotionCompensator.TryAveragePlaneBlock(
+            referenceFrame0,
+            referenceFrame1,
+            destination,
+            Vp9Plane.V,
+            chromaDestinationX,
+            chromaDestinationY,
+            chromaWidth,
+            chromaHeight,
+            chromaMotionVector0,
+            chromaMotionVector1,
+            modeBlock.ModeInfo.InterpolationFilter,
+            out diagnostic);
+    }
+
     private static bool TryCopySub8X8InterPredictionBlock(
         Vp9DecodedFrame referenceFrame,
         Vp9YuvFrameBuffer destination,
@@ -2763,6 +2942,18 @@ internal static class Vp9TileSyntaxScanner
         Vp9PreviousFrameMotionVectors? previousFrameMotionVectors = null)
     {
         predictedModeBlock = modeBlock;
+        if (modeBlock.ModeInfo.CompoundReferenceFrame is { } compoundReferenceFrame)
+        {
+            return TryPredictCompoundInterBlock(
+                referenceFrames,
+                header,
+                destination,
+                modeBlock,
+                compoundReferenceFrame,
+                out predictedModeBlock,
+                out diagnostic);
+        }
+
         if (!Vp9InterPredictor.TryResolveReferenceFrame(
                 referenceFrames,
                 header,
@@ -2817,6 +3008,102 @@ internal static class Vp9TileSyntaxScanner
         return true;
     }
 
+    private static bool TryPredictCompoundInterBlock(
+        Vp9ReferenceFrameStore referenceFrames,
+        Vp9FrameHeader header,
+        Vp9YuvFrameBuffer destination,
+        Vp9InterBlockModeInfoProbe modeBlock,
+        Vp9InterReferenceFrame compoundReferenceFrame,
+        out Vp9InterBlockModeInfoProbe predictedModeBlock,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
+        predictedModeBlock = modeBlock;
+        if (!Vp9InterPredictor.TryResolveReferenceFrame(
+                referenceFrames,
+                header,
+                modeBlock.ModeInfo.ReferenceFrame,
+                out var referenceFrame0,
+                out diagnostic) ||
+            !Vp9InterPredictor.TryResolveReferenceFrame(
+                referenceFrames,
+                header,
+                compoundReferenceFrame,
+                out var referenceFrame1,
+                out diagnostic))
+        {
+            return false;
+        }
+
+        if (referenceFrame0 is null || referenceFrame1 is null)
+        {
+            diagnostic = Vp9DecodeDiagnostic.InternalDecodeFailure(
+                "VP9 compound reference lookup succeeded without returning both reference frames.");
+            return false;
+        }
+
+        if (modeBlock.ModeInfo.BlockSize < Vp9BlockSize.Block8X8 &&
+            modeBlock.InterSubMotionVectors.Count > 0 &&
+            modeBlock.CompoundInterSubMotionVectors.Count > 0)
+        {
+            if (!TryCopyCompoundSub8X8InterPredictionBlock(
+                    referenceFrame0.Frame,
+                    referenceFrame1.Frame,
+                    destination,
+                    header,
+                    modeBlock,
+                    out diagnostic))
+            {
+                return false;
+            }
+
+            predictedModeBlock = modeBlock;
+            return true;
+        }
+
+        var motionVector0 = modeBlock.MotionVector;
+        var motionVector1 = modeBlock.CompoundMotionVector;
+        if (motionVector0 is null || motionVector1 is null)
+        {
+            if (modeBlock.ModeInfo.PredictionMode != Vp9InterPredictionMode.ZeroMv)
+            {
+                diagnostic = Vp9DecodeDiagnostic.InternalDecodeFailure(
+                    "VP9 compound inter prediction is missing decoded motion vectors.");
+                return false;
+            }
+
+            motionVector0 = new Vp9MotionVector(0, 0);
+            motionVector1 = new Vp9MotionVector(0, 0);
+        }
+
+        if (!Vp9InterPredictor.IsValidMotionVector(motionVector0.Value) ||
+            !Vp9InterPredictor.IsValidMotionVector(motionVector1.Value))
+        {
+            diagnostic = Vp9DecodeDiagnostic.InvalidPacket(
+                "VP9 compound inter mode-info decoded an out-of-range motion vector.");
+            return false;
+        }
+
+        if (!TryCopyCompoundInterPredictionBlock(
+                referenceFrame0.Frame,
+                referenceFrame1.Frame,
+                destination,
+                header,
+                modeBlock,
+                motionVector0.Value,
+                motionVector1.Value,
+                out diagnostic))
+        {
+            return false;
+        }
+
+        predictedModeBlock = modeBlock with
+        {
+            MotionVector = motionVector0.Value,
+            CompoundMotionVector = motionVector1.Value
+        };
+        return true;
+    }
+
     private static bool TryReadInterBlockMotionVector(
         ref Vp9BoolReader reader,
         Vp9FrameHeader header,
@@ -2834,9 +3121,33 @@ internal static class Vp9TileSyntaxScanner
             header.ReferenceFrameSignBiases,
             previousFrameMotionVectors);
         Vp9MotionVector motionVector;
+        Vp9MotionVector? compoundMotionVector = null;
         IReadOnlyList<Vp9MotionVector> interSubMotionVectors = [];
+        IReadOnlyList<Vp9MotionVector> compoundInterSubMotionVectors = [];
         var resolvedModeInfo = modeBlock.ModeInfo;
-        if (modeBlock.ModeInfo.BlockSize < Vp9BlockSize.Block8X8)
+        if (modeBlock.ModeInfo.CompoundReferenceFrame.HasValue)
+        {
+            Vp9MotionVector decodedCompoundMotionVector;
+            if (!TryReadCompoundInterBlockMotionVectors(
+                    ref reader,
+                    header,
+                    compressedHeader,
+                    modeBlock,
+                    decodedModeBlocks,
+                    previousFrameMotionVectors,
+                    out resolvedModeInfo,
+                    out interSubMotionVectors,
+                    out compoundInterSubMotionVectors,
+                    out motionVector,
+                    out decodedCompoundMotionVector,
+                    out diagnostic))
+            {
+                return false;
+            }
+
+            compoundMotionVector = decodedCompoundMotionVector;
+        }
+        else if (modeBlock.ModeInfo.BlockSize < Vp9BlockSize.Block8X8)
         {
             if (!TryReadSub8X8InterBlockMotionVectors(
                     ref reader,
@@ -2901,10 +3212,440 @@ internal static class Vp9TileSyntaxScanner
         {
             ModeInfo = resolvedModeInfo,
             MotionVector = motionVector,
-            InterSubMotionVectors = interSubMotionVectors
+            CompoundMotionVector = compoundMotionVector,
+            InterSubMotionVectors = interSubMotionVectors,
+            CompoundInterSubMotionVectors = compoundInterSubMotionVectors
         };
+
         diagnostic = null;
         return true;
+    }
+
+    private static bool TryReadCompoundInterBlockMotionVectors(
+        ref Vp9BoolReader reader,
+        Vp9FrameHeader header,
+        Vp9CompressedHeader compressedHeader,
+        Vp9InterBlockModeInfoProbe modeBlock,
+        IReadOnlyList<Vp9InterBlockModeInfoProbe> decodedModeBlocks,
+        Vp9PreviousFrameMotionVectors? previousFrameMotionVectors,
+        out Vp9InterModeInfoProbe resolvedModeInfo,
+        out IReadOnlyList<Vp9MotionVector> interSubMotionVectors,
+        out IReadOnlyList<Vp9MotionVector> compoundInterSubMotionVectors,
+        out Vp9MotionVector motionVector0,
+        out Vp9MotionVector motionVector1,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
+        resolvedModeInfo = modeBlock.ModeInfo;
+        interSubMotionVectors = [];
+        compoundInterSubMotionVectors = [];
+        motionVector0 = default;
+        motionVector1 = default;
+        diagnostic = null;
+        if (modeBlock.ModeInfo.CompoundReferenceFrame is not { } compoundReferenceFrame)
+        {
+            diagnostic = Vp9DecodeDiagnostic.InternalDecodeFailure(
+                "VP9 compound motion-vector reader received a single-reference block.");
+            return false;
+        }
+
+        if (modeBlock.ModeInfo.BlockSize < Vp9BlockSize.Block8X8)
+        {
+            return TryReadCompoundSub8X8InterBlockMotionVectors(
+                ref reader,
+                header,
+                compressedHeader,
+                modeBlock,
+                decodedModeBlocks,
+                previousFrameMotionVectors,
+                compoundReferenceFrame,
+                out resolvedModeInfo,
+                out interSubMotionVectors,
+                out compoundInterSubMotionVectors,
+                out motionVector0,
+                out motionVector1,
+                out diagnostic);
+        }
+
+        var referenceBlock0 = CreateSingleReferenceView(modeBlock, modeBlock.ModeInfo.ReferenceFrame);
+        var referenceBlock1 = CreateSingleReferenceView(modeBlock, compoundReferenceFrame);
+        var candidates0 = Vp9InterPredictor.BuildSpatialMotionVectorCandidates(
+            referenceBlock0,
+            decodedModeBlocks,
+            header.ReferenceFrameSignBiases,
+            previousFrameMotionVectors);
+        var candidates1 = Vp9InterPredictor.BuildSpatialMotionVectorCandidates(
+            referenceBlock1,
+            decodedModeBlocks,
+            header.ReferenceFrameSignBiases,
+            previousFrameMotionVectors);
+        if (modeBlock.ModeInfo.PredictionMode == Vp9InterPredictionMode.NewMv)
+        {
+            var referenceMotionVector0 = Vp9MotionVectorSyntax.LowerPrecision(
+                candidates0.Count >= 1 ? candidates0[0] : new Vp9MotionVector(0, 0),
+                header.AllowHighPrecisionMv);
+            motionVector0 = Vp9MotionVectorSyntax.ReadMotionVector(
+                ref reader,
+                compressedHeader.FrameContext.MotionVectorProbabilities,
+                referenceMotionVector0,
+                header.AllowHighPrecisionMv);
+            if (reader.HasError)
+            {
+                diagnostic = Vp9DecodeDiagnostic.TruncatedPacket("VP9 compound NEWMV first motion vector ended unexpectedly.");
+                return false;
+            }
+
+            var referenceMotionVector1 = Vp9MotionVectorSyntax.LowerPrecision(
+                candidates1.Count >= 1 ? candidates1[0] : new Vp9MotionVector(0, 0),
+                header.AllowHighPrecisionMv);
+            motionVector1 = Vp9MotionVectorSyntax.ReadMotionVector(
+                ref reader,
+                compressedHeader.FrameContext.MotionVectorProbabilities,
+                referenceMotionVector1,
+                header.AllowHighPrecisionMv);
+            if (reader.HasError)
+            {
+                diagnostic = Vp9DecodeDiagnostic.TruncatedPacket("VP9 compound NEWMV second motion vector ended unexpectedly.");
+                return false;
+            }
+        }
+        else
+        {
+            if (!Vp9InterPredictor.TrySelectMotionVector(
+                    modeBlock.ModeInfo.PredictionMode,
+                    candidates0,
+                    out motionVector0,
+                    out diagnostic) ||
+                !Vp9InterPredictor.TrySelectMotionVector(
+                    modeBlock.ModeInfo.PredictionMode,
+                    candidates1,
+                    out motionVector1,
+                    out diagnostic))
+            {
+                return false;
+            }
+
+            if (modeBlock.ModeInfo.PredictionMode != Vp9InterPredictionMode.ZeroMv)
+            {
+                motionVector0 = Vp9MotionVectorSyntax.LowerPrecision(motionVector0, header.AllowHighPrecisionMv);
+                motionVector1 = Vp9MotionVectorSyntax.LowerPrecision(motionVector1, header.AllowHighPrecisionMv);
+            }
+        }
+
+        if (!Vp9InterPredictor.IsValidMotionVector(motionVector0) ||
+            !Vp9InterPredictor.IsValidMotionVector(motionVector1))
+        {
+            diagnostic = Vp9DecodeDiagnostic.InvalidPacket(
+                "VP9 compound inter mode-info decoded an out-of-range motion vector.");
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool TryReadCompoundSub8X8InterBlockMotionVectors(
+        ref Vp9BoolReader reader,
+        Vp9FrameHeader header,
+        Vp9CompressedHeader compressedHeader,
+        Vp9InterBlockModeInfoProbe modeBlock,
+        IReadOnlyList<Vp9InterBlockModeInfoProbe> decodedModeBlocks,
+        Vp9PreviousFrameMotionVectors? previousFrameMotionVectors,
+        Vp9InterReferenceFrame compoundReferenceFrame,
+        out Vp9InterModeInfoProbe resolvedModeInfo,
+        out IReadOnlyList<Vp9MotionVector> interSubMotionVectors,
+        out IReadOnlyList<Vp9MotionVector> compoundInterSubMotionVectors,
+        out Vp9MotionVector motionVector0,
+        out Vp9MotionVector motionVector1,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
+        resolvedModeInfo = modeBlock.ModeInfo;
+        interSubMotionVectors = [];
+        compoundInterSubMotionVectors = [];
+        motionVector0 = default;
+        motionVector1 = default;
+        diagnostic = null;
+
+        var referenceBlock0 = CreateSingleReferenceView(modeBlock, modeBlock.ModeInfo.ReferenceFrame);
+        var referenceBlock1 = CreateSingleReferenceView(modeBlock, compoundReferenceFrame);
+        var candidates0 = Vp9InterPredictor.BuildSpatialMotionVectorCandidates(
+            referenceBlock0,
+            decodedModeBlocks,
+            header.ReferenceFrameSignBiases,
+            previousFrameMotionVectors);
+        var candidates1 = Vp9InterPredictor.BuildSpatialMotionVectorCandidates(
+            referenceBlock1,
+            decodedModeBlocks,
+            header.ReferenceFrameSignBiases,
+            previousFrameMotionVectors);
+        var newMvReferenceMotionVector0 = Vp9MotionVectorSyntax.LowerPrecision(
+            candidates0.Count >= 1 ? candidates0[0] : new Vp9MotionVector(0, 0),
+            header.AllowHighPrecisionMv);
+        var newMvReferenceMotionVector1 = Vp9MotionVectorSyntax.LowerPrecision(
+            candidates1.Count >= 1 ? candidates1[0] : new Vp9MotionVector(0, 0),
+            header.AllowHighPrecisionMv);
+        var subModes = new Vp9InterPredictionMode[4];
+        var subMotionVectors0 = new Vp9MotionVector[4];
+        var subMotionVectors1 = new Vp9MotionVector[4];
+
+        switch (modeBlock.ModeInfo.BlockSize)
+        {
+            case Vp9BlockSize.Block4X4:
+                for (var block = 0; block < 4; block++)
+                {
+                    if (!TryReadCompoundSub8X8PrimaryMotionVector(
+                            ref reader,
+                            compressedHeader,
+                            header,
+                            referenceBlock0,
+                            referenceBlock1,
+                            decodedModeBlocks,
+                            previousFrameMotionVectors,
+                            newMvReferenceMotionVector0,
+                            newMvReferenceMotionVector1,
+                            block,
+                            subModes,
+                            subMotionVectors0,
+                            subMotionVectors1,
+                            out diagnostic))
+                    {
+                        return false;
+                    }
+                }
+
+                break;
+
+            case Vp9BlockSize.Block4X8:
+                if (!TryReadCompoundSub8X8PrimaryMotionVector(
+                        ref reader,
+                        compressedHeader,
+                        header,
+                        referenceBlock0,
+                        referenceBlock1,
+                        decodedModeBlocks,
+                        previousFrameMotionVectors,
+                        newMvReferenceMotionVector0,
+                        newMvReferenceMotionVector1,
+                        0,
+                        subModes,
+                        subMotionVectors0,
+                        subMotionVectors1,
+                        out diagnostic))
+                {
+                    return false;
+                }
+
+                subModes[2] = subModes[0];
+                subMotionVectors0[2] = subMotionVectors0[0];
+                subMotionVectors1[2] = subMotionVectors1[0];
+                if (!TryReadCompoundSub8X8PrimaryMotionVector(
+                        ref reader,
+                        compressedHeader,
+                        header,
+                        referenceBlock0,
+                        referenceBlock1,
+                        decodedModeBlocks,
+                        previousFrameMotionVectors,
+                        newMvReferenceMotionVector0,
+                        newMvReferenceMotionVector1,
+                        1,
+                        subModes,
+                        subMotionVectors0,
+                        subMotionVectors1,
+                        out diagnostic))
+                {
+                    return false;
+                }
+
+                subModes[3] = subModes[1];
+                subMotionVectors0[3] = subMotionVectors0[1];
+                subMotionVectors1[3] = subMotionVectors1[1];
+                break;
+
+            case Vp9BlockSize.Block8X4:
+                if (!TryReadCompoundSub8X8PrimaryMotionVector(
+                        ref reader,
+                        compressedHeader,
+                        header,
+                        referenceBlock0,
+                        referenceBlock1,
+                        decodedModeBlocks,
+                        previousFrameMotionVectors,
+                        newMvReferenceMotionVector0,
+                        newMvReferenceMotionVector1,
+                        0,
+                        subModes,
+                        subMotionVectors0,
+                        subMotionVectors1,
+                        out diagnostic))
+                {
+                    return false;
+                }
+
+                subModes[1] = subModes[0];
+                subMotionVectors0[1] = subMotionVectors0[0];
+                subMotionVectors1[1] = subMotionVectors1[0];
+                if (!TryReadCompoundSub8X8PrimaryMotionVector(
+                        ref reader,
+                        compressedHeader,
+                        header,
+                        referenceBlock0,
+                        referenceBlock1,
+                        decodedModeBlocks,
+                        previousFrameMotionVectors,
+                        newMvReferenceMotionVector0,
+                        newMvReferenceMotionVector1,
+                        2,
+                        subModes,
+                        subMotionVectors0,
+                        subMotionVectors1,
+                        out diagnostic))
+                {
+                    return false;
+                }
+
+                subModes[3] = subModes[2];
+                subMotionVectors0[3] = subMotionVectors0[2];
+                subMotionVectors1[3] = subMotionVectors1[2];
+                break;
+
+            default:
+                diagnostic = Vp9DecodeDiagnostic.InvalidPacket(
+                    "VP9 compound sub-8x8 MV reader received a non-sub-8x8 block size.");
+                return false;
+        }
+
+        if (reader.HasError)
+        {
+            diagnostic = Vp9DecodeDiagnostic.TruncatedPacket("VP9 compound sub-8x8 inter mode-info ended unexpectedly.");
+            return false;
+        }
+
+        resolvedModeInfo = modeBlock.ModeInfo with
+        {
+            PredictionMode = subModes[3],
+            InterSubModes = subModes
+        };
+        interSubMotionVectors = subMotionVectors0;
+        compoundInterSubMotionVectors = subMotionVectors1;
+        motionVector0 = subMotionVectors0[3];
+        motionVector1 = subMotionVectors1[3];
+        return true;
+    }
+
+    private static bool TryReadCompoundSub8X8PrimaryMotionVector(
+        ref Vp9BoolReader reader,
+        Vp9CompressedHeader compressedHeader,
+        Vp9FrameHeader header,
+        Vp9InterBlockModeInfoProbe referenceBlock0,
+        Vp9InterBlockModeInfoProbe referenceBlock1,
+        IReadOnlyList<Vp9InterBlockModeInfoProbe> decodedModeBlocks,
+        Vp9PreviousFrameMotionVectors? previousFrameMotionVectors,
+        Vp9MotionVector newMvReferenceMotionVector0,
+        Vp9MotionVector newMvReferenceMotionVector1,
+        int blockIndex,
+        Vp9InterPredictionMode[] subModes,
+        Vp9MotionVector[] subMotionVectors0,
+        Vp9MotionVector[] subMotionVectors1,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
+        var predictionMode = Vp9InterModeInfoSyntax.ReadInterPredictionMode(
+            ref reader,
+            compressedHeader.FrameContext,
+            referenceBlock0.ModeInfo.InterModeContext);
+        subModes[blockIndex] = predictionMode;
+        Vp9MotionVector motionVector0;
+        Vp9MotionVector motionVector1;
+        if (predictionMode == Vp9InterPredictionMode.NewMv)
+        {
+            motionVector0 = Vp9MotionVectorSyntax.ReadMotionVector(
+                ref reader,
+                compressedHeader.FrameContext.MotionVectorProbabilities,
+                newMvReferenceMotionVector0,
+                header.AllowHighPrecisionMv);
+            if (reader.HasError)
+            {
+                diagnostic = Vp9DecodeDiagnostic.TruncatedPacket(
+                    "VP9 compound sub-8x8 first NEWMV motion vector ended unexpectedly.");
+                return false;
+            }
+
+            motionVector1 = Vp9MotionVectorSyntax.ReadMotionVector(
+                ref reader,
+                compressedHeader.FrameContext.MotionVectorProbabilities,
+                newMvReferenceMotionVector1,
+                header.AllowHighPrecisionMv);
+            if (reader.HasError)
+            {
+                diagnostic = Vp9DecodeDiagnostic.TruncatedPacket(
+                    "VP9 compound sub-8x8 second NEWMV motion vector ended unexpectedly.");
+                return false;
+            }
+        }
+        else
+        {
+            var subBlockCandidates0 = Vp9InterPredictor.BuildSub8X8MotionVectorCandidates(
+                referenceBlock0,
+                decodedModeBlocks,
+                blockIndex,
+                header.ReferenceFrameSignBiases,
+                previousFrameMotionVectors);
+            var subBlockCandidates1 = Vp9InterPredictor.BuildSub8X8MotionVectorCandidates(
+                referenceBlock1,
+                decodedModeBlocks,
+                blockIndex,
+                header.ReferenceFrameSignBiases,
+                previousFrameMotionVectors);
+            if (!Vp9InterPredictor.TrySelectSub8X8MotionVector(
+                    predictionMode,
+                    blockIndex,
+                    subBlockCandidates0,
+                    subMotionVectors0,
+                    out motionVector0,
+                    out diagnostic) ||
+                !Vp9InterPredictor.TrySelectSub8X8MotionVector(
+                    predictionMode,
+                    blockIndex,
+                    subBlockCandidates1,
+                    subMotionVectors1,
+                    out motionVector1,
+                    out diagnostic))
+            {
+                return false;
+            }
+        }
+
+        if (!Vp9InterPredictor.IsValidMotionVector(motionVector0) ||
+            !Vp9InterPredictor.IsValidMotionVector(motionVector1))
+        {
+            diagnostic = Vp9DecodeDiagnostic.InvalidPacket(
+                "VP9 compound sub-8x8 mode-info decoded an out-of-range motion vector.");
+            return false;
+        }
+
+        subMotionVectors0[blockIndex] = motionVector0;
+        subMotionVectors1[blockIndex] = motionVector1;
+        diagnostic = null;
+        return true;
+    }
+
+    private static Vp9InterBlockModeInfoProbe CreateSingleReferenceView(
+        Vp9InterBlockModeInfoProbe modeBlock,
+        Vp9InterReferenceFrame referenceFrame)
+    {
+        return modeBlock with
+        {
+            ModeInfo = modeBlock.ModeInfo with
+            {
+                ReferenceMode = Vp9ReferenceMode.Single,
+                ReferenceFrame = referenceFrame,
+                CompoundReferenceFrame = null,
+                CompoundInterContext = null,
+                CompoundReferenceContext = null
+            },
+            MotionVector = null,
+            CompoundMotionVector = null,
+            InterSubMotionVectors = [],
+            CompoundInterSubMotionVectors = []
+        };
     }
 
     private static bool TryReadSub8X8InterBlockMotionVectors(
@@ -3121,6 +3862,7 @@ internal static class Vp9TileSyntaxScanner
         }
 
         subMotionVectors[blockIndex] = motionVector;
+
         diagnostic = null;
         return true;
     }
@@ -3154,6 +3896,26 @@ internal static class Vp9TileSyntaxScanner
                         diagnostic = Vp9DecodeDiagnostic.InvalidPacket(
                             "VP9 sub-8x8 inter mode-info contains an out-of-range motion vector.");
                         return false;
+                    }
+                }
+
+                if (modeBlock.CompoundInterSubMotionVectors.Count > 0)
+                {
+                    if (modeBlock.CompoundInterSubMotionVectors.Count != 4)
+                    {
+                        diagnostic = Vp9DecodeDiagnostic.InvalidPacket(
+                            "VP9 compound sub-8x8 inter mode-info requires four compound sub-block motion vectors.");
+                        return false;
+                    }
+
+                    foreach (var subMotionVector in modeBlock.CompoundInterSubMotionVectors)
+                    {
+                        if (!Vp9InterPredictor.IsValidMotionVector(subMotionVector))
+                        {
+                            diagnostic = Vp9DecodeDiagnostic.InvalidPacket(
+                                "VP9 compound sub-8x8 inter mode-info contains an out-of-range motion vector.");
+                            return false;
+                        }
                     }
                 }
 

@@ -17,10 +17,17 @@ internal enum Vp9InterReferenceFrame
 
 internal readonly record struct Vp9MotionVector(int Row, int Column);
 
+internal readonly record struct Vp9CompoundReferenceSetup(
+    Vp9InterReferenceFrame FixedReferenceFrame,
+    Vp9InterReferenceFrame VariableReferenceFrame0,
+    Vp9InterReferenceFrame VariableReferenceFrame1);
+
 internal readonly record struct Vp9InterModeInfoContexts(
     int Skip,
     int IntraInter,
     int TransformSize,
+    int CompoundInter,
+    int CompoundReference,
     int SingleReference0,
     int SingleReference1,
     int InterMode,
@@ -49,6 +56,12 @@ internal sealed record Vp9InterModeInfoProbe(
     public IReadOnlyList<Vp9PredictionMode> YSubModes { get; init; } = [];
 
     public IReadOnlyList<Vp9InterPredictionMode> InterSubModes { get; init; } = [];
+
+    public Vp9InterReferenceFrame? CompoundReferenceFrame { get; init; }
+
+    public int? CompoundInterContext { get; init; }
+
+    public int? CompoundReferenceContext { get; init; }
 }
 
 internal static class Vp9InterModeInfoSyntax
@@ -147,7 +160,7 @@ internal static class Vp9InterModeInfoSyntax
                 contexts.IntraInter,
                 transformSize,
                 transformSizeContext,
-                compressedHeader.ReferenceMode,
+                Vp9ReferenceMode.Single,
                 Vp9InterReferenceFrame.Last,
                 contexts.SingleReference0,
                 null,
@@ -162,18 +175,54 @@ internal static class Vp9InterModeInfoSyntax
             return true;
         }
 
-        if (compressedHeader.ReferenceMode != Vp9ReferenceMode.Single)
+        if (!TryReadBlockReferenceMode(
+                ref reader,
+                frameHeader,
+                compressedHeader,
+                contexts,
+                out var blockReferenceMode,
+                out diagnostic))
         {
-            diagnostic = Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(
-                "VP9 compound or selectable block reference modes are not supported yet.");
             return false;
         }
 
-        var (referenceFrame, singleReferenceContext1) = ReadSingleReferenceFrame(
-            ref reader,
-            compressedHeader.FrameContext,
-            contexts.SingleReference0,
-            contexts.SingleReference1);
+        if (reader.HasError)
+        {
+            diagnostic = Vp9DecodeDiagnostic.TruncatedPacket("VP9 inter reference mode-info ended unexpectedly.");
+            return false;
+        }
+
+        Vp9InterReferenceFrame referenceFrame;
+        Vp9InterReferenceFrame? compoundReferenceFrame = null;
+        int? singleReferenceContext1 = null;
+        int? compoundReferenceContext = null;
+        if (blockReferenceMode == Vp9ReferenceMode.Compound)
+        {
+            Vp9InterReferenceFrame decodedCompoundReferenceFrame;
+            if (!TryReadCompoundReferenceFrames(
+                    ref reader,
+                    frameHeader,
+                    compressedHeader.FrameContext,
+                    contexts.CompoundReference,
+                    out referenceFrame,
+                    out decodedCompoundReferenceFrame,
+                    out diagnostic))
+            {
+                return false;
+            }
+
+            compoundReferenceFrame = decodedCompoundReferenceFrame;
+            compoundReferenceContext = contexts.CompoundReference;
+        }
+        else
+        {
+            (referenceFrame, singleReferenceContext1) = ReadSingleReferenceFrame(
+                ref reader,
+                compressedHeader.FrameContext,
+                contexts.SingleReference0,
+                contexts.SingleReference1);
+        }
+
         Vp9InterPredictionMode predictionMode;
         IReadOnlyList<Vp9InterPredictionMode> interSubModes = [];
         Vp9InterpolationFilter interpolationFilter;
@@ -213,7 +262,7 @@ internal static class Vp9InterModeInfoSyntax
             contexts.IntraInter,
             transformSize,
             transformSizeContext,
-            compressedHeader.ReferenceMode,
+            blockReferenceMode,
             referenceFrame,
             contexts.SingleReference0,
             singleReferenceContext1,
@@ -222,7 +271,49 @@ internal static class Vp9InterModeInfoSyntax
             interpolationFilter)
         {
             InterSubModes = interSubModes
+        } with
+        {
+            CompoundReferenceFrame = compoundReferenceFrame,
+            CompoundInterContext = compressedHeader.ReferenceMode == Vp9ReferenceMode.Select
+                ? contexts.CompoundInter
+                : null,
+            CompoundReferenceContext = compoundReferenceContext
         };
+        return true;
+    }
+
+    public static bool TryReadBlockReferenceMode(
+        ref Vp9BoolReader reader,
+        Vp9FrameHeader frameHeader,
+        Vp9CompressedHeader compressedHeader,
+        Vp9InterModeInfoContexts contexts,
+        out Vp9ReferenceMode blockReferenceMode,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
+        blockReferenceMode = compressedHeader.ReferenceMode;
+        diagnostic = null;
+
+        if (compressedHeader.ReferenceMode == Vp9ReferenceMode.Select)
+        {
+            ValidateCompoundInterContext(contexts.CompoundInter, nameof(contexts));
+            blockReferenceMode = reader.Read(compressedHeader.FrameContext.CompoundInterProbabilities[contexts.CompoundInter])
+                ? Vp9ReferenceMode.Compound
+                : Vp9ReferenceMode.Single;
+        }
+        else if (compressedHeader.ReferenceMode is not Vp9ReferenceMode.Single and not Vp9ReferenceMode.Compound)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(compressedHeader),
+                compressedHeader.ReferenceMode,
+                "Unsupported VP9 reference mode.");
+        }
+
+        if (reader.HasError)
+        {
+            diagnostic = Vp9DecodeDiagnostic.TruncatedPacket("VP9 inter reference mode-info ended unexpectedly.");
+            return false;
+        }
+
         return true;
     }
 
@@ -255,6 +346,78 @@ internal static class Vp9InterModeInfoSyntax
 
         var bit1 = reader.Read(frameContext.SingleReferenceProbabilities[context1, 1]);
         return (bit1 ? Vp9InterReferenceFrame.AltRef : Vp9InterReferenceFrame.Golden, context1);
+    }
+
+    public static bool TryReadCompoundReferenceFrames(
+        ref Vp9BoolReader reader,
+        Vp9FrameHeader frameHeader,
+        Vp9FrameContext frameContext,
+        int compoundReferenceContext,
+        out Vp9InterReferenceFrame referenceFrame,
+        out Vp9InterReferenceFrame compoundReferenceFrame,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
+        referenceFrame = default;
+        compoundReferenceFrame = default;
+        diagnostic = null;
+        ValidateCompoundReferenceContext(compoundReferenceContext, nameof(compoundReferenceContext));
+        var referenceSetup = GetCompoundReferenceSetup(frameHeader.ReferenceFrameSignBiases);
+        var bit = reader.Read(frameContext.CompoundReferenceProbabilities[compoundReferenceContext]);
+        if (reader.HasError)
+        {
+            diagnostic = Vp9DecodeDiagnostic.TruncatedPacket("VP9 compound inter reference mode-info ended unexpectedly.");
+            return false;
+        }
+
+        var variableReferenceFrame = bit
+            ? referenceSetup.VariableReferenceFrame1
+            : referenceSetup.VariableReferenceFrame0;
+        if (GetReferenceFrameSignBias(frameHeader.ReferenceFrameSignBiases, referenceSetup.FixedReferenceFrame))
+        {
+            referenceFrame = variableReferenceFrame;
+            compoundReferenceFrame = referenceSetup.FixedReferenceFrame;
+        }
+        else
+        {
+            referenceFrame = referenceSetup.FixedReferenceFrame;
+            compoundReferenceFrame = variableReferenceFrame;
+        }
+
+        return true;
+    }
+
+    public static Vp9CompoundReferenceSetup GetCompoundReferenceSetup(IReadOnlyList<bool> referenceFrameSignBiases)
+    {
+        if (referenceFrameSignBiases.Count < 3)
+        {
+            throw new ArgumentException(
+                "VP9 compound reference setup requires Last, Golden, and AltRef sign biases.",
+                nameof(referenceFrameSignBiases));
+        }
+
+        var lastBias = referenceFrameSignBiases[0];
+        var goldenBias = referenceFrameSignBiases[1];
+        var altRefBias = referenceFrameSignBiases[2];
+        if (lastBias == goldenBias)
+        {
+            return new Vp9CompoundReferenceSetup(
+                Vp9InterReferenceFrame.AltRef,
+                Vp9InterReferenceFrame.Last,
+                Vp9InterReferenceFrame.Golden);
+        }
+
+        if (lastBias == altRefBias)
+        {
+            return new Vp9CompoundReferenceSetup(
+                Vp9InterReferenceFrame.Golden,
+                Vp9InterReferenceFrame.Last,
+                Vp9InterReferenceFrame.AltRef);
+        }
+
+        return new Vp9CompoundReferenceSetup(
+            Vp9InterReferenceFrame.Last,
+            Vp9InterReferenceFrame.Golden,
+            Vp9InterReferenceFrame.AltRef);
     }
 
     public static Vp9InterPredictionMode ReadInterPredictionMode(
@@ -518,5 +681,40 @@ internal static class Vp9InterModeInfoSyntax
                 parameterName,
                 "VP9 reference context is outside the probability table.");
         }
+    }
+
+    private static void ValidateCompoundInterContext(int context, string parameterName)
+    {
+        if (context is < 0 or >= Vp9FrameContextConstants.CompoundInterContexts)
+        {
+            throw new ArgumentOutOfRangeException(
+                parameterName,
+                "VP9 compound inter context is outside the probability table.");
+        }
+    }
+
+    private static void ValidateCompoundReferenceContext(int context, string parameterName)
+    {
+        if (context is < 0 or >= Vp9FrameContextConstants.ReferenceContexts)
+        {
+            throw new ArgumentOutOfRangeException(
+                parameterName,
+                "VP9 compound reference context is outside the probability table.");
+        }
+    }
+
+    private static bool GetReferenceFrameSignBias(
+        IReadOnlyList<bool> referenceFrameSignBiases,
+        Vp9InterReferenceFrame referenceFrame)
+    {
+        var index = (int)referenceFrame - 1;
+        if (index < 0 || index >= referenceFrameSignBiases.Count)
+        {
+            throw new ArgumentException(
+                "VP9 compound reference sign bias table is missing a referenced frame.",
+                nameof(referenceFrameSignBiases));
+        }
+
+        return referenceFrameSignBiases[index];
     }
 }

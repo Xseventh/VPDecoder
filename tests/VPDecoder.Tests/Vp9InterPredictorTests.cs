@@ -160,6 +160,56 @@ public sealed class Vp9InterPredictorTests
         Assert.Equal([aboveRight.MotionVector!.Value, leftBelow.MotionVector!.Value], candidates);
     }
 
+    [Fact]
+    public void BuildSpatialMotionVectorCandidates_WhenModeBlocksOverlap_UsesNewestGridEntry()
+    {
+        var olderCoveringBlock = CreateModeBlock(
+            0,
+            2,
+            Vp9InterReferenceFrame.Last,
+            new Vp9MotionVector(8, 16),
+            Vp9BlockSize.Block16X16);
+        var newerGridEntry = CreateModeBlock(
+            1,
+            2,
+            Vp9InterReferenceFrame.Last,
+            new Vp9MotionVector(24, 32),
+            Vp9BlockSize.Block8X8);
+        var current = CreateModeBlock(2, 2, Vp9InterReferenceFrame.Last);
+
+        var candidates = Vp9InterPredictor.BuildSpatialMotionVectorCandidates(
+            current,
+            [olderCoveringBlock, newerGridEntry]);
+
+        Assert.Equal([newerGridEntry.MotionVector!.Value, olderCoveringBlock.MotionVector!.Value], candidates);
+    }
+
+    [Fact]
+    public void BuildSpatialMotionVectorCandidates_WhenNewestGridEntryHasNoVector_DoesNotUseOlderCoveringBlock()
+    {
+        var olderAbove = CreateModeBlock(
+            1,
+            2,
+            Vp9InterReferenceFrame.Last,
+            new Vp9MotionVector(8, 16));
+        var newestAbove = CreateModeBlock(
+            1,
+            2,
+            Vp9InterReferenceFrame.Last);
+        var left = CreateModeBlock(
+            2,
+            1,
+            Vp9InterReferenceFrame.Last,
+            new Vp9MotionVector(24, 32));
+        var current = CreateModeBlock(2, 2, Vp9InterReferenceFrame.Last);
+
+        var candidates = Vp9InterPredictor.BuildSpatialMotionVectorCandidates(
+            current,
+            [olderAbove, newestAbove, left]);
+
+        Assert.Equal([left.MotionVector!.Value], candidates);
+    }
+
     [Theory]
     [InlineData(0, 2, 1)]
     [InlineData(1, 3, 1)]
@@ -306,6 +356,67 @@ public sealed class Vp9InterPredictorTests
             previousFrameMotionVectors: previous);
 
         Assert.Equal([new Vp9MotionVector(16, -16)], candidates);
+    }
+
+    [Fact]
+    public void BuildSpatialMotionVectorCandidates_WhenPreviousFrameSecondaryReferenceMatches_UsesSecondaryMotionVector()
+    {
+        var secondaryMotionVector = new Vp9MotionVector(-112, 2);
+        var previous = Vp9PreviousFrameMotionVectors.FromModeBlocks(
+            width: 16,
+            height: 16,
+            miRows: 2,
+            miColumns: 2,
+            [
+                CreateModeBlock(
+                    1,
+                    1,
+                    Vp9InterReferenceFrame.Last,
+                    new Vp9MotionVector(16, -16),
+                    compoundReferenceFrame: Vp9InterReferenceFrame.AltRef,
+                    compoundMotionVector: secondaryMotionVector)
+            ]);
+        var current = CreateModeBlock(1, 1, Vp9InterReferenceFrame.AltRef);
+
+        var candidates = Vp9InterPredictor.BuildSpatialMotionVectorCandidates(
+            current,
+            decodedBlocks: [],
+            referenceFrameSignBiases: [false, false, true],
+            previousFrameMotionVectors: previous);
+
+        Assert.Equal([secondaryMotionVector, new Vp9MotionVector(-16, 16)], candidates);
+    }
+
+    [Fact]
+    public void BuildSpatialMotionVectorCandidates_WhenDifferentReferencePrimaryDuplicates_UsesSecondaryMotionVector()
+    {
+        var sameReferenceZero = CreateModeBlock(
+            1,
+            0,
+            Vp9InterReferenceFrame.Golden,
+            new Vp9MotionVector(0, 0));
+        var compoundNeighbor = CreateModeBlock(
+            0,
+            0,
+            Vp9InterReferenceFrame.Last,
+            new Vp9MotionVector(0, 0),
+            compoundReferenceFrame: Vp9InterReferenceFrame.AltRef,
+            compoundMotionVector: new Vp9MotionVector(-80, -2));
+        var previous = Vp9PreviousFrameMotionVectors.FromModeBlocks(
+            width: 16,
+            height: 16,
+            miRows: 2,
+            miColumns: 2,
+            [CreateModeBlock(1, 1, Vp9InterReferenceFrame.Last, new Vp9MotionVector(-11, 0))]);
+        var current = CreateModeBlock(1, 1, Vp9InterReferenceFrame.Golden);
+
+        var candidates = Vp9InterPredictor.BuildSpatialMotionVectorCandidates(
+            current,
+            [compoundNeighbor, sameReferenceZero],
+            referenceFrameSignBiases: [false, false, true],
+            previousFrameMotionVectors: previous);
+
+        Assert.Equal([new Vp9MotionVector(0, 0), new Vp9MotionVector(80, 2)], candidates);
     }
 
     [Fact]
@@ -536,7 +647,9 @@ public sealed class Vp9InterPredictorTests
         int tileIndex = 0,
         Vp9InterPredictionMode predictionMode = Vp9InterPredictionMode.ZeroMv,
         IReadOnlyList<Vp9InterPredictionMode>? interSubModes = null,
-        IReadOnlyList<Vp9MotionVector>? interSubMotionVectors = null)
+        IReadOnlyList<Vp9MotionVector>? interSubMotionVectors = null,
+        Vp9InterReferenceFrame? compoundReferenceFrame = null,
+        Vp9MotionVector? compoundMotionVector = null)
     {
         var modeInfo = new Vp9InterModeInfoProbe(
             blockSize,
@@ -546,7 +659,7 @@ public sealed class Vp9InterPredictorTests
             IntraInterContext: 0,
             Vp9TransformSize.Tx4X4,
             TransformSizeContext: 0,
-            Vp9ReferenceMode.Single,
+            compoundReferenceFrame.HasValue ? Vp9ReferenceMode.Compound : Vp9ReferenceMode.Single,
             referenceFrame,
             SingleReferenceContext0: 0,
             SingleReferenceContext1: null,
@@ -554,7 +667,8 @@ public sealed class Vp9InterPredictorTests
             InterModeContext: 0,
             Vp9InterpolationFilter.EightTap)
         {
-            InterSubModes = interSubModes ?? []
+            InterSubModes = interSubModes ?? [],
+            CompoundReferenceFrame = compoundReferenceFrame
         };
 
         return new Vp9InterBlockModeInfoProbe(
@@ -565,7 +679,8 @@ public sealed class Vp9InterPredictorTests
             modeInfo,
             motionVector)
         {
-            InterSubMotionVectors = interSubMotionVectors ?? []
+            InterSubMotionVectors = interSubMotionVectors ?? [],
+            CompoundMotionVector = compoundMotionVector
         };
     }
 

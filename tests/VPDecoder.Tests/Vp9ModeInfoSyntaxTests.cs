@@ -83,7 +83,7 @@ public sealed class Vp9ModeInfoSyntaxTests
     [Fact]
     public void ReadSingleReferenceFrame_AllZeroBoolReader_ReturnsLastFrame()
     {
-        var reader = new Vp9BoolReader([0x00, 0x00]);
+        var reader = new Vp9BoolReader([0x0c, 0x24, 0x00, 0x00]);
 
         var (referenceFrame, context1) = Vp9InterModeInfoSyntax.ReadSingleReferenceFrame(
             ref reader,
@@ -99,7 +99,7 @@ public sealed class Vp9ModeInfoSyntaxTests
     [Fact]
     public void ReadSwitchableInterpolationFilter_AllZeroBoolReader_ReturnsEightTap()
     {
-        var reader = new Vp9BoolReader([0x00, 0x00]);
+        var reader = new Vp9BoolReader([0x0c, 0x24, 0x00, 0x00]);
 
         var interpolationFilter = Vp9InterModeInfoSyntax.ReadSwitchableInterpolationFilter(
             ref reader,
@@ -111,24 +111,113 @@ public sealed class Vp9ModeInfoSyntaxTests
     }
 
     [Fact]
-    public void TryReadSupportedInterBlock_WhenReferenceModeIsNotSingle_ReturnsUnsupportedDiagnostic()
+    public void TryReadSupportedInterBlock_WhenReferenceModeSelectChoosesSingle_ReturnsSingleReferenceModeInfo()
     {
-        var reader = new Vp9BoolReader([0x0c, 0x24, 0x00]);
+        var reader = new Vp9BoolReader([0x0c, 0x24, 0x00, 0x00]);
+        var frameHeader = CreateOrdinaryInterFrameHeader();
+        var compressedHeader = CreateCompressedHeader(Vp9ReferenceMode.Select);
+
+        Assert.True(
+            Vp9InterModeInfoSyntax.TryReadSupportedInterBlock(
+                ref reader,
+                frameHeader,
+                compressedHeader,
+                Vp9BlockSize.Block16X16,
+                CreateDefaultInterContexts(),
+                out var probe,
+                out var diagnostic),
+            diagnostic?.Message);
+
+        Assert.NotNull(probe);
+        Assert.True(probe.IsInterBlock);
+        Assert.Equal(Vp9ReferenceMode.Single, probe.ReferenceMode);
+        Assert.Equal(Vp9InterReferenceFrame.Last, probe.ReferenceFrame);
+        Assert.False(reader.HasError);
+    }
+
+    [Fact]
+    public void TryReadSupportedInterBlock_WhenReferenceModeIsCompound_ReadsCompoundReferenceModeInfo()
+    {
+        var reader = new Vp9BoolReader([0x0c, 0x24, 0x00, 0x00]);
         var frameHeader = CreateOrdinaryInterFrameHeader();
         var compressedHeader = CreateCompressedHeader(Vp9ReferenceMode.Compound);
 
-        Assert.False(Vp9InterModeInfoSyntax.TryReadSupportedInterBlock(
+        Assert.True(
+            Vp9InterModeInfoSyntax.TryReadSupportedInterBlock(
+                ref reader,
+                frameHeader,
+                compressedHeader,
+                Vp9BlockSize.Block64X64,
+                CreateDefaultInterContexts(),
+                out var probe,
+                out var diagnostic),
+            diagnostic?.Message);
+
+        Assert.NotNull(probe);
+        Assert.Equal(Vp9ReferenceMode.Compound, probe.ReferenceMode);
+        Assert.NotNull(probe.CompoundReferenceFrame);
+        Assert.Null(diagnostic);
+    }
+
+    [Fact]
+    public void TryReadBlockReferenceMode_WhenSelectBitIsZero_ReturnsSingle()
+    {
+        var reader = new Vp9BoolReader([0x00, 0x00]);
+        var frameHeader = CreateOrdinaryInterFrameHeader();
+        var compressedHeader = CreateCompressedHeader(Vp9ReferenceMode.Select);
+
+        Assert.True(Vp9InterModeInfoSyntax.TryReadBlockReferenceMode(
             ref reader,
             frameHeader,
             compressedHeader,
-            Vp9BlockSize.Block16X16,
             CreateDefaultInterContexts(),
-            out var probe,
-            out var diagnostic));
+            out var blockReferenceMode,
+            out var diagnostic), diagnostic?.Message);
 
-        Assert.Null(probe);
-        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedInterFrameFeature, diagnostic?.Code);
-        Assert.Contains("compound", diagnostic?.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(Vp9ReferenceMode.Single, blockReferenceMode);
+        Assert.Null(diagnostic);
+        Assert.False(reader.HasError);
+    }
+
+    [Fact]
+    public void TryReadBlockReferenceMode_WhenSelectBitIsOne_ReturnsCompound()
+    {
+        var reader = new Vp9BoolReader([0x77, 0x00]);
+        var frameHeader = CreateOrdinaryInterFrameHeader();
+        var compressedHeader = CreateCompressedHeader(Vp9ReferenceMode.Select);
+
+        Assert.True(Vp9InterModeInfoSyntax.TryReadBlockReferenceMode(
+            ref reader,
+            frameHeader,
+            compressedHeader,
+            CreateDefaultInterContexts(),
+            out var blockReferenceMode,
+            out var diagnostic), diagnostic?.Message);
+
+        Assert.Equal(Vp9ReferenceMode.Compound, blockReferenceMode);
+        Assert.Null(diagnostic);
+        Assert.False(reader.HasError);
+    }
+
+    [Fact]
+    public void TryReadCompoundReferenceFrames_AllZeroBoolReader_ReturnsFixedAndVariableReferences()
+    {
+        var reader = new Vp9BoolReader([0x00, 0x00]);
+        var frameHeader = CreateOrdinaryInterFrameHeader();
+
+        Assert.True(Vp9InterModeInfoSyntax.TryReadCompoundReferenceFrames(
+            ref reader,
+            frameHeader,
+            Vp9FrameContext.CreateDefault(),
+            compoundReferenceContext: 0,
+            out var referenceFrame,
+            out var compoundReferenceFrame,
+            out var diagnostic), diagnostic?.Message);
+
+        Assert.Equal(Vp9InterReferenceFrame.Last, referenceFrame);
+        Assert.Equal(Vp9InterReferenceFrame.Golden, compoundReferenceFrame);
+        Assert.Null(diagnostic);
+        Assert.False(reader.HasError);
     }
 
     [Fact]
@@ -270,6 +359,8 @@ public sealed class Vp9ModeInfoSyntaxTests
             Skip: 0,
             IntraInter: 0,
             TransformSize: 0,
+            CompoundInter: 0,
+            CompoundReference: 0,
             SingleReference0: 0,
             SingleReference1: 1,
             InterMode: 0,

@@ -41,11 +41,16 @@ internal sealed class Vp9KeyFrameSyntaxContext
     {
         ValidateMiPosition(miRow, miColumn);
         var widthInMiUnits = Vp9ModeInfoSyntax.GetBlockWidthInMiUnits(partitionBlockSize);
+        var heightInMiUnits = Vp9ModeInfoSyntax.GetBlockHeightInMiUnits(partitionBlockSize);
         var update = GetPartitionContextUpdate(subsize);
-        var width = Math.Min(widthInMiUnits, _miColumns - miColumn);
-        for (var i = 0; i < width; i++)
+        var aboveWidth = Math.Min(widthInMiUnits, _miColumns - miColumn);
+        for (var i = 0; i < aboveWidth; i++)
         {
             _abovePartitionContext[miColumn + i] = update.Above;
+        }
+
+        for (var i = 0; i < heightInMiUnits; i++)
+        {
             _leftPartitionContext[(miRow + i) & 7] = update.Left;
         }
     }

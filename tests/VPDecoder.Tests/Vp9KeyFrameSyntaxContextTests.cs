@@ -23,6 +23,29 @@ public sealed class Vp9KeyFrameSyntaxContextTests
     }
 
     [Fact]
+    public void UpdatePartitionContext_WhenClippedAtRightEdge_StillUpdatesFullLeftContextWidth()
+    {
+        var context = Vp9KeyFrameSyntaxContext.Create(CreateHeader(miColumns: 3, miRows: 8));
+
+        context.UpdatePartitionContext(0, 2, Vp9BlockSize.Block32X32, Vp9BlockSize.Block16X16);
+
+        Assert.Equal(10, context.GetPartitionContext(2, 0, Vp9BlockSize.Block32X32));
+        Assert.Equal(10, context.GetPartitionContext(3, 0, Vp9BlockSize.Block32X32));
+    }
+
+    [Fact]
+    public void UpdatePartitionContext_WhenPartitionBlockIsRectangular_UpdatesLeftByHeight()
+    {
+        var context = Vp9KeyFrameSyntaxContext.Create(CreateHeader(miColumns: 16, miRows: 16));
+
+        context.UpdatePartitionContext(0, 0, Vp9BlockSize.Block64X32, Vp9BlockSize.Block64X32);
+
+        Assert.Equal(14, context.GetPartitionContext(0, 0, Vp9BlockSize.Block64X64));
+        Assert.Equal(14, context.GetPartitionContext(3, 0, Vp9BlockSize.Block64X64));
+        Assert.Equal(12, context.GetPartitionContext(4, 0, Vp9BlockSize.Block64X64));
+    }
+
+    [Fact]
     public void GetSkipAndYModeContexts_UseAboveLeftModesButRespectTileLeftBoundary()
     {
         var context = Vp9KeyFrameSyntaxContext.Create(CreateHeader(miColumns: 16, miRows: 16));

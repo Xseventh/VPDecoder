@@ -32,6 +32,22 @@ public sealed class RawVp9Decoder
             return Vp9DecodeResult.Fail(Vp9DecodeDiagnostic.InvalidPacket("VP9 packet is empty."));
         }
 
+        if (TryParseSuperframeIndex(packet, out var superframeIndex, out diagnostic))
+        {
+            return DecodeSuperframe(packet, superframeIndex, options);
+        }
+
+        if (diagnostic is not null)
+        {
+            return Vp9DecodeResult.Fail(diagnostic);
+        }
+
+        return DecodeSingleFrame(packet, options);
+    }
+
+    private Vp9DecodeResult DecodeSingleFrame(ReadOnlySpan<byte> packet, Vp9DecodeOptions options)
+    {
+        Vp9DecodeDiagnostic? diagnostic;
         if (!Vp9FrameHeaderParser.TryParse(packet, _referenceFrames.CreateFrameInfos(), out var header, out diagnostic))
         {
             return Vp9DecodeResult.Fail(
@@ -150,6 +166,93 @@ public sealed class RawVp9Decoder
             ? yuvFrame
             : Vp9ColorConverter.ConvertYuv420ToPacked(yuvFrame, header.ColorRange, options.OutputFormat);
         return Vp9DecodeResult.Success(outputFrame, header, compressedHeader);
+    }
+
+    private Vp9DecodeResult DecodeSuperframe(
+        ReadOnlySpan<byte> packet,
+        Vp9SuperframeIndex superframeIndex,
+        Vp9DecodeOptions options)
+    {
+        var offset = 0;
+        Vp9DecodeResult? lastResult = null;
+        Vp9DecodeResult? lastVisibleResult = null;
+        foreach (var frameSize in superframeIndex.FrameSizes)
+        {
+            var result = DecodeSingleFrame(packet.Slice(offset, frameSize), options);
+            if (!result.Succeeded)
+            {
+                return result;
+            }
+
+            lastResult = result;
+            if (!result.NoDisplayFrame)
+            {
+                lastVisibleResult = result;
+            }
+
+            offset += frameSize;
+        }
+
+        return lastVisibleResult ?? lastResult ?? Vp9DecodeResult.Fail(
+            Vp9DecodeDiagnostic.InvalidPacket("VP9 superframe index does not contain any frames."));
+    }
+
+    private static bool TryParseSuperframeIndex(
+        ReadOnlySpan<byte> packet,
+        out Vp9SuperframeIndex superframeIndex,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
+        superframeIndex = default;
+        diagnostic = null;
+        var marker = packet[^1];
+        if ((marker & 0xe0) != 0xc0)
+        {
+            return false;
+        }
+
+        var frameCount = (marker & 0x07) + 1;
+        var magnitude = ((marker >> 3) & 0x03) + 1;
+        var indexLength = 2 + (frameCount * magnitude);
+        if (indexLength > packet.Length)
+        {
+            return false;
+        }
+
+        var indexOffset = packet.Length - indexLength;
+        if (packet[indexOffset] != marker)
+        {
+            return false;
+        }
+
+        var frameSizes = new int[frameCount];
+        var sizeOffset = indexOffset + 1;
+        var payloadLength = 0;
+        for (var frame = 0; frame < frameCount; frame++)
+        {
+            var frameSize = 0;
+            for (var byteIndex = 0; byteIndex < magnitude; byteIndex++)
+            {
+                frameSize |= packet[sizeOffset++] << (byteIndex * 8);
+            }
+
+            if (frameSize <= 0)
+            {
+                diagnostic = Vp9DecodeDiagnostic.InvalidPacket("VP9 superframe index contains an empty frame.");
+                return false;
+            }
+
+            payloadLength = checked(payloadLength + frameSize);
+            frameSizes[frame] = frameSize;
+        }
+
+        if (payloadLength != indexOffset)
+        {
+            diagnostic = Vp9DecodeDiagnostic.InvalidPacket("VP9 superframe index sizes do not match the packet payload length.");
+            return false;
+        }
+
+        superframeIndex = new Vp9SuperframeIndex(frameSizes);
+        return true;
     }
 
     public Vp9DecodeResult DecodeFrameWithAlpha(
@@ -411,6 +514,11 @@ public sealed class RawVp9Decoder
         if (header.FrameType == Vp9FrameType.KeyFrame || header.IntraOnly || header.ErrorResilientMode)
         {
             ResetFrameContexts();
+            if (header.RefreshFrameContext)
+            {
+                _frameContexts[0] = frameContext.Clone();
+            }
+
             return;
         }
 
@@ -591,4 +699,6 @@ public sealed class RawVp9Decoder
 
         return null;
     }
+
+    private readonly record struct Vp9SuperframeIndex(IReadOnlyList<int> FrameSizes);
 }

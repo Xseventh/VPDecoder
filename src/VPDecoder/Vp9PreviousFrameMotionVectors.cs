@@ -73,7 +73,9 @@ internal sealed class Vp9PreviousFrameMotionVectors
 
             var entry = new Vp9PreviousFrameMotionVectorEntry(
                 modeBlock.ModeInfo.ReferenceFrame,
-                motionVector);
+                motionVector,
+                modeBlock.ModeInfo.CompoundReferenceFrame,
+                modeBlock.CompoundMotionVector);
             for (var row = 0; row < heightInMiUnits; row++)
             {
                 var offset = ((modeBlock.MiRow + row) * miColumns) + modeBlock.MiColumn;
@@ -121,4 +123,6 @@ internal sealed class Vp9PreviousFrameMotionVectors
 
 internal readonly record struct Vp9PreviousFrameMotionVectorEntry(
     Vp9InterReferenceFrame ReferenceFrame,
-    Vp9MotionVector MotionVector);
+    Vp9MotionVector MotionVector,
+    Vp9InterReferenceFrame? CompoundReferenceFrame,
+    Vp9MotionVector? CompoundMotionVector);

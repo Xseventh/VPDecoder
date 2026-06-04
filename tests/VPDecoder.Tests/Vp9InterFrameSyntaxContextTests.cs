@@ -23,6 +23,29 @@ public sealed class Vp9InterFrameSyntaxContextTests
     }
 
     [Fact]
+    public void UpdatePartitionContext_WhenClippedAtRightEdge_StillUpdatesFullLeftContextWidth()
+    {
+        var context = Vp9InterFrameSyntaxContext.Create(CreateHeader(miColumns: 3, miRows: 8));
+
+        context.UpdatePartitionContext(0, 2, Vp9BlockSize.Block32X32, Vp9BlockSize.Block16X16);
+
+        Assert.Equal(10, context.GetPartitionContext(2, 0, Vp9BlockSize.Block32X32));
+        Assert.Equal(10, context.GetPartitionContext(3, 0, Vp9BlockSize.Block32X32));
+    }
+
+    [Fact]
+    public void UpdatePartitionContext_WhenPartitionBlockIsRectangular_UpdatesLeftByHeight()
+    {
+        var context = Vp9InterFrameSyntaxContext.Create(CreateHeader(miColumns: 16, miRows: 16));
+
+        context.UpdatePartitionContext(0, 0, Vp9BlockSize.Block64X32, Vp9BlockSize.Block64X32);
+
+        Assert.Equal(14, context.GetPartitionContext(0, 0, Vp9BlockSize.Block64X64));
+        Assert.Equal(14, context.GetPartitionContext(3, 0, Vp9BlockSize.Block64X64));
+        Assert.Equal(12, context.GetPartitionContext(4, 0, Vp9BlockSize.Block64X64));
+    }
+
+    [Fact]
     public void GetSkipContext_UsesAboveAndLeftButRespectsTileLeftBoundary()
     {
         var context = Vp9InterFrameSyntaxContext.Create(CreateHeader(miColumns: 16, miRows: 16));
@@ -127,6 +150,54 @@ public sealed class Vp9InterFrameSyntaxContextTests
     }
 
     [Fact]
+    public void GetSingleReferenceContexts_WhenOneEdgeIsCompound_MatchesLibvpxLookup()
+    {
+        var context = Vp9InterFrameSyntaxContext.Create(CreateHeader(miColumns: 16, miRows: 16));
+        context.SetModeInfo(
+            1,
+            0,
+            CreateModeInfo(
+                Vp9BlockSize.Block8X8,
+                skip: false,
+                Vp9TransformSize.Tx4X4,
+                referenceFrame: Vp9InterReferenceFrame.Last,
+                compoundReferenceFrame: Vp9InterReferenceFrame.Golden));
+
+        var referenceContexts = context.GetSingleReferenceContexts(1, 1, tileMiColumnStart: 0);
+
+        Assert.Equal(2, referenceContexts.Context0);
+        Assert.Equal(3, referenceContexts.Context1);
+    }
+
+    [Fact]
+    public void GetSingleReferenceContexts_WhenSingleAndCompoundEdgesAreAvailable_MatchesLibvpxLookup()
+    {
+        var context = Vp9InterFrameSyntaxContext.Create(CreateHeader(miColumns: 16, miRows: 16));
+        context.SetModeInfo(
+            0,
+            1,
+            CreateModeInfo(
+                Vp9BlockSize.Block8X8,
+                skip: false,
+                Vp9TransformSize.Tx4X4,
+                referenceFrame: Vp9InterReferenceFrame.Golden,
+                compoundReferenceFrame: Vp9InterReferenceFrame.AltRef));
+        context.SetModeInfo(
+            1,
+            0,
+            CreateModeInfo(
+                Vp9BlockSize.Block8X8,
+                skip: false,
+                Vp9TransformSize.Tx4X4,
+                referenceFrame: Vp9InterReferenceFrame.Last));
+
+        var referenceContexts = context.GetSingleReferenceContexts(1, 1, tileMiColumnStart: 0);
+
+        Assert.Equal(3, referenceContexts.Context0);
+        Assert.Equal(3, referenceContexts.Context1);
+    }
+
+    [Fact]
     public void GetInterModeContext_UsesFirstTwoLibvpxMotionReferencePositions()
     {
         var context = Vp9InterFrameSyntaxContext.Create(CreateHeader(miColumns: 16, miRows: 16));
@@ -226,6 +297,7 @@ public sealed class Vp9InterFrameSyntaxContextTests
         Vp9TransformSize transformSize,
         bool isInterBlock = true,
         Vp9InterReferenceFrame referenceFrame = Vp9InterReferenceFrame.Last,
+        Vp9InterReferenceFrame? compoundReferenceFrame = null,
         Vp9InterPredictionMode predictionMode = Vp9InterPredictionMode.ZeroMv,
         Vp9InterpolationFilter interpolationFilter = Vp9InterpolationFilter.EightTap)
     {
@@ -243,7 +315,11 @@ public sealed class Vp9InterFrameSyntaxContextTests
             SingleReferenceContext1: null,
             PredictionMode: predictionMode,
             InterModeContext: 0,
-            InterpolationFilter: interpolationFilter);
+            InterpolationFilter: interpolationFilter)
+        {
+            ReferenceMode = compoundReferenceFrame.HasValue ? Vp9ReferenceMode.Compound : Vp9ReferenceMode.Single,
+            CompoundReferenceFrame = compoundReferenceFrame
+        };
     }
 
     private static Vp9FrameHeader CreateHeader(int miColumns, int miRows)

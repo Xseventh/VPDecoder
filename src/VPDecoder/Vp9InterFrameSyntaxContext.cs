@@ -63,11 +63,16 @@ internal sealed class Vp9InterFrameSyntaxContext
     {
         ValidateMiPosition(miRow, miColumn);
         var widthInMiUnits = Vp9ModeInfoSyntax.GetBlockWidthInMiUnits(partitionBlockSize);
+        var heightInMiUnits = Vp9ModeInfoSyntax.GetBlockHeightInMiUnits(partitionBlockSize);
         var update = GetPartitionContextUpdate(subsize);
-        var width = Math.Min(widthInMiUnits, _miColumns - miColumn);
-        for (var i = 0; i < width; i++)
+        var aboveWidth = Math.Min(widthInMiUnits, _miColumns - miColumn);
+        for (var i = 0; i < aboveWidth; i++)
         {
             _abovePartitionContext[miColumn + i] = update.Above;
+        }
+
+        for (var i = 0; i < heightInMiUnits; i++)
+        {
             _leftPartitionContext[(miRow + i) & 7] = update.Left;
         }
     }
@@ -138,6 +143,134 @@ internal sealed class Vp9InterFrameSyntaxContext
             GetSingleReferenceContext1(hasAbove, aboveInfo, hasLeft, leftInfo));
     }
 
+    public int GetCompoundInterContext(
+        int miRow,
+        int miColumn,
+        int tileMiColumnStart,
+        Vp9InterReferenceFrame fixedReferenceFrame)
+    {
+        ValidateMiPosition(miRow, miColumn);
+        var hasAbove = TryGetAbove(miRow, miColumn, out var aboveInfo);
+        var hasLeft = TryGetLeft(miRow, miColumn, tileMiColumnStart, out var leftInfo);
+        if (hasAbove && hasLeft)
+        {
+            if (!aboveInfo.IsCompoundReference && !leftInfo.IsCompoundReference)
+            {
+                return BoolToInt(aboveInfo.IsInterBlock && aboveInfo.ReferenceFrame == fixedReferenceFrame) ^
+                    BoolToInt(leftInfo.IsInterBlock && leftInfo.ReferenceFrame == fixedReferenceFrame);
+            }
+
+            if (!aboveInfo.IsCompoundReference)
+            {
+                return 2 + BoolToInt(aboveInfo.ReferenceFrame == fixedReferenceFrame || !aboveInfo.IsInterBlock);
+            }
+
+            if (!leftInfo.IsCompoundReference)
+            {
+                return 2 + BoolToInt(leftInfo.ReferenceFrame == fixedReferenceFrame || !leftInfo.IsInterBlock);
+            }
+
+            return 4;
+        }
+
+        if (hasAbove || hasLeft)
+        {
+            var edgeInfo = hasAbove ? aboveInfo : leftInfo;
+            return edgeInfo.IsCompoundReference
+                ? 3
+                : BoolToInt(edgeInfo.IsInterBlock && edgeInfo.ReferenceFrame == fixedReferenceFrame);
+        }
+
+        return 1;
+    }
+
+    public int GetCompoundReferenceContext(
+        int miRow,
+        int miColumn,
+        int tileMiColumnStart,
+        Vp9CompoundReferenceSetup referenceSetup,
+        IReadOnlyList<bool> referenceFrameSignBiases)
+    {
+        ValidateMiPosition(miRow, miColumn);
+        var hasAbove = TryGetAbove(miRow, miColumn, out var aboveInfo);
+        var hasLeft = TryGetLeft(miRow, miColumn, tileMiColumnStart, out var leftInfo);
+        var fixedReferenceFrame = referenceSetup.FixedReferenceFrame;
+        var variableReference0 = referenceSetup.VariableReferenceFrame0;
+        var variableReference1 = referenceSetup.VariableReferenceFrame1;
+        var fixedReferenceSignBias = GetReferenceFrameSignBias(referenceFrameSignBiases, fixedReferenceFrame);
+        if (hasAbove && hasLeft)
+        {
+            var aboveIntra = !aboveInfo.IsInterBlock;
+            var leftIntra = !leftInfo.IsInterBlock;
+            if (aboveIntra && leftIntra)
+            {
+                return 2;
+            }
+
+            if (aboveIntra || leftIntra)
+            {
+                var edgeInfo = aboveIntra ? leftInfo : aboveInfo;
+                var edgeReference = GetVariableReferenceFrame(edgeInfo, fixedReferenceSignBias);
+                return 1 + (2 * BoolToInt(edgeReference != variableReference1));
+            }
+
+            var aboveSingleReference = !aboveInfo.IsCompoundReference;
+            var leftSingleReference = !leftInfo.IsCompoundReference;
+            var aboveReference = GetVariableReferenceFrame(aboveInfo, fixedReferenceSignBias);
+            var leftReference = GetVariableReferenceFrame(leftInfo, fixedReferenceSignBias);
+            if (aboveReference == leftReference && variableReference1 == aboveReference)
+            {
+                return 0;
+            }
+
+            if (leftSingleReference && aboveSingleReference)
+            {
+                if ((aboveReference == fixedReferenceFrame && leftReference == variableReference0) ||
+                    (leftReference == fixedReferenceFrame && aboveReference == variableReference0))
+                {
+                    return 4;
+                }
+
+                return aboveReference == leftReference ? 3 : 1;
+            }
+
+            if (leftSingleReference || aboveSingleReference)
+            {
+                var compoundReference = leftSingleReference ? aboveReference : leftReference;
+                var singleReference = leftSingleReference ? leftReference : aboveReference;
+                if (compoundReference == variableReference1 && singleReference != variableReference1)
+                {
+                    return 1;
+                }
+
+                if (singleReference == variableReference1 && compoundReference != variableReference1)
+                {
+                    return 2;
+                }
+
+                return 4;
+            }
+
+            return aboveReference == leftReference ? 4 : 2;
+        }
+
+        if (hasAbove || hasLeft)
+        {
+            var edgeInfo = hasAbove ? aboveInfo : leftInfo;
+            if (!edgeInfo.IsInterBlock)
+            {
+                return 2;
+            }
+
+            var edgeReference = GetVariableReferenceFrame(edgeInfo, fixedReferenceSignBias);
+            return edgeInfo.IsCompoundReference
+                ? 4 * BoolToInt(edgeReference != variableReference1)
+                : 3 * BoolToInt(edgeReference != variableReference1);
+        }
+
+        return 2;
+    }
+
     public int GetInterModeContext(
         int miRow,
         int miColumn,
@@ -200,18 +333,15 @@ internal sealed class Vp9InterFrameSyntaxContext
     public void SetModeInfo(int miRow, int miColumn, Vp9InterModeInfoProbe modeInfo)
     {
         ValidateMiPosition(miRow, miColumn);
-        if (modeInfo.IsInterBlock && modeInfo.ReferenceMode != Vp9ReferenceMode.Single)
-        {
-            throw new ArgumentException("VP9 inter syntax context currently records only single-reference mode info.", nameof(modeInfo));
-        }
-
         var width = Math.Min(Vp9ModeInfoSyntax.GetBlockWidthInMiUnits(modeInfo.BlockSize), _miColumns - miColumn);
         var height = Math.Min(Vp9ModeInfoSyntax.GetBlockHeightInMiUnits(modeInfo.BlockSize), _miRows - miRow);
         var entry = new Vp9InterModeInfoContextEntry(
             modeInfo.Skip,
             modeInfo.TransformSize,
             modeInfo.IsInterBlock,
+            modeInfo.ReferenceMode,
             modeInfo.ReferenceFrame,
+            modeInfo.CompoundReferenceFrame,
             modeInfo.PredictionMode,
             modeInfo.InterpolationFilter);
         for (var row = 0; row < height; row++)
@@ -336,16 +466,40 @@ internal sealed class Vp9InterFrameSyntaxContext
             if (aboveIntra || leftIntra)
             {
                 var edgeInfo = aboveIntra ? leftInfo : aboveInfo;
-                return edgeInfo.IsLastReference ? 4 : 0;
+                return edgeInfo.IsCompoundReference
+                    ? 1 + BoolToInt(IsLastReference(edgeInfo))
+                    : 4 * BoolToInt(edgeInfo.ReferenceFrame == Vp9InterReferenceFrame.Last);
             }
 
-            return (aboveInfo.IsLastReference ? 2 : 0) + (leftInfo.IsLastReference ? 2 : 0);
+            if (aboveInfo.IsCompoundReference && leftInfo.IsCompoundReference)
+            {
+                return 1 + BoolToInt(IsLastReference(aboveInfo) || IsLastReference(leftInfo));
+            }
+
+            if (aboveInfo.IsCompoundReference || leftInfo.IsCompoundReference)
+            {
+                var singleInfo = aboveInfo.IsCompoundReference ? leftInfo : aboveInfo;
+                var compoundInfo = aboveInfo.IsCompoundReference ? aboveInfo : leftInfo;
+                return singleInfo.ReferenceFrame == Vp9InterReferenceFrame.Last
+                    ? 3 + BoolToInt(IsLastReference(compoundInfo))
+                    : BoolToInt(IsLastReference(compoundInfo));
+            }
+
+            return (aboveInfo.ReferenceFrame == Vp9InterReferenceFrame.Last ? 2 : 0) +
+                (leftInfo.ReferenceFrame == Vp9InterReferenceFrame.Last ? 2 : 0);
         }
 
         if (hasAbove || hasLeft)
         {
             var edgeInfo = hasAbove ? aboveInfo : leftInfo;
-            return edgeInfo.IsInterBlock ? edgeInfo.IsLastReference ? 4 : 0 : 2;
+            if (!edgeInfo.IsInterBlock)
+            {
+                return 2;
+            }
+
+            return edgeInfo.IsCompoundReference
+                ? 1 + BoolToInt(IsLastReference(edgeInfo))
+                : 4 * BoolToInt(edgeInfo.ReferenceFrame == Vp9InterReferenceFrame.Last);
         }
 
         return 2;
@@ -371,14 +525,38 @@ internal sealed class Vp9InterFrameSyntaxContext
                 return GetSingleReferenceContext1ForSingleEdge(aboveIntra ? leftInfo : aboveInfo);
             }
 
-            if (aboveInfo.IsLastReference && leftInfo.IsLastReference)
+            if (aboveInfo.IsCompoundReference && leftInfo.IsCompoundReference)
+            {
+                return AreSameReferencePair(aboveInfo, leftInfo)
+                    ? 3 * BoolToInt(IsGoldenReference(aboveInfo) || IsGoldenReference(leftInfo))
+                    : 2;
+            }
+
+            if (aboveInfo.IsCompoundReference || leftInfo.IsCompoundReference)
+            {
+                var singleInfo = aboveInfo.IsCompoundReference ? leftInfo : aboveInfo;
+                var compoundInfo = aboveInfo.IsCompoundReference ? aboveInfo : leftInfo;
+                if (singleInfo.ReferenceFrame == Vp9InterReferenceFrame.Golden)
+                {
+                    return 3 + BoolToInt(IsGoldenReference(compoundInfo));
+                }
+
+                if (singleInfo.ReferenceFrame == Vp9InterReferenceFrame.AltRef)
+                {
+                    return BoolToInt(IsGoldenReference(compoundInfo));
+                }
+
+                return 1 + (2 * BoolToInt(IsGoldenReference(compoundInfo)));
+            }
+
+            if (aboveInfo.ReferenceFrame == Vp9InterReferenceFrame.Last && leftInfo.ReferenceFrame == Vp9InterReferenceFrame.Last)
             {
                 return 3;
             }
 
-            if (aboveInfo.IsLastReference || leftInfo.IsLastReference)
+            if (aboveInfo.ReferenceFrame == Vp9InterReferenceFrame.Last || leftInfo.ReferenceFrame == Vp9InterReferenceFrame.Last)
             {
-                var edgeInfo = aboveInfo.IsLastReference ? leftInfo : aboveInfo;
+                var edgeInfo = aboveInfo.ReferenceFrame == Vp9InterReferenceFrame.Last ? leftInfo : aboveInfo;
                 return edgeInfo.ReferenceFrame == Vp9InterReferenceFrame.Golden ? 4 : 0;
             }
 
@@ -389,9 +567,15 @@ internal sealed class Vp9InterFrameSyntaxContext
         if (hasAbove || hasLeft)
         {
             var edgeInfo = hasAbove ? aboveInfo : leftInfo;
-            return !edgeInfo.IsInterBlock || edgeInfo.IsLastReference
-                ? 2
-                : edgeInfo.ReferenceFrame == Vp9InterReferenceFrame.Golden ? 4 : 0;
+            if (!edgeInfo.IsInterBlock ||
+                (edgeInfo.ReferenceFrame == Vp9InterReferenceFrame.Last && !edgeInfo.IsCompoundReference))
+            {
+                return 2;
+            }
+
+            return edgeInfo.IsCompoundReference
+                ? 3 * BoolToInt(IsGoldenReference(edgeInfo))
+                : 4 * BoolToInt(edgeInfo.ReferenceFrame == Vp9InterReferenceFrame.Golden);
         }
 
         return 2;
@@ -399,12 +583,37 @@ internal sealed class Vp9InterFrameSyntaxContext
 
     private static int GetSingleReferenceContext1ForSingleEdge(Vp9InterModeInfoContextEntry edgeInfo)
     {
-        if (edgeInfo.IsLastReference)
+        if (!edgeInfo.IsCompoundReference)
         {
-            return 3;
+            if (edgeInfo.ReferenceFrame == Vp9InterReferenceFrame.Last)
+            {
+                return 3;
+            }
+
+            return edgeInfo.ReferenceFrame == Vp9InterReferenceFrame.Golden ? 4 : 0;
         }
 
-        return edgeInfo.ReferenceFrame == Vp9InterReferenceFrame.Golden ? 4 : 0;
+        return 1 + (2 * BoolToInt(IsGoldenReference(edgeInfo)));
+    }
+
+    private static bool IsLastReference(Vp9InterModeInfoContextEntry entry)
+    {
+        return entry.ReferenceFrame == Vp9InterReferenceFrame.Last ||
+            entry.CompoundReferenceFrame == Vp9InterReferenceFrame.Last;
+    }
+
+    private static bool IsGoldenReference(Vp9InterModeInfoContextEntry entry)
+    {
+        return entry.ReferenceFrame == Vp9InterReferenceFrame.Golden ||
+            entry.CompoundReferenceFrame == Vp9InterReferenceFrame.Golden;
+    }
+
+    private static bool AreSameReferencePair(
+        Vp9InterModeInfoContextEntry first,
+        Vp9InterModeInfoContextEntry second)
+    {
+        return first.ReferenceFrame == second.ReferenceFrame &&
+            first.CompoundReferenceFrame == second.CompoundReferenceFrame;
     }
 
     private static int GetInterModeCounter(Vp9InterModeInfoContextEntry entry)
@@ -443,14 +652,52 @@ internal sealed class Vp9InterFrameSyntaxContext
         };
     }
 
+    private static int BoolToInt(bool value)
+    {
+        return value ? 1 : 0;
+    }
+
+    private static Vp9InterReferenceFrame GetVariableReferenceFrame(
+        Vp9InterModeInfoContextEntry entry,
+        bool fixedReferenceSignBias)
+    {
+        if (!entry.IsCompoundReference)
+        {
+            return entry.ReferenceFrame;
+        }
+
+        return fixedReferenceSignBias
+            ? entry.ReferenceFrame
+            : entry.CompoundReferenceFrame ?? entry.ReferenceFrame;
+    }
+
+    private static bool GetReferenceFrameSignBias(
+        IReadOnlyList<bool> referenceFrameSignBiases,
+        Vp9InterReferenceFrame referenceFrame)
+    {
+        var index = (int)referenceFrame - 1;
+        if (index < 0 || index >= referenceFrameSignBiases.Count)
+        {
+            throw new ArgumentException(
+                "VP9 reference frame sign bias table does not contain the requested reference.",
+                nameof(referenceFrameSignBiases));
+        }
+
+        return referenceFrameSignBiases[index];
+    }
+
     private readonly record struct Vp9InterModeInfoContextEntry(
         bool Skip,
         Vp9TransformSize TransformSize,
         bool IsInterBlock,
+        Vp9ReferenceMode ReferenceMode,
         Vp9InterReferenceFrame ReferenceFrame,
+        Vp9InterReferenceFrame? CompoundReferenceFrame,
         Vp9InterPredictionMode PredictionMode,
         Vp9InterpolationFilter InterpolationFilter)
     {
         public bool IsLastReference => ReferenceFrame == Vp9InterReferenceFrame.Last;
+
+        public bool IsCompoundReference => IsInterBlock && ReferenceMode == Vp9ReferenceMode.Compound;
     }
 }

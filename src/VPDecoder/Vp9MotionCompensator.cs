@@ -177,6 +177,95 @@ internal static class Vp9MotionCompensator
         return true;
     }
 
+    public static bool TryAveragePlaneBlock(
+        Vp9DecodedFrame referenceFrame0,
+        Vp9DecodedFrame referenceFrame1,
+        Vp9YuvFrameBuffer destination,
+        Vp9Plane plane,
+        int destinationX,
+        int destinationY,
+        int width,
+        int height,
+        Vp9MotionVector planeMotionVector0Q4,
+        Vp9MotionVector planeMotionVector1Q4,
+        Vp9InterpolationFilter interpolationFilter,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
+        diagnostic = null;
+
+        if (!ValidateReferenceFrame(referenceFrame0, destination, out diagnostic) ||
+            !ValidateReferenceFrame(referenceFrame1, destination, out diagnostic))
+        {
+            return false;
+        }
+
+        if (!IsValidQ4MotionVector(planeMotionVector0Q4) ||
+            !IsValidQ4MotionVector(planeMotionVector1Q4))
+        {
+            diagnostic = Vp9DecodeDiagnostic.InvalidPacket(
+                "VP9 motion vector is outside the valid VP9 range.");
+            return false;
+        }
+
+        if (width <= 0 || height <= 0)
+        {
+            diagnostic = Vp9DecodeDiagnostic.InvalidPacket("VP9 motion compensation block dimensions must be positive.");
+            return false;
+        }
+
+        if (!IsConcreteInterpolationFilter(interpolationFilter))
+        {
+            diagnostic = Vp9DecodeDiagnostic.InvalidPacket(
+                "VP9 motion compensation requires a concrete interpolation filter.");
+            return false;
+        }
+
+        var sourcePlane0 = GetPlane(referenceFrame0, plane);
+        var sourcePlane1 = GetPlane(referenceFrame1, plane);
+        var destinationPlane = GetPlane(destination, plane);
+        var sourceX0 = destinationX + (planeMotionVector0Q4.Column >> SubpelBits);
+        var sourceY0 = destinationY + (planeMotionVector0Q4.Row >> SubpelBits);
+        var sourceX1 = destinationX + (planeMotionVector1Q4.Column >> SubpelBits);
+        var sourceY1 = destinationY + (planeMotionVector1Q4.Row >> SubpelBits);
+        var subpelX0 = planeMotionVector0Q4.Column & SubpelMask;
+        var subpelY0 = planeMotionVector0Q4.Row & SubpelMask;
+        var subpelX1 = planeMotionVector1Q4.Column & SubpelMask;
+        var subpelY1 = planeMotionVector1Q4.Row & SubpelMask;
+        if (!IsInside(destinationPlane, destinationX, destinationY, width, height))
+        {
+            diagnostic = Vp9DecodeDiagnostic.InvalidPacket(
+                "VP9 motion compensation block extends outside the destination plane.");
+            return false;
+        }
+
+        for (var row = 0; row < height; row++)
+        {
+            var destinationOffset = destinationPlane.Offset + ((destinationY + row) * destinationPlane.Stride) + destinationX;
+            for (var column = 0; column < width; column++)
+            {
+                var pixel0 = PredictPixel(
+                    referenceFrame0.Pixels,
+                    sourcePlane0,
+                    sourceX0 + column,
+                    sourceY0 + row,
+                    subpelX0,
+                    subpelY0,
+                    interpolationFilter);
+                var pixel1 = PredictPixel(
+                    referenceFrame1.Pixels,
+                    sourcePlane1,
+                    sourceX1 + column,
+                    sourceY1 + row,
+                    subpelX1,
+                    subpelY1,
+                    interpolationFilter);
+                destination.Pixels[destinationOffset + column] = (byte)((pixel0 + pixel1 + 1) >> 1);
+            }
+        }
+
+        return true;
+    }
+
     private static byte PredictPixel(
         ReadOnlyMemory<byte> referencePixels,
         Vp9DecodedPlane sourcePlane,
@@ -218,6 +307,29 @@ internal static class Vp9MotionCompensator
         }
 
         return ClipPixel(RoundPowerOfTwo(sum, FilterBits));
+    }
+
+    private static bool ValidateReferenceFrame(
+        Vp9DecodedFrame referenceFrame,
+        Vp9YuvFrameBuffer destination,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
+        diagnostic = null;
+        if (referenceFrame.PixelFormat != Vp9OutputPixelFormat.Yuv420)
+        {
+            diagnostic = Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(
+                "VP9 motion compensation currently supports only YUV420 reference frames.");
+            return false;
+        }
+
+        if (referenceFrame.Width != destination.Width || referenceFrame.Height != destination.Height)
+        {
+            diagnostic = Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(
+                "VP9 reference frame scaling is not supported by motion compensation yet.");
+            return false;
+        }
+
+        return true;
     }
 
     private static byte ApplyHorizontalFilter(
