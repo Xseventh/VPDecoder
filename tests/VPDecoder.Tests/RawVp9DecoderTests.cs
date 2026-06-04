@@ -211,7 +211,7 @@ public sealed class RawVp9DecoderTests
     }
 
     [Fact]
-    public void DecodeFrame_WhenOrdinaryInterFrameNewMvCandidateIsMissing_ReturnsUnsupportedInterFrameFeature()
+    public void DecodeFrame_WhenOrdinaryInterFrameNewMvCandidateIsMissing_UsesZeroReferenceVector()
     {
         var decoder = new RawVp9Decoder();
         var reference = CreatePatternYuvFrame(width: 16, height: 8);
@@ -221,13 +221,9 @@ public sealed class RawVp9DecoderTests
             CreatePaddedOrdinaryInterFramePacket(tilePayload: [0x0c, 0x10, 0x00, 0x00]),
             new Vp9DecodeOptions(16, 8, Vp9OutputPixelFormat.Yuv420));
 
-        Assert.False(result.Succeeded);
-        Assert.Null(result.Frame);
-        Assert.NotNull(result.Header);
-        Assert.NotNull(result.CompressedHeader);
-        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedInterFrameFeature, result.Diagnostic?.Code);
-        Assert.Contains("NEWMV", result.Diagnostic?.Message, StringComparison.Ordinal);
-        Assert.Contains("candidate", result.Diagnostic?.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.True(result.Succeeded, result.Diagnostic?.Message);
+        Assert.NotNull(result.Frame);
+        Assert.Equal(Hash(reference.Pixels), Hash(result.Frame.Pixels));
     }
 
     [Fact]

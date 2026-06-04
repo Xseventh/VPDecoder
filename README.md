@@ -56,7 +56,9 @@ Current status:
   fallback for empty candidate slots. When the previous coded frame was a
   shown ordinary inter frame with matching dimensions and the current frame is
   not error-resilient, the decoder also uses the previous frame's same-MI
-  motion-vector metadata as a fallback candidate.
+  motion-vector metadata as a fallback candidate. NEWMV reads its motion-vector
+  delta relative to the first candidate, or relative to zero when no candidate
+  exists.
   Ordinary inter frames can contain intra-predicted blocks; those blocks read
   inter-frame intra Y/UV mode probabilities and reuse the intra reconstruction
   path with intra-reference residual syntax.

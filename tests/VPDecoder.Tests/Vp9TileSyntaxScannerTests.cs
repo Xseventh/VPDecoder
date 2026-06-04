@@ -223,7 +223,7 @@ public sealed class Vp9TileSyntaxScannerTests
     }
 
     [Fact]
-    public void TryProbeFirstInterSuperblockModeInfo_WhenNewMvCandidateIsMissing_ReturnsUnsupportedDiagnostic()
+    public void TryProbeFirstInterSuperblockModeInfo_WhenNewMvCandidateIsMissing_UsesZeroReferenceVector()
     {
         byte[] tilePayload = [0x24, 0x00, 0x00, 0x00];
         var packet = tilePayload;
@@ -234,19 +234,19 @@ public sealed class Vp9TileSyntaxScannerTests
             new Vp9TileBuffer(Index: 0, SizeFieldOffset: null, DataOffset: 0, Size: tilePayload.Length)
         ];
 
-        Assert.False(
+        Assert.True(
             Vp9TileSyntaxScanner.TryProbeFirstInterSuperblockModeInfo(
                 packet,
                 header,
                 compressedHeader,
                 tileBuffers,
                 out var probes,
-                out var diagnostic));
+                out var diagnostic),
+            diagnostic?.Message);
 
-        Assert.Empty(probes);
-        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedInterFrameFeature, diagnostic?.Code);
-        Assert.Contains("NEWMV", diagnostic?.Message, StringComparison.Ordinal);
-        Assert.Contains("candidate", diagnostic?.Message, StringComparison.OrdinalIgnoreCase);
+        var modeInfo = Assert.Single(Assert.Single(probes).ModeInfos);
+        Assert.Equal(Vp9InterPredictionMode.NewMv, modeInfo.ModeInfo.PredictionMode);
+        Assert.Equal(new Vp9MotionVector(0, 0), modeInfo.MotionVector);
     }
 
     [Fact]

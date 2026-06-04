@@ -2297,15 +2297,8 @@ internal static class Vp9TileSyntaxScanner
                 return false;
             }
 
-            if (candidates.Count < 1)
-            {
-                diagnostic = Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(
-                    "VP9 NEWMV requires a spatial or eligible previous-frame MV candidate.");
-                return false;
-            }
-
             var referenceMotionVector = Vp9MotionVectorSyntax.LowerPrecision(
-                candidates[0],
+                candidates.Count >= 1 ? candidates[0] : new Vp9MotionVector(0, 0),
                 header.AllowHighPrecisionMv);
             motionVector = Vp9MotionVectorSyntax.ReadMotionVector(
                 ref reader,
