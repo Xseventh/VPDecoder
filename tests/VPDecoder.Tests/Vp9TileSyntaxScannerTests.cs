@@ -1149,6 +1149,106 @@ public sealed class Vp9TileSyntaxScannerTests
     }
 
     [Fact]
+    public void TryReconstructInterFrameFromProbes_ForSub8X8ZeroMv_CopiesReference()
+    {
+        var header = CreateSyntheticOrdinaryInterHeader(packetLength: 0) with
+        {
+            Width = 8,
+            Height = 8,
+            RenderWidth = 8,
+            RenderHeight = 8,
+            TileInfo = new Vp9TileInfo(
+                MiColumns: 1,
+                MiRows: 1,
+                SuperblockColumns: 1,
+                MinLog2TileColumns: 0,
+                MaxLog2TileColumns: 0,
+                Log2TileColumns: 0,
+                Log2TileRows: 0)
+        };
+        var referenceFrame = CreatePatternYuvFrame(width: 8, height: 8);
+        var referenceFrames = new Vp9ReferenceFrameStore();
+        referenceFrames.Refresh(referenceFrame, Vp9ColorRange.Studio, refreshFrameFlags: 0x01);
+        var modeBlock = CreateInterModeBlock(
+            0,
+            0,
+            Vp9InterPredictionMode.ZeroMv,
+            blockSize: Vp9BlockSize.Block4X4);
+        IReadOnlyList<Vp9InterSuperblockSyntaxProbe> probes =
+        [
+            new Vp9InterSuperblockSyntaxProbe(
+                TileIndex: 0,
+                Partitions: [],
+                ModeInfos: [modeBlock],
+                CoefficientGroups: [.. CreateEmptyInterTx4Groups(modeBlock.ModeInfo.BlockSize)])
+        ];
+
+        Assert.True(
+            Vp9TileSyntaxScanner.TryReconstructInterFrameFromProbes(
+                header,
+                probes,
+                referenceFrames,
+                out var reconstructedFrame,
+                out var predictedProbes,
+                out var diagnostic),
+            diagnostic?.Message);
+
+        Assert.NotNull(reconstructedFrame);
+        Assert.Equal(Hash(referenceFrame.Pixels), Hash(reconstructedFrame.Frame.Pixels));
+        Assert.Equal(new Vp9MotionVector(0, 0), Assert.Single(Assert.Single(predictedProbes).ModeInfos).MotionVector);
+    }
+
+    [Fact]
+    public void TryReconstructInterFrameFromProbes_WhenSub8X8NearMvHasNonZeroCandidate_ReturnsUnsupportedDiagnostic()
+    {
+        var header = CreateSyntheticOrdinaryInterHeader(packetLength: 0) with
+        {
+            Width = 8,
+            Height = 8,
+            RenderWidth = 8,
+            RenderHeight = 8,
+            TileInfo = new Vp9TileInfo(
+                MiColumns: 1,
+                MiRows: 1,
+                SuperblockColumns: 1,
+                MinLog2TileColumns: 0,
+                MaxLog2TileColumns: 0,
+                Log2TileColumns: 0,
+                Log2TileRows: 0)
+        };
+        var referenceFrame = CreatePatternYuvFrame(width: 8, height: 8);
+        var referenceFrames = new Vp9ReferenceFrameStore();
+        referenceFrames.Refresh(referenceFrame, Vp9ColorRange.Studio, refreshFrameFlags: 0x01);
+        var current = CreateInterModeBlock(
+            0,
+            0,
+            Vp9InterPredictionMode.NearMv,
+            motionVector: new Vp9MotionVector(0, 16),
+            blockSize: Vp9BlockSize.Block4X4);
+        IReadOnlyList<Vp9InterSuperblockSyntaxProbe> probes =
+        [
+            new Vp9InterSuperblockSyntaxProbe(
+                TileIndex: 0,
+                Partitions: [],
+                ModeInfos: [current],
+                CoefficientGroups: [.. CreateEmptyInterTx4Groups(current.ModeInfo.BlockSize)])
+        ];
+
+        Assert.False(Vp9TileSyntaxScanner.TryReconstructInterFrameFromProbes(
+            header,
+            probes,
+            referenceFrames,
+            out var reconstructedFrame,
+            out var predictedProbes,
+            out var diagnostic));
+
+        Assert.Null(reconstructedFrame);
+        Assert.Empty(predictedProbes);
+        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedInterFrameFeature, diagnostic?.Code);
+        Assert.Contains("sub-8x8 NEARMV", diagnostic?.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void TryProbeFirstLeafCoefficientToken_ForExternalMainFrame_ReadsExpectedFirstToken()
     {
         var packet = ReadRequiredSample(
@@ -1921,10 +2021,11 @@ public sealed class Vp9TileSyntaxScannerTests
         int miColumn,
         Vp9InterPredictionMode predictionMode,
         int tileIndex = 0,
-        Vp9MotionVector? motionVector = null)
+        Vp9MotionVector? motionVector = null,
+        Vp9BlockSize blockSize = Vp9BlockSize.Block8X8)
     {
         var modeInfo = new Vp9InterModeInfoProbe(
-            Vp9BlockSize.Block8X8,
+            blockSize,
             Skip: true,
             SkipContext: 0,
             IsInterBlock: true,

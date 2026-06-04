@@ -901,6 +901,11 @@ internal static class Vp9TileSyntaxScanner
                         return false;
                     }
 
+                    if (!TryValidateSub8X8InterMotionVector(modeBlock, motionVector, out diagnostic))
+                    {
+                        return false;
+                    }
+
                     if (!TryCopyInterPredictionBlock(
                             referenceFrame.Frame,
                             destination,
@@ -2099,6 +2104,11 @@ internal static class Vp9TileSyntaxScanner
             return false;
         }
 
+        if (!TryValidateSub8X8InterMotionVector(modeBlock, motionVector, out diagnostic))
+        {
+            return false;
+        }
+
         if (!TryCopyInterPredictionBlock(
                 referenceFrame.Frame,
                 destination,
@@ -2133,6 +2143,13 @@ internal static class Vp9TileSyntaxScanner
         Vp9MotionVector motionVector;
         if (modeBlock.ModeInfo.PredictionMode == Vp9InterPredictionMode.NewMv)
         {
+            if (modeBlock.ModeInfo.BlockSize < Vp9BlockSize.Block8X8)
+            {
+                diagnostic = Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(
+                    "VP9 sub-8x8 NEWMV inter prediction mode is not supported yet.");
+                return false;
+            }
+
             if (candidates.Count < 1)
             {
                 diagnostic = Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(
@@ -2163,6 +2180,11 @@ internal static class Vp9TileSyntaxScanner
             return false;
         }
 
+        if (!TryValidateSub8X8InterMotionVector(modeBlock, motionVector, out diagnostic))
+        {
+            return false;
+        }
+
         if (!Vp9InterPredictor.IsValidMotionVector(motionVector))
         {
             diagnostic = Vp9DecodeDiagnostic.InvalidPacket(
@@ -2176,6 +2198,28 @@ internal static class Vp9TileSyntaxScanner
         };
         diagnostic = null;
         return true;
+    }
+
+    private static bool TryValidateSub8X8InterMotionVector(
+        Vp9InterBlockModeInfoProbe modeBlock,
+        Vp9MotionVector motionVector,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
+        diagnostic = null;
+        if (modeBlock.ModeInfo.BlockSize >= Vp9BlockSize.Block8X8)
+        {
+            return true;
+        }
+
+        if (modeBlock.ModeInfo.PredictionMode != Vp9InterPredictionMode.NearMv ||
+            motionVector == new Vp9MotionVector(0, 0))
+        {
+            return true;
+        }
+
+        diagnostic = Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(
+            "VP9 sub-8x8 NEARMV with non-zero derived motion vectors is not supported yet.");
+        return false;
     }
 
     private static void ReadPartitionSyntax(

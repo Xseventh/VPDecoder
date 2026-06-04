@@ -52,8 +52,10 @@ Current status:
 - Reads gated VP9 NEWMV syntax when a same-reference spatial MV candidate is
   already available. NEARESTMV and NEARMV use same-reference spatial candidates
   with libvpx-style zero-vector fallback for empty candidate slots.
-  Different-reference and previous-frame MV candidate enrichment, compound
-  references, sub-8x8 inter blocks, and fractional-pixel motion compensation
+  Uniform sub-8x8 inter mode-info groups are parsed for ZEROMV, NEARESTMV, and
+  zero-fallback NEARMV; mixed sub-block modes, sub-8x8 NEWMV, non-zero
+  sub-8x8 NEARMV, different-reference and previous-frame MV candidate
+  enrichment, compound references, and fractional-pixel motion compensation
   remain explicit unsupported paths. Switchable inter interpolation filter
   syntax is parsed and tracked at block mode-info level; fractional-pixel
   filtering remains gated until motion compensation supports it.

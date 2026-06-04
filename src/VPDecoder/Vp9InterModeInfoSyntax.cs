@@ -76,13 +76,6 @@ internal static class Vp9InterModeInfoSyntax
             return false;
         }
 
-        if (blockSize < Vp9BlockSize.Block8X8)
-        {
-            diagnostic = Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(
-                "VP9 sub-8x8 inter mode-info is not supported yet.");
-            return false;
-        }
-
         if (compressedHeader.ReferenceMode != Vp9ReferenceMode.Single)
         {
             diagnostic = Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(
@@ -123,15 +116,38 @@ internal static class Vp9InterModeInfoSyntax
             compressedHeader.FrameContext,
             contexts.SingleReference0,
             contexts.SingleReference1);
-        var predictionMode = ReadInterPredictionMode(
-            ref reader,
-            compressedHeader.FrameContext,
-            contexts.InterMode);
-        var interpolationFilter = ReadInterBlockInterpolationFilter(
-            ref reader,
-            frameHeader,
-            compressedHeader.FrameContext,
-            contexts.SwitchableInterpolation);
+        Vp9InterPredictionMode predictionMode;
+        Vp9InterpolationFilter interpolationFilter;
+        if (blockSize < Vp9BlockSize.Block8X8)
+        {
+            interpolationFilter = ReadInterBlockInterpolationFilter(
+                ref reader,
+                frameHeader,
+                compressedHeader.FrameContext,
+                contexts.SwitchableInterpolation);
+            if (!TryReadUniformSub8X8InterPredictionMode(
+                    ref reader,
+                    compressedHeader.FrameContext,
+                    contexts.InterMode,
+                    blockSize,
+                    out predictionMode,
+                    out diagnostic))
+            {
+                return false;
+            }
+        }
+        else
+        {
+            predictionMode = ReadInterPredictionMode(
+                ref reader,
+                compressedHeader.FrameContext,
+                contexts.InterMode);
+            interpolationFilter = ReadInterBlockInterpolationFilter(
+                ref reader,
+                frameHeader,
+                compressedHeader.FrameContext,
+                contexts.SwitchableInterpolation);
+        }
 
         if (reader.HasError)
         {
@@ -207,6 +223,72 @@ internal static class Vp9InterModeInfoSyntax
         }
 
         return (Vp9InterPredictionMode)Vp9TreeReader.ReadTree(ref reader, InterModeTree, probabilities);
+    }
+
+    public static bool TryReadUniformSub8X8InterPredictionMode(
+        ref Vp9BoolReader reader,
+        Vp9FrameContext frameContext,
+        int interModeContext,
+        Vp9BlockSize blockSize,
+        out Vp9InterPredictionMode predictionMode,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
+        predictionMode = default;
+        diagnostic = null;
+
+        Span<Vp9InterPredictionMode> subModes = stackalloc Vp9InterPredictionMode[4];
+        switch (blockSize)
+        {
+            case Vp9BlockSize.Block4X4:
+                for (var block = 0; block < subModes.Length; block++)
+                {
+                    subModes[block] = ReadInterPredictionMode(ref reader, frameContext, interModeContext);
+                }
+
+                break;
+
+            case Vp9BlockSize.Block4X8:
+                subModes[0] = subModes[2] = ReadInterPredictionMode(ref reader, frameContext, interModeContext);
+                subModes[1] = subModes[3] = ReadInterPredictionMode(ref reader, frameContext, interModeContext);
+                break;
+
+            case Vp9BlockSize.Block8X4:
+                subModes[0] = subModes[1] = ReadInterPredictionMode(ref reader, frameContext, interModeContext);
+                subModes[2] = subModes[3] = ReadInterPredictionMode(ref reader, frameContext, interModeContext);
+                break;
+
+            default:
+                throw new ArgumentOutOfRangeException(
+                    nameof(blockSize),
+                    blockSize,
+                    "VP9 sub-8x8 inter mode reader received a non-sub-8x8 block size.");
+        }
+
+        if (reader.HasError)
+        {
+            diagnostic = Vp9DecodeDiagnostic.TruncatedPacket("VP9 sub-8x8 inter mode-info ended unexpectedly.");
+            return false;
+        }
+
+        predictionMode = subModes[0];
+        for (var i = 1; i < subModes.Length; i++)
+        {
+            if (subModes[i] != predictionMode)
+            {
+                diagnostic = Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(
+                    "VP9 sub-8x8 inter blocks with mixed sub-block prediction modes are not supported yet.");
+                return false;
+            }
+        }
+
+        if (predictionMode == Vp9InterPredictionMode.NewMv)
+        {
+            diagnostic = Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(
+                "VP9 sub-8x8 NEWMV inter prediction mode is not supported yet.");
+            return false;
+        }
+
+        return true;
     }
 
     public static Vp9InterpolationFilter ReadSwitchableInterpolationFilter(

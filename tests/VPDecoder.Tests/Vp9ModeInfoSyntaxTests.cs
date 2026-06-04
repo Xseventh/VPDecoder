@@ -69,7 +69,7 @@ public sealed class Vp9ModeInfoSyntaxTests
     [Fact]
     public void ReadInterPredictionMode_AllZeroBoolReader_ReturnsZeroMv()
     {
-        var reader = new Vp9BoolReader([0x00, 0x00]);
+        var reader = new Vp9BoolReader([0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
 
         var mode = Vp9InterModeInfoSyntax.ReadInterPredictionMode(
             ref reader,
@@ -157,9 +157,28 @@ public sealed class Vp9ModeInfoSyntaxTests
     }
 
     [Fact]
-    public void TryReadSupportedInterBlock_WhenSub8X8Block_ReturnsUnsupportedDiagnostic()
+    public void TryReadUniformSub8X8InterPredictionMode_AllZeroBoolReader_ReturnsZeroMv()
     {
-        var reader = new Vp9BoolReader([0x00, 0x00]);
+        var reader = new Vp9BoolReader([0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+
+        Assert.True(
+            Vp9InterModeInfoSyntax.TryReadUniformSub8X8InterPredictionMode(
+                ref reader,
+                Vp9FrameContext.CreateDefault(),
+                interModeContext: 0,
+                Vp9BlockSize.Block4X4,
+                out var predictionMode,
+                out var diagnostic),
+            diagnostic?.Message);
+
+        Assert.Equal(Vp9InterPredictionMode.ZeroMv, predictionMode);
+        Assert.False(reader.HasError);
+    }
+
+    [Fact]
+    public void TryReadSupportedInterBlock_WhenSub8X8BlockHasMixedSubModes_ReturnsUnsupportedDiagnostic()
+    {
+        var reader = new Vp9BoolReader([0x0c, 0x00, 0x00, 0x00]);
         var frameHeader = CreateOrdinaryInterFrameHeader();
         var compressedHeader = CreateCompressedHeader();
 
@@ -174,7 +193,7 @@ public sealed class Vp9ModeInfoSyntaxTests
 
         Assert.Null(probe);
         Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedInterFrameFeature, diagnostic?.Code);
-        Assert.Contains("sub-8x8", diagnostic?.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("mixed sub-block", diagnostic?.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
