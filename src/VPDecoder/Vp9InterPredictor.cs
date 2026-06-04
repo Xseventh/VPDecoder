@@ -4,6 +4,7 @@ internal static class Vp9InterPredictor
 {
     private const int MotionVectorLowerBound = -(1 << 14);
     private const int MotionVectorUpperBound = (1 << 14) - 1;
+    private const int MotionVectorReferenceBorder = 16 << 3;
     private const int MotionVectorReferenceNeighborCount = 8;
     private static readonly Vp9MotionVector ZeroMotionVector = new(0, 0);
 
@@ -290,6 +291,42 @@ internal static class Vp9InterPredictor
             motionVector.Row < MotionVectorUpperBound &&
             motionVector.Column > MotionVectorLowerBound &&
             motionVector.Column < MotionVectorUpperBound;
+    }
+
+    public static Vp9MotionVector ClampReferenceMotionVector(
+        Vp9FrameHeader header,
+        Vp9InterBlockModeInfoProbe currentBlock,
+        Vp9MotionVector motionVector)
+    {
+        var blockWidth = Vp9ModeInfoSyntax.GetBlockWidthInMiUnits(currentBlock.ModeInfo.BlockSize);
+        var blockHeight = Vp9ModeInfoSyntax.GetBlockHeightInMiUnits(currentBlock.ModeInfo.BlockSize);
+        var leftEdge = -(currentBlock.MiColumn * 8 * 8);
+        var rightEdge = (header.TileInfo.MiColumns - blockWidth - currentBlock.MiColumn) * 8 * 8;
+        var topEdge = -(currentBlock.MiRow * 8 * 8);
+        var bottomEdge = (header.TileInfo.MiRows - blockHeight - currentBlock.MiRow) * 8 * 8;
+
+        return new Vp9MotionVector(
+            Math.Clamp(motionVector.Row, topEdge - MotionVectorReferenceBorder, bottomEdge + MotionVectorReferenceBorder),
+            Math.Clamp(motionVector.Column, leftEdge - MotionVectorReferenceBorder, rightEdge + MotionVectorReferenceBorder));
+    }
+
+    public static IReadOnlyList<Vp9MotionVector> ClampReferenceMotionVectorCandidates(
+        Vp9FrameHeader header,
+        Vp9InterBlockModeInfoProbe currentBlock,
+        IReadOnlyList<Vp9MotionVector> candidates)
+    {
+        if (candidates.Count == 0)
+        {
+            return candidates;
+        }
+
+        var clamped = new Vp9MotionVector[candidates.Count];
+        for (var index = 0; index < clamped.Length; index++)
+        {
+            clamped[index] = ClampReferenceMotionVector(header, currentBlock, candidates[index]);
+        }
+
+        return clamped;
     }
 
     private static bool TryReturnMotionVector(

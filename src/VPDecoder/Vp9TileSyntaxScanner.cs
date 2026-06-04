@@ -3006,11 +3006,14 @@ internal static class Vp9TileSyntaxScanner
             return false;
         }
 
-        var candidates = Vp9InterPredictor.BuildSpatialMotionVectorCandidates(
+        var candidates = Vp9InterPredictor.ClampReferenceMotionVectorCandidates(
+            header,
             modeBlock,
-            predictedModeBlocks,
-            header.ReferenceFrameSignBiases,
-            GetEligiblePreviousFrameMotionVectors(header, previousFrameMotionVectors));
+            Vp9InterPredictor.BuildSpatialMotionVectorCandidates(
+                modeBlock,
+                predictedModeBlocks,
+                header.ReferenceFrameSignBiases,
+                GetEligiblePreviousFrameMotionVectors(header, previousFrameMotionVectors)));
         if (!Vp9InterPredictor.TrySelectMotionVector(
                 modeBlock,
                 candidates,
@@ -3150,11 +3153,14 @@ internal static class Vp9TileSyntaxScanner
         Vp9PreviousFrameMotionVectors? previousFrameMotionVectors)
     {
         resolvedModeBlock = modeBlock;
-        var candidates = Vp9InterPredictor.BuildSpatialMotionVectorCandidates(
+        var candidates = Vp9InterPredictor.ClampReferenceMotionVectorCandidates(
+            header,
             modeBlock,
-            decodedModeBlocks,
-            header.ReferenceFrameSignBiases,
-            previousFrameMotionVectors);
+            Vp9InterPredictor.BuildSpatialMotionVectorCandidates(
+                modeBlock,
+                decodedModeBlocks,
+                header.ReferenceFrameSignBiases,
+                previousFrameMotionVectors));
         Vp9MotionVector motionVector;
         Vp9MotionVector? compoundMotionVector = null;
         IReadOnlyList<Vp9MotionVector> interSubMotionVectors = [];
@@ -3303,16 +3309,22 @@ internal static class Vp9TileSyntaxScanner
 
         var referenceBlock0 = CreateSingleReferenceView(modeBlock, modeBlock.ModeInfo.ReferenceFrame);
         var referenceBlock1 = CreateSingleReferenceView(modeBlock, compoundReferenceFrame);
-        var candidates0 = Vp9InterPredictor.BuildSpatialMotionVectorCandidates(
+        var candidates0 = Vp9InterPredictor.ClampReferenceMotionVectorCandidates(
+            header,
             referenceBlock0,
-            decodedModeBlocks,
-            header.ReferenceFrameSignBiases,
-            previousFrameMotionVectors);
-        var candidates1 = Vp9InterPredictor.BuildSpatialMotionVectorCandidates(
+            Vp9InterPredictor.BuildSpatialMotionVectorCandidates(
+                referenceBlock0,
+                decodedModeBlocks,
+                header.ReferenceFrameSignBiases,
+                previousFrameMotionVectors));
+        var candidates1 = Vp9InterPredictor.ClampReferenceMotionVectorCandidates(
+            header,
             referenceBlock1,
-            decodedModeBlocks,
-            header.ReferenceFrameSignBiases,
-            previousFrameMotionVectors);
+            Vp9InterPredictor.BuildSpatialMotionVectorCandidates(
+                referenceBlock1,
+                decodedModeBlocks,
+                header.ReferenceFrameSignBiases,
+                previousFrameMotionVectors));
         if (modeBlock.ModeInfo.PredictionMode == Vp9InterPredictionMode.NewMv)
         {
             var referenceMotionVector0 = Vp9MotionVectorSyntax.LowerPrecision(
@@ -3401,16 +3413,22 @@ internal static class Vp9TileSyntaxScanner
 
         var referenceBlock0 = CreateSingleReferenceView(modeBlock, modeBlock.ModeInfo.ReferenceFrame);
         var referenceBlock1 = CreateSingleReferenceView(modeBlock, compoundReferenceFrame);
-        var candidates0 = Vp9InterPredictor.BuildSpatialMotionVectorCandidates(
+        var candidates0 = Vp9InterPredictor.ClampReferenceMotionVectorCandidates(
+            header,
             referenceBlock0,
-            decodedModeBlocks,
-            header.ReferenceFrameSignBiases,
-            previousFrameMotionVectors);
-        var candidates1 = Vp9InterPredictor.BuildSpatialMotionVectorCandidates(
+            Vp9InterPredictor.BuildSpatialMotionVectorCandidates(
+                referenceBlock0,
+                decodedModeBlocks,
+                header.ReferenceFrameSignBiases,
+                previousFrameMotionVectors));
+        var candidates1 = Vp9InterPredictor.ClampReferenceMotionVectorCandidates(
+            header,
             referenceBlock1,
-            decodedModeBlocks,
-            header.ReferenceFrameSignBiases,
-            previousFrameMotionVectors);
+            Vp9InterPredictor.BuildSpatialMotionVectorCandidates(
+                referenceBlock1,
+                decodedModeBlocks,
+                header.ReferenceFrameSignBiases,
+                previousFrameMotionVectors));
         var newMvReferenceMotionVector0 = Vp9MotionVectorSyntax.LowerPrecision(
             candidates0.Count >= 1 ? candidates0[0] : new Vp9MotionVector(0, 0),
             header.AllowHighPrecisionMv);
@@ -3617,18 +3635,24 @@ internal static class Vp9TileSyntaxScanner
         }
         else
         {
-            var subBlockCandidates0 = Vp9InterPredictor.BuildSub8X8MotionVectorCandidates(
+            var subBlockCandidates0 = Vp9InterPredictor.ClampReferenceMotionVectorCandidates(
+                header,
                 referenceBlock0,
-                decodedModeBlocks,
-                blockIndex,
-                header.ReferenceFrameSignBiases,
-                previousFrameMotionVectors);
-            var subBlockCandidates1 = Vp9InterPredictor.BuildSub8X8MotionVectorCandidates(
+                Vp9InterPredictor.BuildSub8X8MotionVectorCandidates(
+                    referenceBlock0,
+                    decodedModeBlocks,
+                    blockIndex,
+                    header.ReferenceFrameSignBiases,
+                    previousFrameMotionVectors));
+            var subBlockCandidates1 = Vp9InterPredictor.ClampReferenceMotionVectorCandidates(
+                header,
                 referenceBlock1,
-                decodedModeBlocks,
-                blockIndex,
-                header.ReferenceFrameSignBiases,
-                previousFrameMotionVectors);
+                Vp9InterPredictor.BuildSub8X8MotionVectorCandidates(
+                    referenceBlock1,
+                    decodedModeBlocks,
+                    blockIndex,
+                    header.ReferenceFrameSignBiases,
+                    previousFrameMotionVectors));
             if (!Vp9InterPredictor.TrySelectSub8X8MotionVector(
                     predictionMode,
                     blockIndex,
@@ -3871,12 +3895,15 @@ internal static class Vp9TileSyntaxScanner
         }
         else
         {
-            var subBlockCandidates = Vp9InterPredictor.BuildSub8X8MotionVectorCandidates(
+            var subBlockCandidates = Vp9InterPredictor.ClampReferenceMotionVectorCandidates(
+                header,
                 modeBlock,
-                decodedModeBlocks,
-                blockIndex,
-                header.ReferenceFrameSignBiases,
-                previousFrameMotionVectors);
+                Vp9InterPredictor.BuildSub8X8MotionVectorCandidates(
+                    modeBlock,
+                    decodedModeBlocks,
+                    blockIndex,
+                    header.ReferenceFrameSignBiases,
+                    previousFrameMotionVectors));
             if (!Vp9InterPredictor.TrySelectSub8X8MotionVector(
                     predictionMode,
                     blockIndex,

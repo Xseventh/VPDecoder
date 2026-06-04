@@ -619,6 +619,43 @@ public sealed class Vp9InterPredictorTests
         Assert.Equal(expected, Vp9InterPredictor.IsValidMotionVector(new Vp9MotionVector(row, column)));
     }
 
+    [Fact]
+    public void ClampReferenceMotionVectorCandidates_MatchesLibvpxFrameBorder()
+    {
+        var header = CreateInterHeader(referenceSlots: []) with
+        {
+            TileInfo = new Vp9TileInfo(
+                MiColumns: 16,
+                MiRows: 8,
+                SuperblockColumns: 2,
+                MinLog2TileColumns: 0,
+                MaxLog2TileColumns: 1,
+                Log2TileColumns: 0,
+                Log2TileRows: 0)
+        };
+        var topLeft = CreateModeBlock(0, 0, Vp9InterReferenceFrame.Last);
+
+        var topLeftClamped = Vp9InterPredictor.ClampReferenceMotionVectorCandidates(
+            header,
+            topLeft,
+            [new Vp9MotionVector(-300, -200), new Vp9MotionVector(700, 1200)]);
+
+        Assert.Equal([new Vp9MotionVector(-128, -128), new Vp9MotionVector(576, 1088)], topLeftClamped);
+
+        var lowerRight = CreateModeBlock(
+            miRow: 6,
+            miColumn: 14,
+            referenceFrame: Vp9InterReferenceFrame.Last,
+            blockSize: Vp9BlockSize.Block16X16);
+
+        var lowerRightClamped = Vp9InterPredictor.ClampReferenceMotionVector(
+            header,
+            lowerRight,
+            new Vp9MotionVector(-600, 180));
+
+        Assert.Equal(new Vp9MotionVector(-512, 128), lowerRightClamped);
+    }
+
     private static Vp9DecodedFrame CreateYuvFrame(int width, int height, byte yValue)
     {
         var uvWidth = (width + 1) / 2;
