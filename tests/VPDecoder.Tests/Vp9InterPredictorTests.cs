@@ -262,6 +262,64 @@ public sealed class Vp9InterPredictorTests
         Assert.Equal([aboveSubMotionVectors[expectedAboveSubBlock], leftSubMotionVectors[expectedLeftSubBlock]], candidates);
     }
 
+    [Theory]
+    [InlineData(0, 2, 1)]
+    [InlineData(1, 3, 1)]
+    [InlineData(2, 2, 3)]
+    [InlineData(3, 3, 3)]
+    public void BuildSub8X8MotionVectorCandidates_UsesCompoundSubBlockMappingForSecondReference(
+        int blockIndex,
+        int expectedAboveSubBlock,
+        int expectedLeftSubBlock)
+    {
+        Vp9MotionVector[] aboveCompoundSubMotionVectors =
+        [
+            new Vp9MotionVector(8, -8),
+            new Vp9MotionVector(16, -16),
+            new Vp9MotionVector(24, -24),
+            new Vp9MotionVector(32, -32)
+        ];
+        Vp9MotionVector[] leftCompoundSubMotionVectors =
+        [
+            new Vp9MotionVector(40, -40),
+            new Vp9MotionVector(48, -48),
+            new Vp9MotionVector(56, -56),
+            new Vp9MotionVector(64, -64)
+        ];
+        var above = CreateModeBlock(
+            0,
+            1,
+            Vp9InterReferenceFrame.Last,
+            new Vp9MotionVector(80, 80),
+            Vp9BlockSize.Block4X4,
+            compoundReferenceFrame: Vp9InterReferenceFrame.AltRef,
+            compoundMotionVector: new Vp9MotionVector(88, 88),
+            compoundInterSubMotionVectors: aboveCompoundSubMotionVectors);
+        var left = CreateModeBlock(
+            1,
+            0,
+            Vp9InterReferenceFrame.Last,
+            new Vp9MotionVector(96, 96),
+            Vp9BlockSize.Block4X4,
+            compoundReferenceFrame: Vp9InterReferenceFrame.AltRef,
+            compoundMotionVector: new Vp9MotionVector(104, 104),
+            compoundInterSubMotionVectors: leftCompoundSubMotionVectors);
+        var current = CreateModeBlock(
+            1,
+            1,
+            Vp9InterReferenceFrame.AltRef,
+            blockSize: Vp9BlockSize.Block4X4);
+
+        var candidates = Vp9InterPredictor.BuildSub8X8MotionVectorCandidates(
+            current,
+            [above, left],
+            blockIndex);
+
+        Assert.Equal(
+            [aboveCompoundSubMotionVectors[expectedAboveSubBlock], leftCompoundSubMotionVectors[expectedLeftSubBlock]],
+            candidates);
+    }
+
     [Fact]
     public void BuildSpatialMotionVectorCandidates_IgnoresCandidatesFromOtherTiles()
     {
@@ -686,7 +744,8 @@ public sealed class Vp9InterPredictorTests
         IReadOnlyList<Vp9InterPredictionMode>? interSubModes = null,
         IReadOnlyList<Vp9MotionVector>? interSubMotionVectors = null,
         Vp9InterReferenceFrame? compoundReferenceFrame = null,
-        Vp9MotionVector? compoundMotionVector = null)
+        Vp9MotionVector? compoundMotionVector = null,
+        IReadOnlyList<Vp9MotionVector>? compoundInterSubMotionVectors = null)
     {
         var modeInfo = new Vp9InterModeInfoProbe(
             blockSize,
@@ -717,6 +776,7 @@ public sealed class Vp9InterPredictorTests
             motionVector)
         {
             InterSubMotionVectors = interSubMotionVectors ?? [],
+            CompoundInterSubMotionVectors = compoundInterSubMotionVectors ?? [],
             CompoundMotionVector = compoundMotionVector
         };
     }

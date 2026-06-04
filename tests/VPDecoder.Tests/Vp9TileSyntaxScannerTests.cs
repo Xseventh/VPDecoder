@@ -541,7 +541,7 @@ public sealed class Vp9TileSyntaxScannerTests
         var tilePayload = new byte[64];
         tilePayload[0] = 0x03;
 
-        AssertSyntheticInterResidualGroups(tilePayload, expectedSkip: false);
+        AssertSyntheticInterResidualGroups(tilePayload, expectedSkip: true);
     }
 
     [Fact]
@@ -656,7 +656,7 @@ public sealed class Vp9TileSyntaxScannerTests
 
         Assert.NotNull(frame);
         Assert.Single(probes);
-        Assert.False(probes[0].ModeInfos[0].ModeInfo.Skip);
+        Assert.True(probes[0].ModeInfos[0].ModeInfo.Skip);
         Assert.Equal(new Vp9MotionVector(0, 0), probes[0].ModeInfos[0].MotionVector);
         Assert.Equal([256, 64, 64], residualGroups.Select(group => group.Blocks.Count).ToArray());
         Assert.Equal(Hash(referenceFrame.Pixels), Hash(frame.Pixels));

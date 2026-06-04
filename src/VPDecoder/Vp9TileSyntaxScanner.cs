@@ -2317,13 +2317,16 @@ internal static class Vp9TileSyntaxScanner
             coefficientGroups);
         if (ShouldMarkInterBlockSkippedForSyntaxContext(modeBlock, coefficientGroups, appendedGroupStart))
         {
-            syntaxContext.SetModeInfo(
-                miRow,
-                miColumn,
-                modeBlock.ModeInfo with
+            modeBlock = modeBlock with
+            {
+                ModeInfo = modeBlock.ModeInfo with
                 {
                     Skip = true
-                });
+                }
+            };
+            modes[^1] = modeBlock;
+            decodedModeBlocks[^1] = modeBlock;
+            syntaxContext.SetModeInfo(miRow, miColumn, modeBlock.ModeInfo);
         }
 
         return true;

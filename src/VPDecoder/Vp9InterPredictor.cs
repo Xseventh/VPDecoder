@@ -594,6 +594,16 @@ internal static class Vp9InterPredictor
         if (candidate.ModeInfo.CompoundReferenceFrame == currentBlock.ModeInfo.ReferenceFrame &&
             candidate.CompoundMotionVector.HasValue)
         {
+            if (sub8X8BlockIndex is { } blockIndex &&
+                neighborIndex < 2 &&
+                candidate.ModeInfo.BlockSize < Vp9BlockSize.Block8X8 &&
+                candidate.CompoundInterSubMotionVectors.Count == 4)
+            {
+                motionVector = candidate.CompoundInterSubMotionVectors[
+                    GetSub8X8CandidateMotionVectorIndex(blockIndex, columnOffset)];
+                return true;
+            }
+
             motionVector = candidate.CompoundMotionVector.Value;
             return true;
         }
