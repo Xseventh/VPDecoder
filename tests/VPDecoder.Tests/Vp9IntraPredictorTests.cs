@@ -84,8 +84,8 @@ public sealed class Vp9IntraPredictorTests
     }
 
     [Theory]
-    [InlineData(Vp9PredictionMode.D45, new byte[] { 20, 30, 40, 40, 30, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40, 40 })]
-    [InlineData(Vp9PredictionMode.D63, new byte[] { 15, 25, 35, 45, 20, 30, 40, 50, 25, 35, 40, 40, 30, 40, 40, 40 })]
+    [InlineData(Vp9PredictionMode.D45, new byte[] { 20, 30, 40, 50, 30, 40, 50, 60, 40, 50, 60, 70, 50, 60, 70, 80 })]
+    [InlineData(Vp9PredictionMode.D63, new byte[] { 15, 25, 35, 45, 20, 30, 40, 50, 25, 35, 45, 55, 30, 40, 50, 60 })]
     [InlineData(Vp9PredictionMode.D117, new byte[] { 8, 15, 25, 35, 23, 11, 20, 30, 56, 8, 15, 25, 80, 23, 11, 20 })]
     [InlineData(Vp9PredictionMode.D135, new byte[] { 23, 11, 20, 30, 56, 23, 11, 20, 80, 56, 23, 11, 90, 80, 56, 23 })]
     [InlineData(Vp9PredictionMode.D153, new byte[] { 38, 23, 11, 20, 75, 56, 38, 23, 85, 80, 75, 56, 95, 90, 85, 80 })]
@@ -99,7 +99,7 @@ public sealed class Vp9IntraPredictorTests
             destination,
             stride: 4,
             size: 4,
-            above: [10, 20, 30, 40, 50, 60],
+            above: [10, 20, 30, 40, 50, 60, 70, 80],
             left: [70, 80, 90, 100],
             aboveLeft: 5);
 

@@ -135,8 +135,8 @@ public sealed class Vp9InverseTransformTests
 
     [Theory]
     [InlineData(Vp9TransformSize.Tx4X4, Vp9TransformType.AdstAdst, 14, "5a0c3297895f2039590942b1f4267e6caa5ca52881b92488da71da6912f548c6")]
-    [InlineData(Vp9TransformSize.Tx8X8, Vp9TransformType.AdstDct, 3, "2900f08f68992ae5c150a7951566383f06ac8e3ac10619d31d7f3b7277e6d5e3")]
-    [InlineData(Vp9TransformSize.Tx16X16, Vp9TransformType.DctAdst, 2, "4f3e318a14bcd79d2d8eb632006541c3e2da6a4cd6d3e41d9b8b985706164cd5")]
+    [InlineData(Vp9TransformSize.Tx8X8, Vp9TransformType.AdstDct, 3, "c19ae82d2385a0f4629d318c565c47629cd12cfc4d167170e72a8daf55ab375d")]
+    [InlineData(Vp9TransformSize.Tx16X16, Vp9TransformType.DctAdst, 2, "f21d2153c41150736efaac946a981452e4b4fcf7e743b671d3afff072b7a359b")]
     public void AddBlock_ForHybridTransforms_IsDeterministic(
         Vp9TransformSize transformSize,
         Vp9TransformType transformType,
@@ -180,6 +180,44 @@ public sealed class Vp9InverseTransformTests
         Assert.Equal(Hash(first), Hash(second));
         Assert.Equal(expectedHash, Hash(first));
         Assert.True(first.Distinct().Count() > 1);
+    }
+
+    [Fact]
+    public void AddBlock_ForTx4DctAdst_MatchesLibvpxDirectionalReferenceBlock()
+    {
+        int[] coefficients =
+        [
+            350, 580, 116, -232,
+            -464, -754, -174, 290,
+            348, 580, 116, -232,
+            -174, -348, -58, 116
+        ];
+        byte[] plane =
+        [
+            0, 0, 0, 0,
+            0, 0, 0, 0,
+            2, 1, 0, 0,
+            107, 54, 2, 1
+        ];
+        byte[] expected =
+        [
+            0, 1, 0, 0,
+            1, 1, 0, 0,
+            1, 0, 0, 3,
+            207, 206, 2, 0
+        ];
+
+        Vp9InverseTransform.AddBlock(
+            plane,
+            stride: 4,
+            x: 0,
+            y: 0,
+            Vp9TransformSize.Tx4X4,
+            Vp9TransformType.DctAdst,
+            coefficients,
+            eob: 16);
+
+        Assert.Equal(expected, plane);
     }
 
     [Fact]

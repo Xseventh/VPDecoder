@@ -1129,8 +1129,8 @@ internal static class Vp9InverseTransform
     {
         return transformType switch
         {
-            Vp9TransformType.DctDct or Vp9TransformType.DctAdst => Vp9OneDimensionalTransform.Dct,
-            Vp9TransformType.AdstDct or Vp9TransformType.AdstAdst => Vp9OneDimensionalTransform.Adst,
+            Vp9TransformType.DctDct or Vp9TransformType.AdstDct => Vp9OneDimensionalTransform.Dct,
+            Vp9TransformType.DctAdst or Vp9TransformType.AdstAdst => Vp9OneDimensionalTransform.Adst,
             _ => throw new ArgumentOutOfRangeException(nameof(transformType), transformType, "Unsupported VP9 transform type.")
         };
     }
@@ -1139,8 +1139,8 @@ internal static class Vp9InverseTransform
     {
         return transformType switch
         {
-            Vp9TransformType.DctDct or Vp9TransformType.AdstDct => Vp9OneDimensionalTransform.Dct,
-            Vp9TransformType.DctAdst or Vp9TransformType.AdstAdst => Vp9OneDimensionalTransform.Adst,
+            Vp9TransformType.DctDct or Vp9TransformType.DctAdst => Vp9OneDimensionalTransform.Dct,
+            Vp9TransformType.AdstDct or Vp9TransformType.AdstAdst => Vp9OneDimensionalTransform.Adst,
             _ => throw new ArgumentOutOfRangeException(nameof(transformType), transformType, "Unsupported VP9 transform type.")
         };
     }

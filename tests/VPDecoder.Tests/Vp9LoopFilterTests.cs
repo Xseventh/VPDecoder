@@ -296,13 +296,15 @@ public sealed class Vp9LoopFilterTests
 
         Assert.Null(diagnostic);
         var mask = Assert.Single(masks);
-        Assert.Equal(17, mask.FilterLevel);
+        Assert.Equal(20, mask.FilterLevel);
+        Assert.Equal(17, mask.LevelsY[0]);
+        Assert.Equal(17, mask.GetLumaThresholds(0).Limit);
         Assert.Equal(2, mask.ActiveLevelCount);
         Assert.True(mask.HasAnyFilter);
     }
 
     [Fact]
-    public void TryBuildInterFrameMasks_WhenPerBlockLevelsDiffer_ReturnsUnsupportedLoopFilter()
+    public void TryBuildInterFrameMasks_WhenPerBlockLevelsDiffer_StoresPerBlockLevels()
     {
         var header = CreateSyntheticInterHeader(width: 16, height: 8) with
         {
@@ -320,11 +322,15 @@ public sealed class Vp9LoopFilterTests
             CreateInterModeBlock(0, 0, Vp9BlockSize.Block8X8, Vp9InterReferenceFrame.Last, Vp9InterPredictionMode.ZeroMv),
             CreateInterModeBlock(0, 1, Vp9BlockSize.Block8X8, Vp9InterReferenceFrame.Last, Vp9InterPredictionMode.NewMv));
 
-        Assert.False(Vp9LoopFilterMaskBuilder.TryBuildInterFrameMasks(header, reconstructed, out var masks, out var diagnostic));
+        Assert.True(Vp9LoopFilterMaskBuilder.TryBuildInterFrameMasks(header, reconstructed, out var masks, out var diagnostic), diagnostic?.Message);
 
-        Assert.Empty(masks);
-        Assert.Equal(Vp9DecodeDiagnosticCode.UnsupportedLoopFilter, diagnostic?.Code);
-        Assert.Contains("mixed", diagnostic?.Message, StringComparison.OrdinalIgnoreCase);
+        var mask = Assert.Single(masks);
+        Assert.Null(diagnostic);
+        Assert.Equal(17, mask.LevelsY[0]);
+        Assert.Equal(28, mask.LevelsY[1]);
+        Assert.Equal(2, mask.ActiveLevelCount);
+        Assert.Equal(17, mask.GetLumaThresholds(0).Limit);
+        Assert.Equal(28, mask.GetLumaThresholds(1).Limit);
     }
 
     [Theory]
@@ -332,22 +338,22 @@ public sealed class Vp9LoopFilterTests
         "/tmp/vp9-main-frame-0.vp9",
         30398,
         "4c57b8dda880711b174483a27e1691c6c9aa9a6721351d041425f8dafb23b7e9",
-        3_141_126,
-        "d847248011a6a87089e0a56649451f4a2bdc277828e8e05ae21860869524add9",
-        1_345_670,
-        "53398125cb3b89d3d68fc542dfa9802500a68a5ede6ed47baab58bdc07c8d913",
+        2_645_013,
+        "30cc7bab018118e09d0655fcb3e10423031a7c81f00f0123022084773c8b5d92",
+        849_557,
+        "9670050122e730c9b88347b6d16ee2ca6011c58118187ae35c996860c89d21e4",
         897_728,
-        "ab64d070b65b81d4f57ce52a480fe62124b249d2fa2dd6f800faa65fb5ac04d9",
+        "ba963c0d8a457a4872399017f18c889b793e01eefd030f0733bfe1323470dc70",
         897_728,
-        "fe90a783ecba422b81be1d9c3d77a792cc14b9b6156bdef268e35b72c710b659")]
+        "c3616a18439cfde2a1a3dbaec8acb05384a07711e9bc4dffcb7a9886af46c1d2")]
     [InlineData(
         "/tmp/vp9-alpha-frame-0.vp9",
         6233,
         "94079f539a2165b10f5db2d9e9b5d54ca8df534ca3d36e4eaa1234b0b17a7329",
-        2_757_549,
-        "7134329239ee0afa9795a99b1603bdf269491d36fc8cbd3750e337aec89f0d68",
-        962_093,
-        "285b0ffd9b0e0cfb55f35154cf06780dfb7d2c650eaf4c7441a3f324d72da964",
+        2_633_334,
+        "ea15041995aa626f6a7fad52bf46271ec1a6231e9e4fdf110c31a01f1a0459f6",
+        837_878,
+        "ffb3fc3cc4c8619d7833230bdc8c9f59f6a9008fbaa93ff6465750cca92c8e8a",
         897_728,
         "00e7569e2bc6b0d8d8bc2464a82456bf8a6e12ab19b041330d8ec119adfd3476",
         897_728,

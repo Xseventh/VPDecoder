@@ -398,9 +398,9 @@ internal static class Vp9BlockReconstructor
     private static int GetRequiredAboveEdgeLength(Vp9PredictionMode mode, int transformSize)
     {
         return mode == Vp9PredictionMode.D63
-            ? transformSize + 2
+            ? transformSize == 4 ? 7 : transformSize + 2
             : mode == Vp9PredictionMode.D45
-                ? transformSize + 1
+                ? transformSize == 4 ? 8 : transformSize + 1
                 : transformSize;
     }
 

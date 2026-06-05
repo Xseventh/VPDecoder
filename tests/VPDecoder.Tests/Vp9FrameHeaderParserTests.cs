@@ -48,6 +48,18 @@ public sealed class Vp9FrameHeaderParserTests
     }
 
     [Fact]
+    public void Parse_KeyFrame_IgnoresPreviousLoopFilterDeltaState()
+    {
+        var header = Vp9FrameHeaderParser.Parse(
+            MainFrameHeader,
+            loopFilterRefDeltas: [9, 8, 7, 6],
+            loopFilterModeDeltas: [5, 4]);
+
+        Assert.Equal([1, 0, -1, -1], header.LoopFilter.RefDeltas);
+        Assert.Equal([0, 0], header.LoopFilter.ModeDeltas);
+    }
+
+    [Fact]
     public void Parse_AlphaFrameHeader_ReturnsExpectedFields()
     {
         var header = Vp9FrameHeaderParser.Parse(AlphaFrameHeader);

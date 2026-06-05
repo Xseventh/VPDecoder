@@ -9,6 +9,8 @@ public sealed class RawVp9Decoder
 
     private readonly Vp9ReferenceFrameStore _referenceFrames = new();
     private readonly Vp9FrameContext[] _frameContexts = CreateDefaultFrameContexts();
+    private readonly int[] _loopFilterRefDeltas = (int[])Vp9FrameHeaderParser.DefaultLoopFilterRefDeltas.Clone();
+    private readonly int[] _loopFilterModeDeltas = (int[])Vp9FrameHeaderParser.DefaultLoopFilterModeDeltas.Clone();
     private Vp9PreviousFrameMotionVectors? _previousFrameMotionVectors;
     private RawVp9Decoder? _alphaDecoder;
 
@@ -48,7 +50,13 @@ public sealed class RawVp9Decoder
     private Vp9DecodeResult DecodeSingleFrame(ReadOnlySpan<byte> packet, Vp9DecodeOptions options)
     {
         Vp9DecodeDiagnostic? diagnostic;
-        if (!Vp9FrameHeaderParser.TryParse(packet, _referenceFrames.CreateFrameInfos(), out var header, out diagnostic))
+        if (!Vp9FrameHeaderParser.TryParse(
+                packet,
+                _referenceFrames.CreateFrameInfos(),
+                _loopFilterRefDeltas,
+                _loopFilterModeDeltas,
+                out var header,
+                out diagnostic))
         {
             return Vp9DecodeResult.Fail(
                 diagnostic ?? Vp9DecodeDiagnostic.InternalDecodeFailure("VP9 header parser failed without a diagnostic."));
@@ -153,6 +161,7 @@ public sealed class RawVp9Decoder
                 compressedHeader);
         }
 
+        RefreshLoopFilterDeltaState(header);
         RefreshFrameContext(header, compressedHeader.FrameContext);
         var yuvFrame = reconstructedFrame.Frame;
         _referenceFrames.Refresh(yuvFrame, header.ColorSpace, header.ColorRange, header.RefreshFrameFlags);
@@ -331,6 +340,7 @@ public sealed class RawVp9Decoder
         _referenceFrames.Reset();
         _previousFrameMotionVectors = null;
         ResetFrameContexts();
+        ResetLoopFilterDeltaState();
         _alphaDecoder?.Reset();
     }
 
@@ -477,6 +487,7 @@ public sealed class RawVp9Decoder
                 compressedHeader);
         }
 
+        RefreshLoopFilterDeltaState(header);
         RefreshFrameContext(header, compressedHeader.FrameContext);
         var yuvFrame = reconstructedFrame.Frame;
         _referenceFrames.Refresh(yuvFrame, header.ColorSpace, header.ColorRange, header.RefreshFrameFlags);
@@ -514,6 +525,42 @@ public sealed class RawVp9Decoder
         for (var i = 0; i < _frameContexts.Length; i++)
         {
             _frameContexts[i] = Vp9FrameContext.CreateDefault();
+        }
+    }
+
+    private void ResetLoopFilterDeltaState()
+    {
+        Array.Copy(Vp9FrameHeaderParser.DefaultLoopFilterRefDeltas, _loopFilterRefDeltas, _loopFilterRefDeltas.Length);
+        Array.Copy(Vp9FrameHeaderParser.DefaultLoopFilterModeDeltas, _loopFilterModeDeltas, _loopFilterModeDeltas.Length);
+    }
+
+    private void RefreshLoopFilterDeltaState(Vp9FrameHeader header)
+    {
+        var loopFilter = header.LoopFilter;
+        if (header.FrameType == Vp9FrameType.KeyFrame || header.IntraOnly || header.ErrorResilientMode)
+        {
+            ResetLoopFilterDeltaState();
+        }
+
+        if (!loopFilter.ModeRefDeltaEnabled)
+        {
+            return;
+        }
+
+        if (loopFilter.RefDeltas.Count == _loopFilterRefDeltas.Length)
+        {
+            for (var i = 0; i < _loopFilterRefDeltas.Length; i++)
+            {
+                _loopFilterRefDeltas[i] = loopFilter.RefDeltas[i];
+            }
+        }
+
+        if (loopFilter.ModeDeltas.Count == _loopFilterModeDeltas.Length)
+        {
+            for (var i = 0; i < _loopFilterModeDeltas.Length; i++)
+            {
+                _loopFilterModeDeltas[i] = loopFilter.ModeDeltas[i];
+            }
         }
     }
 

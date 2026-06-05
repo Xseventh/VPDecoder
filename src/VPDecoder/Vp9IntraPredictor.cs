@@ -126,6 +126,30 @@ internal static class Vp9IntraPredictor
     {
         ValidateDestination(destination, stride, size);
         ValidateRequiredEdge(above, size, nameof(above), Vp9PredictionMode.D45);
+        if (size == 4)
+        {
+            if (above.Length < 8)
+            {
+                throw new ArgumentException("VP9 D45 4x4 intra predictor requires eight above edge samples.", nameof(above));
+            }
+
+            var a = above[0];
+            var b = above[1];
+            var c = above[2];
+            var d = above[3];
+            var e = above[4];
+            var f = above[5];
+            var g = above[6];
+            var h = above[7];
+            destination[0] = Avg3(a, b, c);
+            destination[1] = destination[stride] = Avg3(b, c, d);
+            destination[2] = destination[stride + 1] = destination[2 * stride] = Avg3(c, d, e);
+            destination[3] = destination[stride + 2] = destination[(2 * stride) + 1] = destination[3 * stride] = Avg3(d, e, f);
+            destination[stride + 3] = destination[(2 * stride) + 2] = destination[(3 * stride) + 1] = Avg3(e, f, g);
+            destination[(2 * stride) + 3] = destination[(3 * stride) + 2] = Avg3(f, g, h);
+            destination[(3 * stride) + 3] = h;
+            return;
+        }
 
         var aboveRight = above[Math.Min(size - 1, above.Length - 1)];
         for (var x = 0; x < size - 1; x++)
@@ -151,6 +175,33 @@ internal static class Vp9IntraPredictor
     {
         ValidateDestination(destination, stride, size);
         ValidateRequiredEdge(above, size, nameof(above), Vp9PredictionMode.D63);
+        if (size == 4)
+        {
+            if (above.Length < 7)
+            {
+                throw new ArgumentException("VP9 D63 4x4 intra predictor requires seven above edge samples.", nameof(above));
+            }
+
+            var a = above[0];
+            var b = above[1];
+            var c = above[2];
+            var d = above[3];
+            var e = above[4];
+            var f = above[5];
+            var g = above[6];
+            destination[0] = Avg2(a, b);
+            destination[1] = destination[2 * stride] = Avg2(b, c);
+            destination[2] = destination[(2 * stride) + 1] = Avg2(c, d);
+            destination[3] = destination[(2 * stride) + 2] = Avg2(d, e);
+            destination[(2 * stride) + 3] = Avg2(e, f);
+
+            destination[stride] = Avg3(a, b, c);
+            destination[stride + 1] = destination[3 * stride] = Avg3(b, c, d);
+            destination[stride + 2] = destination[(3 * stride) + 1] = Avg3(c, d, e);
+            destination[stride + 3] = destination[(3 * stride) + 2] = Avg3(d, e, f);
+            destination[(3 * stride) + 3] = Avg3(e, f, g);
+            return;
+        }
 
         var aboveRight = above[Math.Min(size - 1, above.Length - 1)];
         for (var x = 0; x < size; x++)

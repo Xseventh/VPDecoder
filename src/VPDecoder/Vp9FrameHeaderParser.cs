@@ -2,6 +2,9 @@ namespace VPDecoder;
 
 public static class Vp9FrameHeaderParser
 {
+    internal static readonly int[] DefaultLoopFilterRefDeltas = [1, 0, -1, -1];
+    internal static readonly int[] DefaultLoopFilterModeDeltas = [0, 0];
+
     private const int Vp9FrameMarker = 2;
     private const int SyncCode0 = 0x49;
     private const int SyncCode1 = 0x83;
@@ -23,12 +26,29 @@ public static class Vp9FrameHeaderParser
         out Vp9FrameHeader? header,
         out Vp9DecodeDiagnostic? diagnostic)
     {
+        return TryParse(
+            packet,
+            referenceFrames,
+            DefaultLoopFilterRefDeltas,
+            DefaultLoopFilterModeDeltas,
+            out header,
+            out diagnostic);
+    }
+
+    internal static bool TryParse(
+        ReadOnlySpan<byte> packet,
+        IReadOnlyList<Vp9ReferenceFrameInfo?>? referenceFrames,
+        IReadOnlyList<int> loopFilterRefDeltas,
+        IReadOnlyList<int> loopFilterModeDeltas,
+        out Vp9FrameHeader? header,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
         header = null;
         diagnostic = null;
 
         try
         {
-            header = Parse(packet, referenceFrames);
+            header = Parse(packet, referenceFrames, loopFilterRefDeltas, loopFilterModeDeltas);
             return true;
         }
         catch (Vp9HeaderParseException ex)
@@ -40,8 +60,12 @@ public static class Vp9FrameHeaderParser
 
     public static Vp9FrameHeader Parse(
         ReadOnlySpan<byte> packet,
-        IReadOnlyList<Vp9ReferenceFrameInfo?>? referenceFrames = null)
+        IReadOnlyList<Vp9ReferenceFrameInfo?>? referenceFrames = null,
+        IReadOnlyList<int>? loopFilterRefDeltas = null,
+        IReadOnlyList<int>? loopFilterModeDeltas = null)
     {
+        loopFilterRefDeltas ??= DefaultLoopFilterRefDeltas;
+        loopFilterModeDeltas ??= DefaultLoopFilterModeDeltas;
         if (packet.IsEmpty)
         {
             throw new Vp9HeaderParseException(Vp9DecodeDiagnostic.InvalidPacket("VP9 packet is empty."));
@@ -106,7 +130,16 @@ public static class Vp9FrameHeaderParser
 
         if (frameType != Vp9FrameType.KeyFrame)
         {
-            return ReadInterFrameHeader(packet, referenceFrames, ref reader, frameMarker, profile, showFrame, errorResilientMode);
+            return ReadInterFrameHeader(
+                packet,
+                referenceFrames,
+                loopFilterRefDeltas,
+                loopFilterModeDeltas,
+                ref reader,
+                frameMarker,
+                profile,
+                showFrame,
+                errorResilientMode);
         }
 
         var syncCodeValid =
@@ -149,7 +182,7 @@ public static class Vp9FrameHeaderParser
         }
 
         var frameContextIndex = reader.ReadLiteral(2);
-        var loopFilter = ReadLoopFilter(ref reader);
+        var loopFilter = ReadLoopFilter(ref reader, DefaultLoopFilterRefDeltas, DefaultLoopFilterModeDeltas);
         var quantization = ReadQuantization(ref reader);
         var segmentation = ReadSegmentation(ref reader);
         var tileInfo = ReadTileInfo(ref reader, width, height);
@@ -198,6 +231,8 @@ public static class Vp9FrameHeaderParser
     private static Vp9FrameHeader ReadInterFrameHeader(
         ReadOnlySpan<byte> packet,
         IReadOnlyList<Vp9ReferenceFrameInfo?>? referenceFrames,
+        IReadOnlyList<int> loopFilterRefDeltas,
+        IReadOnlyList<int> loopFilterModeDeltas,
         ref Vp9BitReader reader,
         int frameMarker,
         int profile,
@@ -315,7 +350,13 @@ public static class Vp9FrameHeaderParser
         }
 
         var frameContextIndex = reader.ReadLiteral(2);
-        var loopFilter = ReadLoopFilter(ref reader);
+        var previousRefDeltas = intraOnly || errorResilientMode
+            ? DefaultLoopFilterRefDeltas
+            : loopFilterRefDeltas;
+        var previousModeDeltas = intraOnly || errorResilientMode
+            ? DefaultLoopFilterModeDeltas
+            : loopFilterModeDeltas;
+        var loopFilter = ReadLoopFilter(ref reader, previousRefDeltas, previousModeDeltas);
         var quantization = ReadQuantization(ref reader);
         var segmentation = ReadSegmentation(ref reader);
         var tileInfo = ReadTileInfo(ref reader, width, height);
@@ -424,12 +465,15 @@ public static class Vp9FrameHeaderParser
         return new Vp9ColorHeader(bitDepth, colorSpace, colorRange, 1, 1);
     }
 
-    private static Vp9LoopFilterHeader ReadLoopFilter(ref Vp9BitReader reader)
+    private static Vp9LoopFilterHeader ReadLoopFilter(
+        ref Vp9BitReader reader,
+        IReadOnlyList<int> previousRefDeltas,
+        IReadOnlyList<int> previousModeDeltas)
     {
         var filterLevel = reader.ReadLiteral(6);
         var sharpnessLevel = reader.ReadLiteral(3);
-        var refDeltas = new[] { 0, 0, 0, 0 };
-        var modeDeltas = new[] { 0, 0 };
+        var refDeltas = CopyLoopFilterDeltas(previousRefDeltas, expectedLength: 4, nameof(previousRefDeltas));
+        var modeDeltas = CopyLoopFilterDeltas(previousModeDeltas, expectedLength: 2, nameof(previousModeDeltas));
 
         var modeRefDeltaEnabled = reader.ReadBit();
         var modeRefDeltaUpdate = false;
@@ -463,6 +507,24 @@ public static class Vp9FrameHeaderParser
             modeRefDeltaUpdate,
             refDeltas,
             modeDeltas);
+    }
+
+    private static int[] CopyLoopFilterDeltas(IReadOnlyList<int> source, int expectedLength, string parameterName)
+    {
+        if (source.Count != expectedLength)
+        {
+            throw new ArgumentException(
+                $"VP9 loop-filter delta state must contain {expectedLength} entries.",
+                parameterName);
+        }
+
+        var copy = new int[expectedLength];
+        for (var i = 0; i < copy.Length; i++)
+        {
+            copy[i] = source[i];
+        }
+
+        return copy;
     }
 
     private static Vp9QuantizationHeader ReadQuantization(ref Vp9BitReader reader)
