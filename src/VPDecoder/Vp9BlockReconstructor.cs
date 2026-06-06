@@ -164,21 +164,31 @@ internal static class Vp9BlockReconstructor
         Vp9CoefficientBlockGroupProbe group,
         int plane)
     {
+        if (group.BlockSize != modeBlock.ModeInfo.BlockSize)
+        {
+            throw new ArgumentException("VP9 inter coefficient group block size does not match its mode info.", nameof(group));
+        }
+
+        AddInterResidualBlocks(frameBuffer, modeBlock, group.TransformSize, group.Blocks, plane);
+    }
+
+    public static void AddInterResidualBlocks(
+        Vp9YuvFrameBuffer frameBuffer,
+        Vp9InterBlockModeInfoProbe modeBlock,
+        Vp9TransformSize transformSize,
+        IReadOnlyList<Vp9CoefficientBlockProbe> blocks,
+        int plane)
+    {
         var modeInfo = modeBlock.ModeInfo;
         if (!modeInfo.IsInterBlock)
         {
             throw new NotSupportedException("VP9 inter residual reconstruction requires an inter-predicted block.");
         }
 
-        if (group.BlockSize != modeInfo.BlockSize)
-        {
-            throw new ArgumentException("VP9 inter coefficient group block size does not match its mode info.", nameof(group));
-        }
-
-        var transformSize = GetTransformSizeInPixels(group.TransformSize);
+        var transformSizeInPixels = GetTransformSizeInPixels(transformSize);
         var fullWidth = GetPlaneBlockWidthInPixels(modeInfo.BlockSize, plane);
         var fullHeight = GetPlaneBlockHeightInPixels(modeInfo.BlockSize, plane);
-        var transformStep4 = Vp9CoefficientEntropyContext.GetTransformSizeIn4x4Blocks(group.TransformSize);
+        var transformStep4 = Vp9CoefficientEntropyContext.GetTransformSizeIn4x4Blocks(transformSize);
         var planeInfo = GetPlaneInfo(frameBuffer, plane);
         var originX = plane == 0 ? modeBlock.MiColumn * 8 : modeBlock.MiColumn * 4;
         var originY = plane == 0 ? modeBlock.MiRow * 8 : modeBlock.MiRow * 4;
@@ -189,29 +199,31 @@ internal static class Vp9BlockReconstructor
             throw new ArgumentException("VP9 inter residual block lies outside the visible frame.", nameof(modeBlock));
         }
 
-        var blocksWide = DivideRoundUp(visibleWidth, transformSize);
-        var blocksHigh = DivideRoundUp(visibleHeight, transformSize);
+        var blocksWide = DivideRoundUp(visibleWidth, transformSizeInPixels);
+        var blocksHigh = DivideRoundUp(visibleHeight, transformSizeInPixels);
         var expectedBlockCount = checked(blocksWide * blocksHigh);
-        if (group.Blocks.Count != expectedBlockCount)
+        if (blocks.Count != expectedBlockCount)
         {
-            throw new ArgumentException("VP9 inter coefficient block count does not match the visible block geometry.", nameof(group));
+            throw new ArgumentException("VP9 inter coefficient block count does not match the visible block geometry.", nameof(blocks));
         }
 
         var width4 = DivideRoundUp(visibleWidth, 4);
         var height4 = DivideRoundUp(visibleHeight, 4);
+#if DEBUG
         var seenBlocks = new bool[expectedBlockCount];
+#endif
         var planePixels = frameBuffer.Pixels.AsSpan(planeInfo.Metadata.Offset, planeInfo.Metadata.Length);
 
-        foreach (var coefficients in group.Blocks)
+        foreach (var coefficients in blocks)
         {
-            if (coefficients.TransformSize != group.TransformSize)
+            if (coefficients.TransformSize != transformSize)
             {
-                throw new ArgumentException("VP9 inter coefficient block transform size does not match its group.", nameof(group));
+                throw new ArgumentException("VP9 inter coefficient block transform size does not match its block set.", nameof(blocks));
             }
 
             if (coefficients.ReferenceType != Vp9ResidualSyntax.InterBlockReferenceType)
             {
-                throw new ArgumentException("VP9 inter residual reconstruction requires inter-reference coefficient blocks.", nameof(group));
+                throw new ArgumentException("VP9 inter residual reconstruction requires inter-reference coefficient blocks.", nameof(blocks));
             }
 
             if (coefficients.Row4 < 0 ||
@@ -224,21 +236,23 @@ internal static class Vp9BlockReconstructor
                 throw new ArgumentException(
                     $"VP9 inter coefficient block transform offset does not fit the block geometry: " +
                     $"MI ({modeBlock.MiRow},{modeBlock.MiColumn}) plane {plane} block {modeInfo.BlockSize} " +
-                    $"transform {group.TransformSize} step4 {transformStep4} offset ({coefficients.Row4},{coefficients.Column4}) " +
+                    $"transform {transformSize} step4 {transformStep4} offset ({coefficients.Row4},{coefficients.Column4}) " +
                     $"visible4 {width4}x{height4} visiblePixels {visibleWidth}x{visibleHeight} " +
-                    $"blocks {group.Blocks.Count}/{expectedBlockCount} eob {coefficients.Eob}.",
-                    nameof(group));
+                    $"blocks {blocks.Count}/{expectedBlockCount} eob {coefficients.Eob}.",
+                    nameof(blocks));
             }
 
+#if DEBUG
             var blockRow = coefficients.Row4 / transformStep4;
             var blockColumn = coefficients.Column4 / transformStep4;
             var blockIndex = (blockRow * blocksWide) + blockColumn;
             if (seenBlocks[blockIndex])
             {
-                throw new ArgumentException("VP9 inter coefficient block transform offsets must be unique within a group.", nameof(group));
+                throw new ArgumentException("VP9 inter coefficient block transform offsets must be unique within a group.", nameof(blocks));
             }
 
             seenBlocks[blockIndex] = true;
+#endif
             if (coefficients.Eob == 0)
             {
                 continue;
@@ -246,24 +260,24 @@ internal static class Vp9BlockReconstructor
 
             var x = originX + (coefficients.Column4 * 4);
             var y = originY + (coefficients.Row4 * 4);
-            var visibleTransformWidth = Math.Min(transformSize, planeInfo.Metadata.Width - x);
-            var visibleTransformHeight = Math.Min(transformSize, planeInfo.Metadata.Height - y);
+            var visibleTransformWidth = Math.Min(transformSizeInPixels, planeInfo.Metadata.Width - x);
+            var visibleTransformHeight = Math.Min(transformSizeInPixels, planeInfo.Metadata.Height - y);
             if (visibleTransformWidth <= 0 || visibleTransformHeight <= 0)
             {
                 continue;
             }
 
-            if (visibleTransformWidth != transformSize || visibleTransformHeight != transformSize)
+            if (visibleTransformWidth != transformSizeInPixels || visibleTransformHeight != transformSizeInPixels)
             {
                 AddClippedInterResidualBlock(
                     planePixels,
                     planeInfo.Stride,
                     x,
                     y,
-                    transformSize,
+                    transformSizeInPixels,
                     visibleTransformWidth,
                     visibleTransformHeight,
-                    group.TransformSize,
+                    transformSize,
                     coefficients);
                 continue;
             }
@@ -273,7 +287,7 @@ internal static class Vp9BlockReconstructor
                 planeInfo.Stride,
                 x,
                 y,
-                group.TransformSize,
+                transformSize,
                 coefficients.TransformType,
                 coefficients.DequantizedCoefficients,
                 coefficients.Eob);

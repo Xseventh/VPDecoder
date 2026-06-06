@@ -506,6 +506,88 @@ internal static class Vp9ResidualSyntax
             blocks);
     }
 
+    public static Vp9TransformSize ReadInterPlaneCoefficientBlocksInto(
+        ref Vp9BoolReader reader,
+        Vp9FrameHeader header,
+        Vp9CompressedHeader compressedHeader,
+        Vp9DequantTables dequantTables,
+        Vp9InterBlockModeInfoProbe modeBlock,
+        Vp9CoefficientEntropyContext entropyContext,
+        int plane,
+        List<Vp9CoefficientBlockProbe> blocks)
+    {
+        if (plane is < 0 or > 2)
+        {
+            throw new ArgumentOutOfRangeException(nameof(plane), plane, "VP9 plane index must be 0, 1, or 2.");
+        }
+
+        blocks.Clear();
+        var modeInfo = modeBlock.ModeInfo;
+        if (!modeInfo.IsInterBlock)
+        {
+            throw new NotSupportedException("VP9 production inter residual reader requires an inter-predicted block.");
+        }
+
+        var transformSize = plane == 0
+            ? modeInfo.TransformSize
+            : GetUvTransformSize(modeInfo.BlockSize, modeInfo.TransformSize);
+        if (modeInfo.Skip)
+        {
+            entropyContext.ClearBlock(
+                plane,
+                GetPlaneX4(modeBlock.MiColumn, plane),
+                GetPlaneLeftContextOffset(modeBlock.MiRow, plane),
+                GetPlaneWidthIn4x4Blocks(modeInfo.BlockSize, plane),
+                GetPlaneHeightIn4x4Blocks(modeInfo.BlockSize, plane));
+            return transformSize;
+        }
+
+        var width4 = GetVisiblePlaneWidthIn4x4Blocks(header, modeInfo.BlockSize, modeBlock.MiColumn, plane);
+        var height4 = GetVisiblePlaneHeightIn4x4Blocks(header, modeInfo.BlockSize, modeBlock.MiRow, plane);
+        var step = Vp9CoefficientEntropyContext.GetTransformSizeIn4x4Blocks(transformSize);
+        var dc = plane == 0 ? dequantTables.YDc : dequantTables.UvDc;
+        var ac = plane == 0 ? dequantTables.YAc : dequantTables.UvAc;
+        var planeType = plane == 0 ? 0 : 1;
+        var originX4 = GetPlaneX4(modeBlock.MiColumn, plane);
+        var originY4 = GetPlaneLeftContextOffset(modeBlock.MiRow, plane);
+        for (var row = 0; row < height4; row += step)
+        {
+            for (var column = 0; column < width4; column += step)
+            {
+                var x4 = originX4 + column;
+                var y4 = originY4 + row;
+                var context = entropyContext.GetInitialContext(plane, x4, y4, transformSize);
+                var visibleWidth4 = Math.Min(step, width4 - column);
+                var visibleHeight4 = Math.Min(step, height4 - row);
+                var block = ReadCoefficientBlock(
+                    ref reader,
+                    compressedHeader.FrameContext,
+                    modeBlock.TileIndex,
+                    skip: false,
+                    transformSize,
+                    GetInterTransformType(modeInfo, plane),
+                    row,
+                    column,
+                    planeType,
+                    InterBlockReferenceType,
+                    dc,
+                    ac,
+                    context);
+                blocks.Add(block);
+                entropyContext.SetTransformContext(
+                    plane,
+                    x4,
+                    y4,
+                    transformSize,
+                    block.Eob > 0,
+                    visibleWidth4,
+                    visibleHeight4);
+            }
+        }
+
+        return transformSize;
+    }
+
     private static Vp9CoefficientBlockProbe ReadCoefficientBlock(
         ref Vp9BoolReader reader,
         Vp9KeyFrameDecodeState state,

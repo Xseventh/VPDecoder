@@ -204,3 +204,36 @@ probes, so the elapsed-time win is larger than the allocation win. The next
 highest-impact step is to stop materializing coefficient group probes in the
 production path and feed inverse transform/residual add directly from scratch
 coefficient buffers.
+
+Production residual scratch-block slice:
+
+- Added a production inter residual reader that fills reusable per-plane
+  coefficient block lists instead of creating a coefficient group record and a
+  fresh block list for each plane.
+- Added a block-list based inter residual adder so the direct reconstruction
+  path can consume those scratch lists directly.
+- Kept the existing coefficient group APIs for probe/debug paths.
+- Kept release builds from allocating per-group duplicate-offset tracking in
+  inter residual add; debug builds still validate uniqueness.
+
+Validation:
+
+- `dotnet build VPDecoder.slnx --no-restore -m:1`
+- `dotnet test VPDecoder.slnx -m:1 --no-restore`
+- 97-frame repro sequence YUV420 comparison against libvpx for color and alpha
+  frames 0, 51, 72, and 96; all Y/U/V totals remained bitwise identical
+  (`mae=0`, `rmse=0`, `maxAbs=0`).
+
+Observed short-run benchmark after the scratch-block slice:
+
+| Stream/output | Elapsed range | Allocated MB |
+| --- | ---: | ---: |
+| Color `Yuv420` | 5263-5367 ms | 4129 MB |
+| Alpha `Yuv420` | 5935-6023 ms | 3954 MB |
+| Color `Bgra8888` | 6278-6303 ms | 5458 MB |
+
+This reduces another roughly 340 MB from color `Yuv420` and packed `Bgra8888`
+over the 97-frame repro sequence, mostly by reusing the per-plane block-list
+containers. The next step is more invasive: decode coefficient payloads into
+reusable scratch arrays and remove the per-transform `Vp9CoefficientBlockProbe`
+record allocation from the production path.

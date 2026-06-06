@@ -928,7 +928,7 @@ internal static class Vp9TileSyntaxScanner
             var geometries = Vp9TileGeometryBuilder.Build(header, tileBuffers);
             var destination = Vp9YuvFrameBuffer.Create(header.Width, header.Height);
             var predictedModeBlocks = new List<Vp9InterBlockModeInfoProbe>();
-            var coefficientGroups = new List<Vp9CoefficientBlockGroupProbe>(3);
+            var residualScratch = new Vp9DirectInterResidualScratch();
             foreach (var geometry in geometries)
             {
                 if (geometry.Buffer.DataOffset + geometry.Buffer.Size > packet.Length)
@@ -965,7 +965,7 @@ internal static class Vp9TileSyntaxScanner
                                 Vp9BlockSize.Block64X64,
                                 decodedModeBlocks,
                                 predictedModeBlocks,
-                                coefficientGroups,
+                                residualScratch,
                                 out diagnostic,
                                 eligiblePreviousFrameMotionVectors))
                         {
@@ -2406,7 +2406,7 @@ internal static class Vp9TileSyntaxScanner
         Vp9BlockSize blockSize,
         List<Vp9InterBlockModeInfoProbe> decodedModeBlocks,
         List<Vp9InterBlockModeInfoProbe> predictedModeBlocks,
-        List<Vp9CoefficientBlockGroupProbe> coefficientGroups,
+        Vp9DirectInterResidualScratch residualScratch,
         out Vp9DecodeDiagnostic? diagnostic,
         Vp9PreviousFrameMotionVectors? previousFrameMotionVectors)
     {
@@ -2451,7 +2451,7 @@ internal static class Vp9TileSyntaxScanner
                     subsize,
                     decodedModeBlocks,
                     predictedModeBlocks,
-                    coefficientGroups,
+                    residualScratch,
                     out diagnostic,
                     previousFrameMotionVectors))
             {
@@ -2480,7 +2480,7 @@ internal static class Vp9TileSyntaxScanner
                         subsize,
                         decodedModeBlocks,
                         predictedModeBlocks,
-                        coefficientGroups,
+                        residualScratch,
                         out diagnostic,
                         previousFrameMotionVectors))
                 {
@@ -2505,7 +2505,7 @@ internal static class Vp9TileSyntaxScanner
                         subsize,
                         decodedModeBlocks,
                         predictedModeBlocks,
-                        coefficientGroups,
+                        residualScratch,
                         out diagnostic,
                         previousFrameMotionVectors))
                 {
@@ -2529,7 +2529,7 @@ internal static class Vp9TileSyntaxScanner
                             subsize,
                             decodedModeBlocks,
                             predictedModeBlocks,
-                            coefficientGroups,
+                            residualScratch,
                             out diagnostic,
                             previousFrameMotionVectors))
                     {
@@ -2555,7 +2555,7 @@ internal static class Vp9TileSyntaxScanner
                         subsize,
                         decodedModeBlocks,
                         predictedModeBlocks,
-                        coefficientGroups,
+                        residualScratch,
                         out diagnostic,
                         previousFrameMotionVectors))
                 {
@@ -2579,7 +2579,7 @@ internal static class Vp9TileSyntaxScanner
                             subsize,
                             decodedModeBlocks,
                             predictedModeBlocks,
-                            coefficientGroups,
+                            residualScratch,
                             out diagnostic,
                             previousFrameMotionVectors))
                     {
@@ -2605,7 +2605,7 @@ internal static class Vp9TileSyntaxScanner
                         subsize,
                         decodedModeBlocks,
                         predictedModeBlocks,
-                        coefficientGroups,
+                        residualScratch,
                         out diagnostic,
                         previousFrameMotionVectors))
                 {
@@ -2628,7 +2628,7 @@ internal static class Vp9TileSyntaxScanner
                         subsize,
                         decodedModeBlocks,
                         predictedModeBlocks,
-                        coefficientGroups,
+                        residualScratch,
                         out diagnostic,
                         previousFrameMotionVectors))
                 {
@@ -2651,7 +2651,7 @@ internal static class Vp9TileSyntaxScanner
                         subsize,
                         decodedModeBlocks,
                         predictedModeBlocks,
-                        coefficientGroups,
+                        residualScratch,
                         out diagnostic,
                         previousFrameMotionVectors))
                 {
@@ -2675,7 +2675,7 @@ internal static class Vp9TileSyntaxScanner
                             subsize,
                             decodedModeBlocks,
                             predictedModeBlocks,
-                            coefficientGroups,
+                            residualScratch,
                             out diagnostic,
                             previousFrameMotionVectors))
                     {
@@ -2713,7 +2713,7 @@ internal static class Vp9TileSyntaxScanner
         Vp9BlockSize blockSize,
         List<Vp9InterBlockModeInfoProbe> decodedModeBlocks,
         List<Vp9InterBlockModeInfoProbe> predictedModeBlocks,
-        List<Vp9CoefficientBlockGroupProbe> coefficientGroups,
+        Vp9DirectInterResidualScratch residualScratch,
         out Vp9DecodeDiagnostic? diagnostic,
         Vp9PreviousFrameMotionVectors? previousFrameMotionVectors)
     {
@@ -2736,15 +2736,65 @@ internal static class Vp9TileSyntaxScanner
         }
 
         decodedModeBlocks.Add(modeBlock);
-        coefficientGroups.Clear();
-        ReadInterBlockCoefficientGroups(
-            ref reader,
-            header,
-            compressedHeader,
-            dequantTables,
-            modeBlock,
-            entropyContext,
-            coefficientGroups);
+        if (!modeBlock.ModeInfo.IsInterBlock)
+        {
+            residualScratch.Groups.Clear();
+            ReadInterBlockCoefficientGroups(
+                ref reader,
+                header,
+                compressedHeader,
+                dequantTables,
+                modeBlock,
+                entropyContext,
+                residualScratch.Groups);
+            if (reader.HasError)
+            {
+                diagnostic = Vp9DecodeDiagnostic.TruncatedPacket(
+                    $"VP9 direct intra residual read ended unexpectedly at tile {geometry.Buffer.Index} MI ({miRow},{miColumn}) block {blockSize}.");
+                return false;
+            }
+
+            if (residualScratch.Groups.Count != 3)
+            {
+                diagnostic = Vp9DecodeDiagnostic.InternalDecodeFailure(
+                    "VP9 direct intra reconstruction expected exactly three residual coefficient groups.");
+                return false;
+            }
+
+            var intraModeInfo = modeBlock.ToIntraModeInfoProbe();
+            for (var plane = 0; plane < 3; plane++)
+            {
+                Vp9BlockReconstructor.ReconstructDcOnlyGroup(
+                    destination,
+                    geometry,
+                    intraModeInfo,
+                    residualScratch.Groups[plane],
+                    plane);
+            }
+
+            predictedModeBlocks.Add(modeBlock);
+            return true;
+        }
+
+        var eobTotal = 0;
+        for (var plane = 0; plane < 3; plane++)
+        {
+            var blocks = residualScratch.PlaneBlocks[plane];
+            residualScratch.PlaneTransformSizes[plane] = Vp9ResidualSyntax.ReadInterPlaneCoefficientBlocksInto(
+                ref reader,
+                header,
+                compressedHeader,
+                dequantTables,
+                modeBlock,
+                entropyContext,
+                plane,
+                blocks);
+            foreach (var block in blocks)
+            {
+                eobTotal += block.Eob;
+            }
+        }
+
         if (reader.HasError)
         {
             diagnostic = Vp9DecodeDiagnostic.TruncatedPacket(
@@ -2752,14 +2802,7 @@ internal static class Vp9TileSyntaxScanner
             return false;
         }
 
-        if (coefficientGroups.Count != 3)
-        {
-            diagnostic = Vp9DecodeDiagnostic.InternalDecodeFailure(
-                "VP9 direct inter reconstruction expected exactly three residual coefficient groups.");
-            return false;
-        }
-
-        if (ShouldMarkInterBlockSkippedForSyntaxContext(modeBlock, coefficientGroups, 0))
+        if (ShouldMarkInterBlockSkippedForSyntaxContext(modeBlock, eobTotal))
         {
             modeBlock = modeBlock with
             {
@@ -2770,23 +2813,6 @@ internal static class Vp9TileSyntaxScanner
             };
             decodedModeBlocks[^1] = modeBlock;
             syntaxContext.SetModeInfo(miRow, miColumn, modeBlock.ModeInfo);
-        }
-
-        if (!modeBlock.ModeInfo.IsInterBlock)
-        {
-            var intraModeInfo = modeBlock.ToIntraModeInfoProbe();
-            for (var plane = 0; plane < 3; plane++)
-            {
-                Vp9BlockReconstructor.ReconstructDcOnlyGroup(
-                    destination,
-                    geometry,
-                    intraModeInfo,
-                    coefficientGroups[plane],
-                    plane);
-            }
-
-            predictedModeBlocks.Add(modeBlock);
-            return true;
         }
 
         if (!TryPredictInterBlock(
@@ -2803,12 +2829,24 @@ internal static class Vp9TileSyntaxScanner
         }
 
         predictedModeBlocks.Add(predictedModeBlock);
+        if (eobTotal == 0)
+        {
+            return true;
+        }
+
         for (var plane = 0; plane < 3; plane++)
         {
-            Vp9BlockReconstructor.AddInterResidualGroup(
+            var blocks = residualScratch.PlaneBlocks[plane];
+            if (blocks.Count == 0)
+            {
+                continue;
+            }
+
+            Vp9BlockReconstructor.AddInterResidualBlocks(
                 destination,
                 modeBlock,
-                coefficientGroups[plane],
+                residualScratch.PlaneTransformSizes[plane],
+                blocks,
                 plane);
         }
 
@@ -2908,6 +2946,16 @@ internal static class Vp9TileSyntaxScanner
         }
 
         return eobTotal == 0;
+    }
+
+    private static bool ShouldMarkInterBlockSkippedForSyntaxContext(
+        Vp9InterBlockModeInfoProbe modeBlock,
+        int eobTotal)
+    {
+        return modeBlock.ModeInfo.IsInterBlock &&
+            !modeBlock.ModeInfo.Skip &&
+            modeBlock.ModeInfo.BlockSize >= Vp9BlockSize.Block8X8 &&
+            eobTotal == 0;
     }
 
     private static void ReadInterBlockCoefficientGroups(
@@ -5315,5 +5363,19 @@ internal static class Vp9TileSyntaxScanner
             _ => throw new NotSupportedException(
                 $"VP9 first-leaf Y DC reconstruction probe does not support block size {blockSize}.")
         };
+    }
+
+    private sealed class Vp9DirectInterResidualScratch
+    {
+        public List<Vp9CoefficientBlockGroupProbe> Groups { get; } = new(3);
+
+        public List<Vp9CoefficientBlockProbe>[] PlaneBlocks { get; } =
+        [
+            new List<Vp9CoefficientBlockProbe>(),
+            new List<Vp9CoefficientBlockProbe>(),
+            new List<Vp9CoefficientBlockProbe>()
+        ];
+
+        public Vp9TransformSize[] PlaneTransformSizes { get; } = new Vp9TransformSize[3];
     }
 }
