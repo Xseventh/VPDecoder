@@ -69,6 +69,7 @@ internal static class Vp9ResidualSyntax
         [Vp9TransformSize.Tx4X4, Vp9TransformSize.Tx8X8, Vp9TransformSize.Tx16X16, Vp9TransformSize.Tx16X16],
         [Vp9TransformSize.Tx4X4, Vp9TransformSize.Tx8X8, Vp9TransformSize.Tx16X16, Vp9TransformSize.Tx32X32]
     ];
+    private static readonly int[][] ZeroCoefficientArrays = CreateZeroCoefficientArrays();
     private static readonly string[] ZeroCoefficientHashes = CreateZeroCoefficientHashes();
 
     public static Vp9CoefficientTokenProbe ReadFirstYCoefficientToken(
@@ -593,7 +594,7 @@ internal static class Vp9ResidualSyntax
         var coefficients = new int[maxEob];
         var scan = Vp9ScanTables.GetScan(transformSize, transformType);
         var neighbors = Vp9ScanTables.GetNeighbors(transformSize, transformType);
-        var tokenCache = new byte[maxEob];
+        Span<byte> tokenCache = stackalloc byte[maxEob];
         while (coefficientIndex < maxEob)
         {
             while (!reader.Read(probabilities[probabilityIndex + 1]))
@@ -1038,7 +1039,7 @@ internal static class Vp9ResidualSyntax
             NonZeroCount: 0,
             FirstNonZeroRasterIndex: -1,
             LastNonZeroRasterIndex: -1,
-            DequantizedCoefficients: new int[Vp9ScanTables.GetMaximumEob(transformSize)],
+            DequantizedCoefficients: GetZeroCoefficientArray(transformSize),
             CoefficientsSha256: GetZeroCoefficientHash(transformSize));
     }
 
@@ -1093,6 +1094,21 @@ internal static class Vp9ResidualSyntax
     private static string GetZeroCoefficientHash(Vp9TransformSize transformSize)
     {
         return ZeroCoefficientHashes[(int)transformSize];
+    }
+
+    private static int[] GetZeroCoefficientArray(Vp9TransformSize transformSize)
+    {
+        return ZeroCoefficientArrays[(int)transformSize];
+    }
+
+    private static int[][] CreateZeroCoefficientArrays()
+    {
+        var arrays = new int[4][];
+        arrays[(int)Vp9TransformSize.Tx4X4] = new int[Vp9ScanTables.GetMaximumEob(Vp9TransformSize.Tx4X4)];
+        arrays[(int)Vp9TransformSize.Tx8X8] = new int[Vp9ScanTables.GetMaximumEob(Vp9TransformSize.Tx8X8)];
+        arrays[(int)Vp9TransformSize.Tx16X16] = new int[Vp9ScanTables.GetMaximumEob(Vp9TransformSize.Tx16X16)];
+        arrays[(int)Vp9TransformSize.Tx32X32] = new int[Vp9ScanTables.GetMaximumEob(Vp9TransformSize.Tx32X32)];
+        return arrays;
     }
 
     private static string[] CreateZeroCoefficientHashes()

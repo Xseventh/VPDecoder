@@ -131,3 +131,23 @@ from about 9.9 GB to about 6.9 GB per 97 frames. Alpha `Yuv420` allocation
 dropped from about 9.2 GB to about 6.4 GB. This confirms coefficient probe
 payload and diagnostic hash allocation are major contributors, while the next
 large target remains the probe/list/record inter reconstruction structure.
+
+Follow-up slice:
+
+- Shared cached all-zero coefficient arrays by transform size for eob=0 blocks.
+  These coefficient arrays are treated as read-only by decoder code.
+- Moved the per-nonzero-block token cache from a heap `byte[]` allocation to a
+  stack span.
+
+Observed short-run benchmark after the follow-up:
+
+| Stream/output | Elapsed range | Allocated MB |
+| --- | ---: | ---: |
+| Color `Yuv420` | 6173-6286 ms | 4680 MB |
+| Alpha `Yuv420` | 6439-6534 ms | 4291 MB |
+| Color `Bgra8888` | 7008-7070 ms | 6008 MB |
+
+This brings color `Yuv420` allocation from about 9.9 GB down to about 4.7 GB
+per 97 frames, and alpha `Yuv420` from about 9.2 GB down to about 4.3 GB. The
+next large allocation source is still the retained inter probe/list/record
+metadata, especially coefficient block probes for nonzero residual blocks.
