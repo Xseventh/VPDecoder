@@ -333,3 +333,35 @@ This is a small allocation win: about 18 MB less for color `Yuv420` and
 Elapsed time is roughly neutral/noisy in this short run. The next allocation
 target is the non-DC coefficient arrays, which needs reusable scratch buffers or
 direct transform input without breaking diagnostic probe materialization.
+
+Production coefficient scratch-pool slice:
+
+- Added a production-only coefficient reader that decodes non-DC inter residual
+  transforms into per-plane `ArrayPool` scratch buffers and immediately applies
+  the inverse transform.
+- Kept the diagnostic coefficient-block data/probe path materializing dense
+  arrays for probe APIs and hashes.
+- Continued using the DC-only metadata path for eob=1 DCT/DC-only blocks.
+
+Validation:
+
+- `dotnet build VPDecoder.slnx --no-restore -m:1`
+- `dotnet test VPDecoder.slnx -m:1 --no-restore`
+- 97-frame repro sequence YUV420 comparison against libvpx for color and alpha
+  frames 0, 51, 72, and 96; all Y/U/V totals remained bitwise identical
+  (`mae=0`, `rmse=0`, `maxAbs=0`).
+
+Observed short-run benchmark after the coefficient scratch-pool slice:
+
+| Stream/output | Elapsed range | Allocated MB |
+| --- | ---: | ---: |
+| Color `Yuv420` | 5223-5340 ms | 3944 MB |
+| Alpha `Yuv420` | 5812-5873 ms | 3760 MB |
+| Color `Bgra8888` | 6039-6246 ms | 5274 MB |
+
+This is a larger allocation win than the DC-only-only slice: about 53 MB less
+for color `Yuv420`, about 82 MB less for alpha `Yuv420`, and about 52 MB less
+for packed `Bgra8888` over the repro sequence. Elapsed time is mostly neutral
+with short-run noise from pool rent/return and machine load. Further allocation
+work should now focus on reconstructed/predicted mode metadata and output
+buffer lifecycle rather than residual coefficient payloads alone.

@@ -88,6 +88,7 @@ internal static class Vp9ResidualSyntax
 {
     public const int IntraBlockReferenceType = 0;
     public const int InterBlockReferenceType = 1;
+    private const int MaximumCoefficientScratchLength = 1024;
 
     private static readonly Vp9TransformSize[][] Yuv420UvTransformSizeLookup =
     [
@@ -590,50 +591,57 @@ internal static class Vp9ResidualSyntax
             modeBlock,
             transformSize,
             plane);
-        var eobTotal = 0;
-        for (var row = 0; row < height4; row += step)
+        var coefficientScratchArray = System.Buffers.ArrayPool<int>.Shared.Rent(MaximumCoefficientScratchLength);
+        var tokenScratchArray = System.Buffers.ArrayPool<byte>.Shared.Rent(MaximumCoefficientScratchLength);
+        try
         {
-            for (var column = 0; column < width4; column += step)
+            var coefficientScratch = coefficientScratchArray.AsSpan(0, MaximumCoefficientScratchLength);
+            var tokenScratch = tokenScratchArray.AsSpan(0, MaximumCoefficientScratchLength);
+            var eobTotal = 0;
+            for (var row = 0; row < height4; row += step)
             {
-                var x4 = originX4 + column;
-                var y4 = originY4 + row;
-                var context = entropyContext.GetInitialContext(plane, x4, y4, transformSize);
-                var visibleWidth4 = Math.Min(step, width4 - column);
-                var visibleHeight4 = Math.Min(step, height4 - row);
-                var block = ReadCoefficientBlockData(
-                    ref reader,
-                    compressedHeader.FrameContext,
-                    modeBlock.TileIndex,
-                    skip: false,
-                    transformSize,
-                    GetInterTransformType(modeInfo, plane),
-                    row,
-                    column,
-                    planeType,
-                    InterBlockReferenceType,
-                    dc,
-                    ac,
-                    context);
-                eobTotal += block.Eob;
-                if (block.Eob > 0)
+                for (var column = 0; column < width4; column += step)
                 {
-                    Vp9BlockReconstructor.AddInterResidualBlock(
+                    var x4 = originX4 + column;
+                    var y4 = originY4 + row;
+                    var context = entropyContext.GetInitialContext(plane, x4, y4, transformSize);
+                    var visibleWidth4 = Math.Min(step, width4 - column);
+                    var visibleHeight4 = Math.Min(step, height4 - row);
+                    var eob = ReadAndAddCoefficientBlock(
+                        ref reader,
+                        compressedHeader.FrameContext,
                         residualContext,
-                        block);
+                        transformSize,
+                        GetInterTransformType(modeInfo, plane),
+                        row,
+                        column,
+                        planeType,
+                        InterBlockReferenceType,
+                        dc,
+                        ac,
+                        context,
+                        coefficientScratch,
+                        tokenScratch);
+                    eobTotal += eob;
+
+                    entropyContext.SetTransformContext(
+                        plane,
+                        x4,
+                        y4,
+                        transformSize,
+                        eob > 0,
+                        visibleWidth4,
+                        visibleHeight4);
                 }
-
-                entropyContext.SetTransformContext(
-                    plane,
-                    x4,
-                    y4,
-                    transformSize,
-                    block.Eob > 0,
-                    visibleWidth4,
-                    visibleHeight4);
             }
-        }
 
-        return eobTotal;
+            return eobTotal;
+        }
+        finally
+        {
+            System.Buffers.ArrayPool<int>.Shared.Return(coefficientScratchArray);
+            System.Buffers.ArrayPool<byte>.Shared.Return(tokenScratchArray);
+        }
     }
 
     private static Vp9CoefficientBlockProbe ReadCoefficientBlock(
@@ -664,6 +672,125 @@ internal static class Vp9ResidualSyntax
             dcDequant,
             acDequant,
             initialCoefficientContext);
+    }
+
+    private static int ReadAndAddCoefficientBlock(
+        ref Vp9BoolReader reader,
+        Vp9FrameContext frameContext,
+        Vp9BlockReconstructor.Vp9InterResidualPlaneContext residualContext,
+        Vp9TransformSize transformSize,
+        Vp9TransformType transformType,
+        int row4,
+        int column4,
+        int planeType,
+        int referenceType,
+        int dcDequant,
+        int acDequant,
+        int initialCoefficientContext,
+        Span<int> coefficientScratch,
+        Span<byte> tokenScratch)
+    {
+        var maxEob = Vp9ScanTables.GetMaximumEob(transformSize);
+        if (maxEob > coefficientScratch.Length || maxEob > tokenScratch.Length)
+        {
+            throw new ArgumentException("VP9 coefficient scratch buffers are too small for the transform size.");
+        }
+
+        var probabilities = frameContext.CoefficientProbabilities;
+        var coefficientIndex = 0;
+        var coefficientContext = initialCoefficientContext;
+        var dq = dcDequant;
+        var band = Vp9ScanTables.GetBand(transformSize, coefficientIndex);
+        var probabilityIndex = frameContext.GetCoefficientProbabilityIndex(
+            (int)transformSize,
+            planeType,
+            referenceType,
+            band,
+            coefficientContext,
+            0);
+
+        if (!reader.Read(probabilities[probabilityIndex]))
+        {
+            return 0;
+        }
+
+        var coefficients = coefficientScratch.Slice(0, maxEob);
+        var tokenCache = tokenScratch.Slice(0, maxEob);
+        coefficients.Clear();
+        tokenCache.Clear();
+        var scan = Vp9ScanTables.GetScan(transformSize, transformType);
+        var neighbors = Vp9ScanTables.GetNeighbors(transformSize, transformType);
+        while (coefficientIndex < maxEob)
+        {
+            while (!reader.Read(probabilities[probabilityIndex + 1]))
+            {
+                tokenCache[scan[coefficientIndex]] = 0;
+                coefficientIndex++;
+                if (coefficientIndex >= maxEob)
+                {
+                    Vp9BlockReconstructor.AddInterResidualBlock(
+                        residualContext,
+                        transformType,
+                        row4,
+                        column4,
+                        coefficientIndex,
+                        coefficients);
+                    return coefficientIndex;
+                }
+
+                coefficientContext = Vp9ScanTables.GetCoefficientContext(neighbors, tokenCache, coefficientIndex);
+                band = Vp9ScanTables.GetBand(transformSize, coefficientIndex);
+                probabilityIndex = frameContext.GetCoefficientProbabilityIndex(
+                    (int)transformSize,
+                    planeType,
+                    referenceType,
+                    band,
+                    coefficientContext,
+                    0);
+                dq = acDequant;
+            }
+
+            var coefficient = ReadNonZeroCoefficientValue(ref reader, probabilities[probabilityIndex + 2]);
+            var dequantizedValue = Dequantize(coefficient.TokenValue, dq, transformSize);
+            if (reader.ReadBit())
+            {
+                dequantizedValue = -dequantizedValue;
+            }
+
+            var rasterIndex = scan[coefficientIndex];
+            coefficients[rasterIndex] = dequantizedValue;
+            tokenCache[rasterIndex] = coefficient.TokenCacheValue;
+            coefficientIndex++;
+            if (coefficientIndex >= maxEob)
+            {
+                break;
+            }
+
+            coefficientContext = Vp9ScanTables.GetCoefficientContext(neighbors, tokenCache, coefficientIndex);
+            band = Vp9ScanTables.GetBand(transformSize, coefficientIndex);
+            probabilityIndex = frameContext.GetCoefficientProbabilityIndex(
+                (int)transformSize,
+                planeType,
+                referenceType,
+                band,
+                coefficientContext,
+                0);
+            dq = acDequant;
+
+            if (!reader.Read(probabilities[probabilityIndex]))
+            {
+                break;
+            }
+        }
+
+        Vp9BlockReconstructor.AddInterResidualBlock(
+            residualContext,
+            transformType,
+            row4,
+            column4,
+            coefficientIndex,
+            coefficients);
+        return coefficientIndex;
     }
 
     private static Vp9CoefficientBlockProbe ReadCoefficientBlock(

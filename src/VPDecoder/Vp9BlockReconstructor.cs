@@ -385,13 +385,46 @@ internal static class Vp9BlockReconstructor
                 nameof(coefficients));
         }
 
-        if (coefficients.Eob == 0)
+        AddInterResidualBlock(
+            context,
+            coefficients.TransformType,
+            coefficients.Row4,
+            coefficients.Column4,
+            coefficients.Eob,
+            coefficients.GetOrCreateDequantizedCoefficients());
+    }
+
+    internal static void AddInterResidualBlock(
+        Vp9InterResidualPlaneContext context,
+        Vp9TransformType transformType,
+        int row4,
+        int column4,
+        int eob,
+        ReadOnlySpan<int> coefficients)
+    {
+        if (eob == 0)
         {
             return;
         }
 
-        var x = context.OriginX + (coefficients.Column4 * 4);
-        var y = context.OriginY + (coefficients.Row4 * 4);
+        if (row4 < 0 ||
+            column4 < 0 ||
+            row4 >= context.Height4 ||
+            column4 >= context.Width4 ||
+            row4 % context.TransformStep4 != 0 ||
+            column4 % context.TransformStep4 != 0)
+        {
+            throw new ArgumentException(
+                $"VP9 inter coefficient block transform offset does not fit the block geometry: " +
+                $"MI ({context.MiRow},{context.MiColumn}) plane {context.Plane} block {context.BlockSize} " +
+                $"transform {context.TransformSize} step4 {context.TransformStep4} offset ({row4},{column4}) " +
+                $"visible4 {context.Width4}x{context.Height4} visiblePixels {context.VisibleWidth}x{context.VisibleHeight} " +
+                $"eob {eob}.",
+                nameof(row4));
+        }
+
+        var x = context.OriginX + (column4 * 4);
+        var y = context.OriginY + (row4 * 4);
         var visibleTransformWidth = Math.Min(context.TransformSizeInPixels, context.PlaneWidth - x);
         var visibleTransformHeight = Math.Min(context.TransformSizeInPixels, context.PlaneHeight - y);
         if (visibleTransformWidth <= 0 || visibleTransformHeight <= 0)
@@ -411,13 +444,14 @@ internal static class Vp9BlockReconstructor
                 visibleTransformWidth,
                 visibleTransformHeight,
                 context.TransformSize,
-                coefficients.TransformType,
-                coefficients.GetOrCreateDequantizedCoefficients(),
-                coefficients.Eob);
+                transformType,
+                coefficients,
+                eob);
             return;
         }
 
-        if (coefficients.IsDcOnlyTransform)
+        if (eob == 1 &&
+            (context.TransformSize == Vp9TransformSize.Tx32X32 || transformType == Vp9TransformType.DctDct))
         {
             Vp9DcOnlyReconstructor.AddDcOnly(
                 context.PlanePixels,
@@ -425,7 +459,7 @@ internal static class Vp9BlockReconstructor
                 x,
                 y,
                 context.TransformSizeInPixels,
-                coefficients.DcOnlyCoefficient);
+                coefficients[0]);
             return;
         }
 
@@ -435,9 +469,9 @@ internal static class Vp9BlockReconstructor
             x,
             y,
             context.TransformSize,
-            coefficients.TransformType,
-            coefficients.GetOrCreateDequantizedCoefficients(),
-            coefficients.Eob);
+            transformType,
+            coefficients,
+            eob);
     }
 
     private static void AddClippedInterResidualBlock(
