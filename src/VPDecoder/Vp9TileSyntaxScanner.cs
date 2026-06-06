@@ -990,9 +990,9 @@ internal static class Vp9TileSyntaxScanner
             }
 
             predictedProbes = reconstructedProbes;
-            reconstructedFrame = Vp9ReconstructedFrame.FromInter(
+            reconstructedFrame = Vp9ReconstructedFrame.FromInterModeBlocks(
                 destination.ToDecodedFrame(),
-                reconstructedProbes,
+                predictedModeBlocks,
                 header.TileInfo.MiRows,
                 header.TileInfo.MiColumns);
             return true;

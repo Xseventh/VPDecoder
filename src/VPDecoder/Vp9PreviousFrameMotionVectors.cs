@@ -35,7 +35,7 @@ internal sealed class Vp9PreviousFrameMotionVectors
             header.Height,
             header.TileInfo.MiRows,
             header.TileInfo.MiColumns,
-            reconstructedFrame.InterSuperblocks.SelectMany(superblock => superblock.ModeInfos));
+            reconstructedFrame.InterModeBlocks);
     }
 
     public static Vp9PreviousFrameMotionVectors FromModeBlocks(

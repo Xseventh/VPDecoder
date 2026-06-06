@@ -151,3 +151,22 @@ This brings color `Yuv420` allocation from about 9.9 GB down to about 4.7 GB
 per 97 frames, and alpha `Yuv420` from about 9.2 GB down to about 4.3 GB. The
 next large allocation source is still the retained inter probe/list/record
 metadata, especially coefficient block probes for nonzero residual blocks.
+
+Compact reconstructed-frame metadata slice:
+
+- Added compact inter reconstructed-frame metadata that stores the predicted
+  inter mode blocks needed by loop filtering and previous-frame MV state without
+  also retaining coefficient group payloads inside `Vp9ReconstructedFrame`.
+- Kept the diagnostic `predictedProbes` output intact for tests and debugging.
+
+Observed short-run benchmark after the compact metadata slice:
+
+| Stream/output | Elapsed range | Allocated MB |
+| --- | ---: | ---: |
+| Color `Yuv420` | 6031-6143 ms | 4636 MB |
+| Alpha `Yuv420` | 6358-6410 ms | 4260 MB |
+| Color `Bgra8888` | 6910-6943 ms | 5965 MB |
+
+The compact metadata change is a smaller win than the zero-coefficient work,
+but it removes unnecessary reconstructed-frame retention and prepares the
+production decode path for a fuller split from diagnostic probe storage.
