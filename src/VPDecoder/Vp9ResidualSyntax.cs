@@ -564,6 +564,11 @@ internal static class Vp9ResidualSyntax
         var planeType = plane == 0 ? 0 : 1;
         var originX4 = GetPlaneX4(modeBlock.MiColumn, plane);
         var originY4 = GetPlaneLeftContextOffset(modeBlock.MiRow, plane);
+        var residualContext = Vp9BlockReconstructor.CreateInterResidualPlaneContext(
+            destination,
+            modeBlock,
+            transformSize,
+            plane);
         var eobTotal = 0;
         for (var row = 0; row < height4; row += step)
         {
@@ -592,10 +597,8 @@ internal static class Vp9ResidualSyntax
                 if (block.Eob > 0)
                 {
                     Vp9BlockReconstructor.AddInterResidualBlock(
-                        destination,
-                        modeBlock,
-                        block,
-                        plane);
+                        residualContext,
+                        block);
                 }
 
                 entropyContext.SetTransformContext(

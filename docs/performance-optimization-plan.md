@@ -271,3 +271,34 @@ output slightly faster. Alpha elapsed time moved a little slower in this short
 run, likely because the one-block add path recomputes plane geometry for each
 nonzero transform. The next targeted optimization should cache per-plane inter
 residual geometry while keeping the immediate-add structure.
+
+Production residual plane-context slice:
+
+- Added a stack-only inter residual plane context that caches plane pixels,
+  stride, block origin, visible geometry, transform size, and transform offsets
+  once per plane.
+- Changed the production coefficient reader to reuse that context for every
+  nonzero transform in the plane.
+- Kept the immediate-add residual structure and older diagnostic group APIs.
+
+Validation:
+
+- `dotnet build VPDecoder.slnx --no-restore -m:1`
+- `dotnet test VPDecoder.slnx -m:1 --no-restore`
+- 97-frame repro sequence YUV420 comparison against libvpx for color and alpha
+  frames 0, 51, 72, and 96; all Y/U/V totals remained bitwise identical
+  (`mae=0`, `rmse=0`, `maxAbs=0`).
+
+Observed short-run benchmark after the residual plane-context slice:
+
+| Stream/output | Elapsed range | Allocated MB |
+| --- | ---: | ---: |
+| Color `Yuv420` | 5192-5226 ms | 4015 MB |
+| Alpha `Yuv420` | 5769-5861 ms | 3876 MB |
+| Color `Bgra8888` | 6032-6060 ms | 5344 MB |
+
+This mostly improves elapsed time rather than allocation. It recovers the alpha
+regression from the previous immediate-add slice and gives packed output a
+noticeable short-run improvement. The remaining allocation is now dominated by
+coefficient payload arrays, reconstructed/predicted mode metadata, frame
+buffers, and packed output buffers.
