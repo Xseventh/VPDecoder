@@ -2776,23 +2776,31 @@ internal static class Vp9TileSyntaxScanner
             return true;
         }
 
+        if (!TryPredictInterBlock(
+                referenceFrames,
+                header,
+                destination,
+                modeBlock,
+                predictedModeBlocks,
+                out var predictedModeBlock,
+                out diagnostic,
+                previousFrameMotionVectors))
+        {
+            return false;
+        }
+
         var eobTotal = 0;
         for (var plane = 0; plane < 3; plane++)
         {
-            var blocks = residualScratch.PlaneBlocks[plane];
-            residualScratch.PlaneTransformSizes[plane] = Vp9ResidualSyntax.ReadInterPlaneCoefficientBlocksInto(
+            eobTotal += Vp9ResidualSyntax.ReadAndAddInterPlaneCoefficientBlocks(
                 ref reader,
                 header,
                 compressedHeader,
                 dequantTables,
                 modeBlock,
                 entropyContext,
-                plane,
-                blocks);
-            foreach (var block in blocks)
-            {
-                eobTotal += block.Eob;
-            }
+                destination,
+                plane);
         }
 
         if (reader.HasError)
@@ -2813,43 +2821,13 @@ internal static class Vp9TileSyntaxScanner
             };
             decodedModeBlocks[^1] = modeBlock;
             syntaxContext.SetModeInfo(miRow, miColumn, modeBlock.ModeInfo);
-        }
-
-        if (!TryPredictInterBlock(
-                referenceFrames,
-                header,
-                destination,
-                modeBlock,
-                predictedModeBlocks,
-                out var predictedModeBlock,
-                out diagnostic,
-                previousFrameMotionVectors))
-        {
-            return false;
+            predictedModeBlock = predictedModeBlock with
+            {
+                ModeInfo = modeBlock.ModeInfo
+            };
         }
 
         predictedModeBlocks.Add(predictedModeBlock);
-        if (eobTotal == 0)
-        {
-            return true;
-        }
-
-        for (var plane = 0; plane < 3; plane++)
-        {
-            var blocks = residualScratch.PlaneBlocks[plane];
-            if (blocks.Count == 0)
-            {
-                continue;
-            }
-
-            Vp9BlockReconstructor.AddInterResidualBlocks(
-                destination,
-                modeBlock,
-                residualScratch.PlaneTransformSizes[plane],
-                blocks,
-                plane);
-        }
-
         return true;
     }
 
@@ -5368,14 +5346,5 @@ internal static class Vp9TileSyntaxScanner
     private sealed class Vp9DirectInterResidualScratch
     {
         public List<Vp9CoefficientBlockGroupProbe> Groups { get; } = new(3);
-
-        public List<Vp9CoefficientBlockProbe>[] PlaneBlocks { get; } =
-        [
-            new List<Vp9CoefficientBlockProbe>(),
-            new List<Vp9CoefficientBlockProbe>(),
-            new List<Vp9CoefficientBlockProbe>()
-        ];
-
-        public Vp9TransformSize[] PlaneTransformSizes { get; } = new Vp9TransformSize[3];
     }
 }

@@ -48,6 +48,21 @@ public sealed record Vp9CoefficientBlockGroupProbe(
     Vp9TransformSize TransformSize,
     IReadOnlyList<Vp9CoefficientBlockProbe> Blocks);
 
+internal readonly record struct Vp9CoefficientBlockData(
+    int TileIndex,
+    Vp9TransformSize TransformSize,
+    Vp9TransformType TransformType,
+    int Row4,
+    int Column4,
+    int PlaneType,
+    int ReferenceType,
+    int InitialCoefficientContext,
+    int Eob,
+    int NonZeroCount,
+    int FirstNonZeroRasterIndex,
+    int LastNonZeroRasterIndex,
+    int[] DequantizedCoefficients);
+
 internal static class Vp9ResidualSyntax
 {
     public const int IntraBlockReferenceType = 0;
@@ -506,22 +521,21 @@ internal static class Vp9ResidualSyntax
             blocks);
     }
 
-    public static Vp9TransformSize ReadInterPlaneCoefficientBlocksInto(
+    public static int ReadAndAddInterPlaneCoefficientBlocks(
         ref Vp9BoolReader reader,
         Vp9FrameHeader header,
         Vp9CompressedHeader compressedHeader,
         Vp9DequantTables dequantTables,
         Vp9InterBlockModeInfoProbe modeBlock,
         Vp9CoefficientEntropyContext entropyContext,
-        int plane,
-        List<Vp9CoefficientBlockProbe> blocks)
+        Vp9YuvFrameBuffer destination,
+        int plane)
     {
         if (plane is < 0 or > 2)
         {
             throw new ArgumentOutOfRangeException(nameof(plane), plane, "VP9 plane index must be 0, 1, or 2.");
         }
 
-        blocks.Clear();
         var modeInfo = modeBlock.ModeInfo;
         if (!modeInfo.IsInterBlock)
         {
@@ -539,7 +553,7 @@ internal static class Vp9ResidualSyntax
                 GetPlaneLeftContextOffset(modeBlock.MiRow, plane),
                 GetPlaneWidthIn4x4Blocks(modeInfo.BlockSize, plane),
                 GetPlaneHeightIn4x4Blocks(modeInfo.BlockSize, plane));
-            return transformSize;
+            return 0;
         }
 
         var width4 = GetVisiblePlaneWidthIn4x4Blocks(header, modeInfo.BlockSize, modeBlock.MiColumn, plane);
@@ -550,6 +564,7 @@ internal static class Vp9ResidualSyntax
         var planeType = plane == 0 ? 0 : 1;
         var originX4 = GetPlaneX4(modeBlock.MiColumn, plane);
         var originY4 = GetPlaneLeftContextOffset(modeBlock.MiRow, plane);
+        var eobTotal = 0;
         for (var row = 0; row < height4; row += step)
         {
             for (var column = 0; column < width4; column += step)
@@ -559,7 +574,7 @@ internal static class Vp9ResidualSyntax
                 var context = entropyContext.GetInitialContext(plane, x4, y4, transformSize);
                 var visibleWidth4 = Math.Min(step, width4 - column);
                 var visibleHeight4 = Math.Min(step, height4 - row);
-                var block = ReadCoefficientBlock(
+                var block = ReadCoefficientBlockData(
                     ref reader,
                     compressedHeader.FrameContext,
                     modeBlock.TileIndex,
@@ -573,7 +588,16 @@ internal static class Vp9ResidualSyntax
                     dc,
                     ac,
                     context);
-                blocks.Add(block);
+                eobTotal += block.Eob;
+                if (block.Eob > 0)
+                {
+                    Vp9BlockReconstructor.AddInterResidualBlock(
+                        destination,
+                        modeBlock,
+                        block,
+                        plane);
+                }
+
                 entropyContext.SetTransformContext(
                     plane,
                     x4,
@@ -585,7 +609,7 @@ internal static class Vp9ResidualSyntax
             }
         }
 
-        return transformSize;
+        return eobTotal;
     }
 
     private static Vp9CoefficientBlockProbe ReadCoefficientBlock(
@@ -633,10 +657,42 @@ internal static class Vp9ResidualSyntax
         int acDequant,
         int initialCoefficientContext)
     {
+        return CreateBlockProbe(
+            ReadCoefficientBlockData(
+                ref reader,
+                frameContext,
+                tileIndex,
+                skip,
+                transformSize,
+                transformType,
+                row4,
+                column4,
+                planeType,
+                referenceType,
+                dcDequant,
+                acDequant,
+                initialCoefficientContext));
+    }
+
+    private static Vp9CoefficientBlockData ReadCoefficientBlockData(
+        ref Vp9BoolReader reader,
+        Vp9FrameContext frameContext,
+        int tileIndex,
+        bool skip,
+        Vp9TransformSize transformSize,
+        Vp9TransformType transformType,
+        int row4,
+        int column4,
+        int planeType,
+        int referenceType,
+        int dcDequant,
+        int acDequant,
+        int initialCoefficientContext)
+    {
         var maxEob = Vp9ScanTables.GetMaximumEob(transformSize);
         if (skip)
         {
-            return CreateZeroBlockProbe(
+            return CreateZeroBlockData(
                 tileIndex,
                 transformSize,
                 transformType,
@@ -662,7 +718,7 @@ internal static class Vp9ResidualSyntax
 
         if (!reader.Read(probabilities[probabilityIndex]))
         {
-            return CreateZeroBlockProbe(
+            return CreateZeroBlockData(
                 tileIndex,
                 transformSize,
                 transformType,
@@ -685,7 +741,7 @@ internal static class Vp9ResidualSyntax
                 coefficientIndex++;
                 if (coefficientIndex >= maxEob)
                 {
-                    return CreateBlockProbe(
+                    return CreateBlockData(
                         tileIndex,
                         transformSize,
                         transformType,
@@ -743,7 +799,7 @@ internal static class Vp9ResidualSyntax
             }
         }
 
-        return CreateBlockProbe(
+        return CreateBlockData(
             tileIndex,
             transformSize,
             transformType,
@@ -1108,7 +1164,76 @@ internal static class Vp9ResidualSyntax
         int referenceType,
         int initialCoefficientContext)
     {
+        return CreateBlockProbe(
+            CreateZeroBlockData(
+                tileIndex,
+                transformSize,
+                transformType,
+                row4,
+                column4,
+                planeType,
+                referenceType,
+                initialCoefficientContext));
+    }
+
+    private static Vp9CoefficientBlockProbe CreateBlockProbe(
+        int tileIndex,
+        Vp9TransformSize transformSize,
+        Vp9TransformType transformType,
+        int row4,
+        int column4,
+        int planeType,
+        int referenceType,
+        int initialCoefficientContext,
+        int eob,
+        int[] coefficients)
+    {
+        return CreateBlockProbe(
+            CreateBlockData(
+                tileIndex,
+                transformSize,
+                transformType,
+                row4,
+                column4,
+                planeType,
+                referenceType,
+                initialCoefficientContext,
+                eob,
+                coefficients));
+    }
+
+    private static Vp9CoefficientBlockProbe CreateBlockProbe(Vp9CoefficientBlockData block)
+    {
         return new Vp9CoefficientBlockProbe(
+            block.TileIndex,
+            block.TransformSize,
+            block.TransformType,
+            block.Row4,
+            block.Column4,
+            block.PlaneType,
+            block.ReferenceType,
+            block.InitialCoefficientContext,
+            block.Eob,
+            block.NonZeroCount,
+            block.FirstNonZeroRasterIndex,
+            block.LastNonZeroRasterIndex,
+            block.DequantizedCoefficients,
+            block.Eob == 0
+                ? GetZeroCoefficientHash(block.TransformSize)
+                : HashCoefficients(block.DequantizedCoefficients));
+    }
+
+    private static Vp9CoefficientBlockData CreateZeroBlockData(
+        int tileIndex,
+        Vp9TransformSize transformSize,
+        Vp9TransformType transformType,
+        int row4,
+        int column4,
+        int planeType,
+        int referenceType,
+        int initialCoefficientContext)
+    {
+        return new Vp9CoefficientBlockData(
             tileIndex,
             transformSize,
             transformType,
@@ -1121,11 +1246,10 @@ internal static class Vp9ResidualSyntax
             NonZeroCount: 0,
             FirstNonZeroRasterIndex: -1,
             LastNonZeroRasterIndex: -1,
-            DequantizedCoefficients: GetZeroCoefficientArray(transformSize),
-            CoefficientsSha256: GetZeroCoefficientHash(transformSize));
+            DequantizedCoefficients: GetZeroCoefficientArray(transformSize));
     }
 
-    private static Vp9CoefficientBlockProbe CreateBlockProbe(
+    private static Vp9CoefficientBlockData CreateBlockData(
         int tileIndex,
         Vp9TransformSize transformSize,
         Vp9TransformType transformType,
@@ -1156,7 +1280,7 @@ internal static class Vp9ResidualSyntax
             lastNonZero = i;
         }
 
-        return new Vp9CoefficientBlockProbe(
+        return new Vp9CoefficientBlockData(
             tileIndex,
             transformSize,
             transformType,
@@ -1169,8 +1293,7 @@ internal static class Vp9ResidualSyntax
             nonZeroCount,
             firstNonZero,
             lastNonZero,
-            coefficients,
-            HashCoefficients(coefficients));
+            coefficients);
     }
 
     private static string GetZeroCoefficientHash(Vp9TransformSize transformSize)

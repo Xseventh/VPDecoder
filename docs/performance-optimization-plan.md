@@ -237,3 +237,37 @@ over the 97-frame repro sequence, mostly by reusing the per-plane block-list
 containers. The next step is more invasive: decode coefficient payloads into
 reusable scratch arrays and remove the per-transform `Vp9CoefficientBlockProbe`
 record allocation from the production path.
+
+Production coefficient block data slice:
+
+- Split coefficient parsing into a lightweight `Vp9CoefficientBlockData` core
+  plus the existing diagnostic `Vp9CoefficientBlockProbe` wrapper.
+- Changed the ordinary inter production path to predict the block first, then
+  read each inter residual transform and immediately add it to the predicted
+  pixels.
+- Removed the production path's per-plane scratch block lists and per-transform
+  coefficient probe records.
+- Kept the older probe and coefficient-group paths for diagnostic APIs.
+
+Validation:
+
+- `dotnet build VPDecoder.slnx --no-restore -m:1`
+- `dotnet test VPDecoder.slnx -m:1 --no-restore`
+- 97-frame repro sequence YUV420 comparison against libvpx for color and alpha
+  frames 0, 51, 72, and 96; all Y/U/V totals remained bitwise identical
+  (`mae=0`, `rmse=0`, `maxAbs=0`).
+
+Observed short-run benchmark after the coefficient block data slice:
+
+| Stream/output | Elapsed range | Allocated MB |
+| --- | ---: | ---: |
+| Color `Yuv420` | 5268-5314 ms | 4015 MB |
+| Alpha `Yuv420` | 6014-6112 ms | 3872 MB |
+| Color `Bgra8888` | 6184-6200 ms | 5344 MB |
+
+This removes another roughly 110 MB from color `Yuv420` and `Bgra8888` over
+the 97-frame repro sequence while keeping color elapsed time stable and packed
+output slightly faster. Alpha elapsed time moved a little slower in this short
+run, likely because the one-block add path recomputes plane geometry for each
+nonzero transform. The next targeted optimization should cache per-plane inter
+residual geometry while keeping the immediate-add structure.

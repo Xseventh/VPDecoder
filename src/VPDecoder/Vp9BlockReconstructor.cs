@@ -294,6 +294,99 @@ internal static class Vp9BlockReconstructor
         }
     }
 
+    public static void AddInterResidualBlock(
+        Vp9YuvFrameBuffer frameBuffer,
+        Vp9InterBlockModeInfoProbe modeBlock,
+        Vp9CoefficientBlockData coefficients,
+        int plane)
+    {
+        var modeInfo = modeBlock.ModeInfo;
+        if (!modeInfo.IsInterBlock)
+        {
+            throw new NotSupportedException("VP9 inter residual reconstruction requires an inter-predicted block.");
+        }
+
+        if (coefficients.ReferenceType != Vp9ResidualSyntax.InterBlockReferenceType)
+        {
+            throw new ArgumentException("VP9 inter residual reconstruction requires inter-reference coefficient blocks.", nameof(coefficients));
+        }
+
+        var transformSize = coefficients.TransformSize;
+        var transformSizeInPixels = GetTransformSizeInPixels(transformSize);
+        var fullWidth = GetPlaneBlockWidthInPixels(modeInfo.BlockSize, plane);
+        var fullHeight = GetPlaneBlockHeightInPixels(modeInfo.BlockSize, plane);
+        var transformStep4 = Vp9CoefficientEntropyContext.GetTransformSizeIn4x4Blocks(transformSize);
+        var planeInfo = GetPlaneInfo(frameBuffer, plane);
+        var originX = plane == 0 ? modeBlock.MiColumn * 8 : modeBlock.MiColumn * 4;
+        var originY = plane == 0 ? modeBlock.MiRow * 8 : modeBlock.MiRow * 4;
+        var visibleWidth = Math.Min(fullWidth, planeInfo.Metadata.Width - originX);
+        var visibleHeight = Math.Min(fullHeight, planeInfo.Metadata.Height - originY);
+        if (visibleWidth <= 0 || visibleHeight <= 0)
+        {
+            throw new ArgumentException("VP9 inter residual block lies outside the visible frame.", nameof(modeBlock));
+        }
+
+        var width4 = DivideRoundUp(visibleWidth, 4);
+        var height4 = DivideRoundUp(visibleHeight, 4);
+        if (coefficients.Row4 < 0 ||
+            coefficients.Column4 < 0 ||
+            coefficients.Row4 >= height4 ||
+            coefficients.Column4 >= width4 ||
+            coefficients.Row4 % transformStep4 != 0 ||
+            coefficients.Column4 % transformStep4 != 0)
+        {
+            throw new ArgumentException(
+                $"VP9 inter coefficient block transform offset does not fit the block geometry: " +
+                $"MI ({modeBlock.MiRow},{modeBlock.MiColumn}) plane {plane} block {modeInfo.BlockSize} " +
+                $"transform {transformSize} step4 {transformStep4} offset ({coefficients.Row4},{coefficients.Column4}) " +
+                $"visible4 {width4}x{height4} visiblePixels {visibleWidth}x{visibleHeight} " +
+                $"eob {coefficients.Eob}.",
+                nameof(coefficients));
+        }
+
+        if (coefficients.Eob == 0)
+        {
+            return;
+        }
+
+        var x = originX + (coefficients.Column4 * 4);
+        var y = originY + (coefficients.Row4 * 4);
+        var visibleTransformWidth = Math.Min(transformSizeInPixels, planeInfo.Metadata.Width - x);
+        var visibleTransformHeight = Math.Min(transformSizeInPixels, planeInfo.Metadata.Height - y);
+        if (visibleTransformWidth <= 0 || visibleTransformHeight <= 0)
+        {
+            return;
+        }
+
+        var planePixels = frameBuffer.Pixels.AsSpan(planeInfo.Metadata.Offset, planeInfo.Metadata.Length);
+        if (visibleTransformWidth != transformSizeInPixels || visibleTransformHeight != transformSizeInPixels)
+        {
+            AddClippedInterResidualBlock(
+                planePixels,
+                planeInfo.Stride,
+                x,
+                y,
+                transformSizeInPixels,
+                visibleTransformWidth,
+                visibleTransformHeight,
+                transformSize,
+                coefficients.TransformType,
+                coefficients.DequantizedCoefficients,
+                coefficients.Eob);
+            return;
+        }
+
+        Vp9InverseTransform.AddBlock(
+            planePixels,
+            planeInfo.Stride,
+            x,
+            y,
+            transformSize,
+            coefficients.TransformType,
+            coefficients.DequantizedCoefficients,
+            coefficients.Eob);
+    }
+
     private static void AddClippedInterResidualBlock(
         Span<byte> plane,
         int stride,
@@ -304,6 +397,33 @@ internal static class Vp9BlockReconstructor
         int visibleHeight,
         Vp9TransformSize transformSize,
         Vp9CoefficientBlockProbe coefficients)
+    {
+        AddClippedInterResidualBlock(
+            plane,
+            stride,
+            x,
+            y,
+            transformSizeInPixels,
+            visibleWidth,
+            visibleHeight,
+            transformSize,
+            coefficients.TransformType,
+            coefficients.DequantizedCoefficients,
+            coefficients.Eob);
+    }
+
+    private static void AddClippedInterResidualBlock(
+        Span<byte> plane,
+        int stride,
+        int x,
+        int y,
+        int transformSizeInPixels,
+        int visibleWidth,
+        int visibleHeight,
+        Vp9TransformSize transformSize,
+        Vp9TransformType transformType,
+        ReadOnlySpan<int> coefficients,
+        int eob)
     {
         var temp = new byte[checked(transformSizeInPixels * transformSizeInPixels)];
         for (var row = 0; row < visibleHeight; row++)
@@ -318,9 +438,9 @@ internal static class Vp9BlockReconstructor
             x: 0,
             y: 0,
             transformSize,
-            coefficients.TransformType,
-            coefficients.DequantizedCoefficients,
-            coefficients.Eob);
+            transformType,
+            coefficients,
+            eob);
 
         CopyVisibleBlock(
             temp,
