@@ -1,5 +1,7 @@
 namespace VPDecoder;
 
+using System.Runtime.CompilerServices;
+
 internal static class Vp9MotionCompensator
 {
     private const int FilterBits = 7;
@@ -158,19 +160,39 @@ internal static class Vp9MotionCompensator
             return false;
         }
 
+        if (subpelX == 0 &&
+            subpelY == 0 &&
+            IsInside(sourcePlane, sourceX, sourceY, width, height))
+        {
+            CopyPlaneRows(
+                referenceFrame.Pixels,
+                sourcePlane,
+                sourceX,
+                sourceY,
+                destination.Pixels,
+                destinationPlane,
+                destinationX,
+                destinationY,
+                width,
+                height);
+            return true;
+        }
+
+        var sourcePixels = referenceFrame.Pixels.AsSpan();
+        var kernels = GetFilterKernels(interpolationFilter);
         for (var row = 0; row < height; row++)
         {
             var destinationOffset = destinationPlane.Offset + ((destinationY + row) * destinationPlane.Stride) + destinationX;
             for (var column = 0; column < width; column++)
             {
                 destination.Pixels[destinationOffset + column] = PredictPixel(
-                    referenceFrame.Pixels,
+                    sourcePixels,
                     sourcePlane,
                     sourceX + column,
                     sourceY + row,
                     subpelX,
                     subpelY,
-                    interpolationFilter);
+                    kernels);
             }
         }
 
@@ -238,27 +260,55 @@ internal static class Vp9MotionCompensator
             return false;
         }
 
+        if (subpelX0 == 0 &&
+            subpelY0 == 0 &&
+            subpelX1 == 0 &&
+            subpelY1 == 0 &&
+            IsInside(sourcePlane0, sourceX0, sourceY0, width, height) &&
+            IsInside(sourcePlane1, sourceX1, sourceY1, width, height))
+        {
+            AveragePlaneRows(
+                referenceFrame0.Pixels,
+                sourcePlane0,
+                sourceX0,
+                sourceY0,
+                referenceFrame1.Pixels,
+                sourcePlane1,
+                sourceX1,
+                sourceY1,
+                destination.Pixels,
+                destinationPlane,
+                destinationX,
+                destinationY,
+                width,
+                height);
+            return true;
+        }
+
+        var sourcePixels0 = referenceFrame0.Pixels.AsSpan();
+        var sourcePixels1 = referenceFrame1.Pixels.AsSpan();
+        var kernels = GetFilterKernels(interpolationFilter);
         for (var row = 0; row < height; row++)
         {
             var destinationOffset = destinationPlane.Offset + ((destinationY + row) * destinationPlane.Stride) + destinationX;
             for (var column = 0; column < width; column++)
             {
                 var pixel0 = PredictPixel(
-                    referenceFrame0.Pixels,
+                    sourcePixels0,
                     sourcePlane0,
                     sourceX0 + column,
                     sourceY0 + row,
                     subpelX0,
                     subpelY0,
-                    interpolationFilter);
+                    kernels);
                 var pixel1 = PredictPixel(
-                    referenceFrame1.Pixels,
+                    sourcePixels1,
                     sourcePlane1,
                     sourceX1 + column,
                     sourceY1 + row,
                     subpelX1,
                     subpelY1,
-                    interpolationFilter);
+                    kernels);
                 destination.Pixels[destinationOffset + column] = (byte)((pixel0 + pixel1 + 1) >> 1);
             }
         }
@@ -267,21 +317,19 @@ internal static class Vp9MotionCompensator
     }
 
     private static byte PredictPixel(
-        ReadOnlyMemory<byte> referencePixels,
+        ReadOnlySpan<byte> pixels,
         Vp9DecodedPlane sourcePlane,
         int sourceX,
         int sourceY,
         int subpelX,
         int subpelY,
-        Vp9InterpolationFilter interpolationFilter)
+        ReadOnlySpan<short> kernels)
     {
-        var pixels = referencePixels.Span;
         if (subpelX == 0 && subpelY == 0)
         {
             return ReadClamped(pixels, sourcePlane, sourceX, sourceY);
         }
 
-        var kernels = GetFilterKernels(interpolationFilter);
         if (subpelY == 0)
         {
             return ApplyHorizontalFilter(pixels, sourcePlane, sourceX, sourceY, kernels.Slice(subpelX * SubpelTaps, SubpelTaps));
@@ -307,6 +355,54 @@ internal static class Vp9MotionCompensator
         }
 
         return ClipPixel(RoundPowerOfTwo(sum, FilterBits));
+    }
+
+    private static void CopyPlaneRows(
+        byte[] sourcePixels,
+        Vp9DecodedPlane sourcePlane,
+        int sourceX,
+        int sourceY,
+        byte[] destinationPixels,
+        Vp9DecodedPlane destinationPlane,
+        int destinationX,
+        int destinationY,
+        int width,
+        int height)
+    {
+        for (var row = 0; row < height; row++)
+        {
+            var sourceOffset = sourcePlane.Offset + ((sourceY + row) * sourcePlane.Stride) + sourceX;
+            var destinationOffset = destinationPlane.Offset + ((destinationY + row) * destinationPlane.Stride) + destinationX;
+            sourcePixels.AsSpan(sourceOffset, width).CopyTo(destinationPixels.AsSpan(destinationOffset, width));
+        }
+    }
+
+    private static void AveragePlaneRows(
+        byte[] sourcePixels0,
+        Vp9DecodedPlane sourcePlane0,
+        int sourceX0,
+        int sourceY0,
+        byte[] sourcePixels1,
+        Vp9DecodedPlane sourcePlane1,
+        int sourceX1,
+        int sourceY1,
+        byte[] destinationPixels,
+        Vp9DecodedPlane destinationPlane,
+        int destinationX,
+        int destinationY,
+        int width,
+        int height)
+    {
+        for (var row = 0; row < height; row++)
+        {
+            var sourceOffset0 = sourcePlane0.Offset + ((sourceY0 + row) * sourcePlane0.Stride) + sourceX0;
+            var sourceOffset1 = sourcePlane1.Offset + ((sourceY1 + row) * sourcePlane1.Stride) + sourceX1;
+            var destinationOffset = destinationPlane.Offset + ((destinationY + row) * destinationPlane.Stride) + destinationX;
+            for (var column = 0; column < width; column++)
+            {
+                destinationPixels[destinationOffset + column] = (byte)((sourcePixels0[sourceOffset0 + column] + sourcePixels1[sourceOffset1 + column] + 1) >> 1);
+            }
+        }
     }
 
     private static bool ValidateReferenceFrame(
@@ -364,10 +460,19 @@ internal static class Vp9MotionCompensator
         return ClipPixel(RoundPowerOfTwo(sum, FilterBits));
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static byte ReadClamped(ReadOnlySpan<byte> pixels, Vp9DecodedPlane plane, int x, int y)
     {
-        var clampedX = Math.Clamp(x, 0, plane.Width - 1);
-        var clampedY = Math.Clamp(y, 0, plane.Height - 1);
+        var clampedX = x < 0
+            ? 0
+            : x >= plane.Width
+                ? plane.Width - 1
+                : x;
+        var clampedY = y < 0
+            ? 0
+            : y >= plane.Height
+                ? plane.Height - 1
+                : y;
         return pixels[plane.Offset + (clampedY * plane.Stride) + clampedX];
     }
 
@@ -386,14 +491,20 @@ internal static class Vp9MotionCompensator
         };
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static int RoundPowerOfTwo(int value, int bits)
     {
         return (value + (1 << (bits - 1))) >> bits;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static byte ClipPixel(int value)
     {
-        return (byte)Math.Clamp(value, byte.MinValue, byte.MaxValue);
+        return value <= byte.MinValue
+            ? byte.MinValue
+            : value >= byte.MaxValue
+                ? byte.MaxValue
+                : (byte)value;
     }
 
     private static bool IsValidQ4MotionVector(Vp9MotionVector motionVector)

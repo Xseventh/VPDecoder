@@ -1,5 +1,7 @@
 namespace VPDecoder;
 
+using System.Runtime.CompilerServices;
+
 public static class Vp9ColorConverter
 {
     public static Vp9DecodedFrame ConvertYuv420ToPacked(
@@ -26,46 +28,58 @@ public static class Vp9ColorConverter
             throw new ArgumentException("VP9 color conversion output must be BGRA8888 or RGBA8888.", nameof(outputFormat));
         }
 
-        var yPlane = yuvFrame.Planes.Single(plane => plane.Plane == Vp9Plane.Y);
-        var uPlane = yuvFrame.Planes.Single(plane => plane.Plane == Vp9Plane.U);
-        var vPlane = yuvFrame.Planes.Single(plane => plane.Plane == Vp9Plane.V);
-        var stride = checked(yuvFrame.Width * 4);
-        var packed = new byte[checked(stride * yuvFrame.Height)];
+        var yPlane = yuvFrame.Planes[0];
+        var uPlane = yuvFrame.Planes[1];
+        var vPlane = yuvFrame.Planes[2];
+        var width = yuvFrame.Width;
+        var height = yuvFrame.Height;
+        var sourcePixels = yuvFrame.Pixels;
+        var stride = checked(width * 4);
+        var packed = new byte[checked(stride * height)];
+        var matrix = GetMatrix(colorSpace);
+        var isStudioRange = colorRange == Vp9ColorRange.Studio;
+        var isBgra = outputFormat == Vp9OutputPixelFormat.Bgra8888;
 
-        for (var y = 0; y < yuvFrame.Height; y++)
+        for (var y = 0; y < height; y++)
         {
             var yRow = yPlane.Offset + (y * yPlane.Stride);
             var uvRow = y / 2;
             var uRow = uPlane.Offset + (uvRow * uPlane.Stride);
             var vRow = vPlane.Offset + (uvRow * vPlane.Stride);
             var outRow = y * stride;
-            for (var x = 0; x < yuvFrame.Width; x++)
+            for (var x = 0; x < width; x += 2)
             {
-                var ySample = yuvFrame.Pixels[yRow + x];
-                var uSample = yuvFrame.Pixels[uRow + (x / 2)];
-                var vSample = yuvFrame.Pixels[vRow + (x / 2)];
-                var (r, g, b) = ConvertSample(ySample, uSample, vSample, colorSpace, colorRange);
-                var offset = outRow + (x * 4);
-                if (outputFormat == Vp9OutputPixelFormat.Bgra8888)
-                {
-                    packed[offset] = b;
-                    packed[offset + 1] = g;
-                    packed[offset + 2] = r;
-                }
-                else
-                {
-                    packed[offset] = r;
-                    packed[offset + 1] = g;
-                    packed[offset + 2] = b;
-                }
+                var uvColumn = x >> 1;
+                var uSample = sourcePixels[uRow + uvColumn];
+                var vSample = sourcePixels[vRow + uvColumn];
+                WritePackedSample(
+                    sourcePixels[yRow + x],
+                    uSample,
+                    vSample,
+                    matrix,
+                    isStudioRange,
+                    packed,
+                    outRow + (x * 4),
+                    isBgra);
 
-                packed[offset + 3] = 255;
+                if (x + 1 < width)
+                {
+                    WritePackedSample(
+                        sourcePixels[yRow + x + 1],
+                        uSample,
+                        vSample,
+                        matrix,
+                        isStudioRange,
+                        packed,
+                        outRow + ((x + 1) * 4),
+                        isBgra);
+                }
             }
         }
 
         return Vp9DecodedFrame.CreatePacked(
-            yuvFrame.Width,
-            yuvFrame.Height,
+            width,
+            height,
             outputFormat,
             packed,
             stride);
@@ -80,31 +94,57 @@ public static class Vp9ColorConverter
             Vp9ColorSpace.Smpte170;
     }
 
-    private static (byte R, byte G, byte B) ConvertSample(
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static void WritePackedSample(
         int y,
         int u,
         int v,
-        Vp9ColorSpace colorSpace,
-        Vp9ColorRange colorRange)
+        Vp9YuvToRgbMatrix matrix,
+        bool isStudioRange,
+        byte[] packed,
+        int offset,
+        bool isBgra)
     {
-        var matrix = GetMatrix(colorSpace);
-        var c = colorRange == Vp9ColorRange.Studio
-            ? Math.Max(0, y - 16) * 298
+        var c = isStudioRange
+            ? (y <= 16 ? 0 : (y - 16) * 298)
             : y * 256;
         var d = u - 128;
         var e = v - 128;
 
-        var r = colorRange == Vp9ColorRange.Studio
+        var r = isStudioRange
             ? (c + (matrix.LimitedCrToR * e) + 128) >> 8
             : y + ((matrix.FullCrToR * e) >> 8);
-        var g = colorRange == Vp9ColorRange.Studio
+        var g = isStudioRange
             ? (c - (matrix.LimitedCbToG * d) - (matrix.LimitedCrToG * e) + 128) >> 8
             : y - ((matrix.FullCbToG * d + matrix.FullCrToG * e) >> 8);
-        var b = colorRange == Vp9ColorRange.Studio
+        var b = isStudioRange
             ? (c + (matrix.LimitedCbToB * d) + 128) >> 8
             : y + ((matrix.FullCbToB * d) >> 8);
 
-        return ((byte)Math.Clamp(r, 0, 255), (byte)Math.Clamp(g, 0, 255), (byte)Math.Clamp(b, 0, 255));
+        if (isBgra)
+        {
+            packed[offset] = ClipPixel(b);
+            packed[offset + 1] = ClipPixel(g);
+            packed[offset + 2] = ClipPixel(r);
+        }
+        else
+        {
+            packed[offset] = ClipPixel(r);
+            packed[offset + 1] = ClipPixel(g);
+            packed[offset + 2] = ClipPixel(b);
+        }
+
+        packed[offset + 3] = 255;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static byte ClipPixel(int value)
+    {
+        return value <= 0
+            ? (byte)0
+            : value >= 255
+                ? (byte)255
+                : (byte)value;
     }
 
     private static Vp9YuvToRgbMatrix GetMatrix(Vp9ColorSpace colorSpace)
