@@ -452,14 +452,13 @@ public sealed class RawVp9Decoder
                 compressedHeader);
         }
 
-        if (!Vp9TileSyntaxScanner.TryReconstructFullInterFrameZeroMvWithResidualMetadata(
-                packet.ToArray(),
+        if (!Vp9TileSyntaxScanner.TryReconstructFullInterFrameDirectWithResidualMetadata(
+                packet,
                 header,
                 compressedHeader,
                 tileBuffers,
                 _referenceFrames,
                 out var reconstructedFrame,
-                out _,
                 out var diagnostic,
                 _previousFrameMotionVectors))
         {

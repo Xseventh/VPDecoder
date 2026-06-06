@@ -894,6 +894,136 @@ internal static class Vp9TileSyntaxScanner
         return true;
     }
 
+    public static bool TryReconstructFullInterFrameDirectWithResidualMetadata(
+        ReadOnlySpan<byte> packet,
+        Vp9FrameHeader header,
+        Vp9CompressedHeader compressedHeader,
+        IReadOnlyList<Vp9TileBuffer> tileBuffers,
+        Vp9ReferenceFrameStore referenceFrames,
+        out Vp9ReconstructedFrame? reconstructedFrame,
+        out Vp9DecodeDiagnostic? diagnostic,
+        Vp9PreviousFrameMotionVectors? previousFrameMotionVectors = null)
+    {
+        reconstructedFrame = null;
+        diagnostic = null;
+
+        if (header.FrameType != Vp9FrameType.InterFrame || header.IntraOnly)
+        {
+            diagnostic = Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(
+                "VP9 direct inter reconstruction requires an ordinary inter frame.");
+            return false;
+        }
+
+        if (!TryValidateInter8BitYuv420Header(header, out diagnostic))
+        {
+            return false;
+        }
+
+        try
+        {
+            var eligiblePreviousFrameMotionVectors = GetEligiblePreviousFrameMotionVectors(
+                header,
+                previousFrameMotionVectors);
+            var dequantTables = Vp9DequantTables.Create(header.Quantization, header.BitDepth);
+            var geometries = Vp9TileGeometryBuilder.Build(header, tileBuffers);
+            var destination = Vp9YuvFrameBuffer.Create(header.Width, header.Height);
+            var predictedModeBlocks = new List<Vp9InterBlockModeInfoProbe>();
+            var coefficientGroups = new List<Vp9CoefficientBlockGroupProbe>(3);
+            foreach (var geometry in geometries)
+            {
+                if (geometry.Buffer.DataOffset + geometry.Buffer.Size > packet.Length)
+                {
+                    diagnostic = Vp9DecodeDiagnostic.TruncatedPacket("VP9 tile buffer extends past the packet boundary.");
+                    return false;
+                }
+
+                var tileBytes = packet.Slice(geometry.Buffer.DataOffset, geometry.Buffer.Size);
+                var reader = new Vp9BoolReader(tileBytes);
+                var syntaxContext = Vp9InterFrameSyntaxContext.Create(header);
+                var entropyContext = Vp9CoefficientEntropyContext.Create(header);
+                var decodedModeBlocks = new List<Vp9InterBlockModeInfoProbe>();
+
+                for (var miRow = geometry.MiRowStart; miRow < geometry.MiRowEnd; miRow += SuperblockSizeInMiUnits)
+                {
+                    syntaxContext.ResetLeftPartitionContext();
+                    entropyContext.ResetLeftContexts();
+
+                    for (var miColumn = geometry.MiColumnStart; miColumn < geometry.MiColumnEnd; miColumn += SuperblockSizeInMiUnits)
+                    {
+                        if (!TryReconstructInterPartitionResidualSyntaxDirect(
+                                ref reader,
+                                header,
+                                compressedHeader,
+                                dequantTables,
+                                geometry,
+                                syntaxContext,
+                                entropyContext,
+                                destination,
+                                referenceFrames,
+                                miRow,
+                                miColumn,
+                                Vp9BlockSize.Block64X64,
+                                decodedModeBlocks,
+                                predictedModeBlocks,
+                                coefficientGroups,
+                                out diagnostic,
+                                eligiblePreviousFrameMotionVectors))
+                        {
+                            return false;
+                        }
+
+                        if (reader.HasError)
+                        {
+                            diagnostic = Vp9DecodeDiagnostic.TruncatedPacket(
+                                $"VP9 direct inter reconstruction ended unexpectedly at tile {geometry.Buffer.Index} MI ({miRow},{miColumn}).");
+                            return false;
+                        }
+                    }
+                }
+
+                if (reader.HasError)
+                {
+                    diagnostic = Vp9DecodeDiagnostic.TruncatedPacket("VP9 direct inter reconstruction ended unexpectedly.");
+                    return false;
+                }
+            }
+
+            reconstructedFrame = Vp9ReconstructedFrame.FromInterModeBlocks(
+                destination.ToDecodedFrame(),
+                predictedModeBlocks,
+                header.TileInfo.MiRows,
+                header.TileInfo.MiColumns);
+            return true;
+        }
+        catch (ArgumentException ex)
+        {
+            diagnostic = Vp9DecodeDiagnostic.InvalidPacket(ex.Message);
+            return false;
+        }
+        catch (NotSupportedException ex)
+        {
+            diagnostic = Vp9DecodeDiagnostic.UnsupportedInterFrameFeature(ex.Message);
+            return false;
+        }
+        catch (OverflowException)
+        {
+            diagnostic = Vp9DecodeDiagnostic.AllocationLimitExceeded(
+                "VP9 direct inter reconstruction YUV frame buffer size overflowed.");
+            return false;
+        }
+        catch (OutOfMemoryException)
+        {
+            diagnostic = Vp9DecodeDiagnostic.AllocationLimitExceeded(
+                "VP9 direct inter reconstruction YUV frame buffer allocation failed.");
+            return false;
+        }
+        catch (Vp9BoolReaderException ex)
+        {
+            diagnostic = ex.Diagnostic;
+            return false;
+        }
+    }
+
     public static bool TryReconstructInterFrameFromProbes(
         Vp9FrameHeader header,
         IReadOnlyList<Vp9InterSuperblockSyntaxProbe> syntaxProbes,
@@ -2261,6 +2391,430 @@ internal static class Vp9TileSyntaxScanner
         return true;
     }
 
+    private static bool TryReconstructInterPartitionResidualSyntaxDirect(
+        ref Vp9BoolReader reader,
+        Vp9FrameHeader header,
+        Vp9CompressedHeader compressedHeader,
+        Vp9DequantTables dequantTables,
+        Vp9TileGeometry geometry,
+        Vp9InterFrameSyntaxContext syntaxContext,
+        Vp9CoefficientEntropyContext entropyContext,
+        Vp9YuvFrameBuffer destination,
+        Vp9ReferenceFrameStore referenceFrames,
+        int miRow,
+        int miColumn,
+        Vp9BlockSize blockSize,
+        List<Vp9InterBlockModeInfoProbe> decodedModeBlocks,
+        List<Vp9InterBlockModeInfoProbe> predictedModeBlocks,
+        List<Vp9CoefficientBlockGroupProbe> coefficientGroups,
+        out Vp9DecodeDiagnostic? diagnostic,
+        Vp9PreviousFrameMotionVectors? previousFrameMotionVectors)
+    {
+        diagnostic = null;
+        if (miRow >= header.TileInfo.MiRows || miColumn >= header.TileInfo.MiColumns)
+        {
+            return true;
+        }
+
+        var hbs = Vp9ModeInfoSyntax.GetHalfBlockSizeInMiUnits(blockSize);
+        var hasRows = miRow + hbs < header.TileInfo.MiRows;
+        var hasColumns = miColumn + hbs < header.TileInfo.MiColumns;
+        var partitionContext = syntaxContext.GetPartitionContext(miRow, miColumn, blockSize);
+        var partition = Vp9PartitionSyntax.ReadPartition(
+            ref reader,
+            compressedHeader.FrameContext,
+            partitionContext,
+            hasRows,
+            hasColumns);
+        if (reader.HasError)
+        {
+            diagnostic = Vp9DecodeDiagnostic.TruncatedPacket(
+                $"VP9 direct inter partition read ended unexpectedly at tile {geometry.Buffer.Index} MI ({miRow},{miColumn}) block {blockSize}.");
+            return false;
+        }
+
+        var subsize = Vp9ModeInfoSyntax.GetSubsize(blockSize, partition);
+        if (hbs == 0)
+        {
+            if (!TryReconstructInterBlockModeInfoAndResidualDirect(
+                    ref reader,
+                    header,
+                    compressedHeader,
+                    dequantTables,
+                    geometry,
+                    syntaxContext,
+                    entropyContext,
+                    destination,
+                    referenceFrames,
+                    miRow,
+                    miColumn,
+                    subsize,
+                    decodedModeBlocks,
+                    predictedModeBlocks,
+                    coefficientGroups,
+                    out diagnostic,
+                    previousFrameMotionVectors))
+            {
+                return false;
+            }
+
+            syntaxContext.UpdatePartitionContext(miRow, miColumn, blockSize, subsize);
+            return true;
+        }
+
+        switch (partition)
+        {
+            case Vp9PartitionType.None:
+                if (!TryReconstructInterBlockModeInfoAndResidualDirect(
+                        ref reader,
+                        header,
+                        compressedHeader,
+                        dequantTables,
+                        geometry,
+                        syntaxContext,
+                        entropyContext,
+                        destination,
+                        referenceFrames,
+                        miRow,
+                        miColumn,
+                        subsize,
+                        decodedModeBlocks,
+                        predictedModeBlocks,
+                        coefficientGroups,
+                        out diagnostic,
+                        previousFrameMotionVectors))
+                {
+                    return false;
+                }
+
+                break;
+
+            case Vp9PartitionType.Horizontal:
+                if (!TryReconstructInterBlockModeInfoAndResidualDirect(
+                        ref reader,
+                        header,
+                        compressedHeader,
+                        dequantTables,
+                        geometry,
+                        syntaxContext,
+                        entropyContext,
+                        destination,
+                        referenceFrames,
+                        miRow,
+                        miColumn,
+                        subsize,
+                        decodedModeBlocks,
+                        predictedModeBlocks,
+                        coefficientGroups,
+                        out diagnostic,
+                        previousFrameMotionVectors))
+                {
+                    return false;
+                }
+
+                if (hasRows)
+                {
+                    if (!TryReconstructInterBlockModeInfoAndResidualDirect(
+                            ref reader,
+                            header,
+                            compressedHeader,
+                            dequantTables,
+                            geometry,
+                            syntaxContext,
+                            entropyContext,
+                            destination,
+                            referenceFrames,
+                            miRow + hbs,
+                            miColumn,
+                            subsize,
+                            decodedModeBlocks,
+                            predictedModeBlocks,
+                            coefficientGroups,
+                            out diagnostic,
+                            previousFrameMotionVectors))
+                    {
+                        return false;
+                    }
+                }
+
+                break;
+
+            case Vp9PartitionType.Vertical:
+                if (!TryReconstructInterBlockModeInfoAndResidualDirect(
+                        ref reader,
+                        header,
+                        compressedHeader,
+                        dequantTables,
+                        geometry,
+                        syntaxContext,
+                        entropyContext,
+                        destination,
+                        referenceFrames,
+                        miRow,
+                        miColumn,
+                        subsize,
+                        decodedModeBlocks,
+                        predictedModeBlocks,
+                        coefficientGroups,
+                        out diagnostic,
+                        previousFrameMotionVectors))
+                {
+                    return false;
+                }
+
+                if (hasColumns)
+                {
+                    if (!TryReconstructInterBlockModeInfoAndResidualDirect(
+                            ref reader,
+                            header,
+                            compressedHeader,
+                            dequantTables,
+                            geometry,
+                            syntaxContext,
+                            entropyContext,
+                            destination,
+                            referenceFrames,
+                            miRow,
+                            miColumn + hbs,
+                            subsize,
+                            decodedModeBlocks,
+                            predictedModeBlocks,
+                            coefficientGroups,
+                            out diagnostic,
+                            previousFrameMotionVectors))
+                    {
+                        return false;
+                    }
+                }
+
+                break;
+
+            case Vp9PartitionType.Split:
+                if (!TryReconstructInterPartitionResidualSyntaxDirect(
+                        ref reader,
+                        header,
+                        compressedHeader,
+                        dequantTables,
+                        geometry,
+                        syntaxContext,
+                        entropyContext,
+                        destination,
+                        referenceFrames,
+                        miRow,
+                        miColumn,
+                        subsize,
+                        decodedModeBlocks,
+                        predictedModeBlocks,
+                        coefficientGroups,
+                        out diagnostic,
+                        previousFrameMotionVectors))
+                {
+                    return false;
+                }
+
+                if (hasColumns &&
+                    !TryReconstructInterPartitionResidualSyntaxDirect(
+                        ref reader,
+                        header,
+                        compressedHeader,
+                        dequantTables,
+                        geometry,
+                        syntaxContext,
+                        entropyContext,
+                        destination,
+                        referenceFrames,
+                        miRow,
+                        miColumn + hbs,
+                        subsize,
+                        decodedModeBlocks,
+                        predictedModeBlocks,
+                        coefficientGroups,
+                        out diagnostic,
+                        previousFrameMotionVectors))
+                {
+                    return false;
+                }
+
+                if (hasRows &&
+                    !TryReconstructInterPartitionResidualSyntaxDirect(
+                        ref reader,
+                        header,
+                        compressedHeader,
+                        dequantTables,
+                        geometry,
+                        syntaxContext,
+                        entropyContext,
+                        destination,
+                        referenceFrames,
+                        miRow + hbs,
+                        miColumn,
+                        subsize,
+                        decodedModeBlocks,
+                        predictedModeBlocks,
+                        coefficientGroups,
+                        out diagnostic,
+                        previousFrameMotionVectors))
+                {
+                    return false;
+                }
+
+                if (hasRows && hasColumns)
+                {
+                    if (!TryReconstructInterPartitionResidualSyntaxDirect(
+                            ref reader,
+                            header,
+                            compressedHeader,
+                            dequantTables,
+                            geometry,
+                            syntaxContext,
+                            entropyContext,
+                            destination,
+                            referenceFrames,
+                            miRow + hbs,
+                            miColumn + hbs,
+                            subsize,
+                            decodedModeBlocks,
+                            predictedModeBlocks,
+                            coefficientGroups,
+                            out diagnostic,
+                            previousFrameMotionVectors))
+                    {
+                        return false;
+                    }
+                }
+
+                break;
+
+            default:
+                throw new ArgumentOutOfRangeException(nameof(partition), partition, "Unsupported VP9 partition type.");
+        }
+
+        if (blockSize >= Vp9BlockSize.Block8X8 &&
+            (blockSize == Vp9BlockSize.Block8X8 || partition != Vp9PartitionType.Split))
+        {
+            syntaxContext.UpdatePartitionContext(miRow, miColumn, blockSize, subsize);
+        }
+
+        return true;
+    }
+
+    private static bool TryReconstructInterBlockModeInfoAndResidualDirect(
+        ref Vp9BoolReader reader,
+        Vp9FrameHeader header,
+        Vp9CompressedHeader compressedHeader,
+        Vp9DequantTables dequantTables,
+        Vp9TileGeometry geometry,
+        Vp9InterFrameSyntaxContext syntaxContext,
+        Vp9CoefficientEntropyContext entropyContext,
+        Vp9YuvFrameBuffer destination,
+        Vp9ReferenceFrameStore referenceFrames,
+        int miRow,
+        int miColumn,
+        Vp9BlockSize blockSize,
+        List<Vp9InterBlockModeInfoProbe> decodedModeBlocks,
+        List<Vp9InterBlockModeInfoProbe> predictedModeBlocks,
+        List<Vp9CoefficientBlockGroupProbe> coefficientGroups,
+        out Vp9DecodeDiagnostic? diagnostic,
+        Vp9PreviousFrameMotionVectors? previousFrameMotionVectors)
+    {
+        if (!TryReadInterBlockModeInfoCore(
+                ref reader,
+                header,
+                compressedHeader,
+                geometry,
+                syntaxContext,
+                miRow,
+                miColumn,
+                blockSize,
+                [],
+                decodedModeBlocks,
+                out var modeBlock,
+                out diagnostic,
+                previousFrameMotionVectors))
+        {
+            return false;
+        }
+
+        decodedModeBlocks.Add(modeBlock);
+        coefficientGroups.Clear();
+        ReadInterBlockCoefficientGroups(
+            ref reader,
+            header,
+            compressedHeader,
+            dequantTables,
+            modeBlock,
+            entropyContext,
+            coefficientGroups);
+        if (reader.HasError)
+        {
+            diagnostic = Vp9DecodeDiagnostic.TruncatedPacket(
+                $"VP9 direct inter residual read ended unexpectedly at tile {geometry.Buffer.Index} MI ({miRow},{miColumn}) block {blockSize}.");
+            return false;
+        }
+
+        if (coefficientGroups.Count != 3)
+        {
+            diagnostic = Vp9DecodeDiagnostic.InternalDecodeFailure(
+                "VP9 direct inter reconstruction expected exactly three residual coefficient groups.");
+            return false;
+        }
+
+        if (ShouldMarkInterBlockSkippedForSyntaxContext(modeBlock, coefficientGroups, 0))
+        {
+            modeBlock = modeBlock with
+            {
+                ModeInfo = modeBlock.ModeInfo with
+                {
+                    Skip = true
+                }
+            };
+            decodedModeBlocks[^1] = modeBlock;
+            syntaxContext.SetModeInfo(miRow, miColumn, modeBlock.ModeInfo);
+        }
+
+        if (!modeBlock.ModeInfo.IsInterBlock)
+        {
+            var intraModeInfo = modeBlock.ToIntraModeInfoProbe();
+            for (var plane = 0; plane < 3; plane++)
+            {
+                Vp9BlockReconstructor.ReconstructDcOnlyGroup(
+                    destination,
+                    geometry,
+                    intraModeInfo,
+                    coefficientGroups[plane],
+                    plane);
+            }
+
+            predictedModeBlocks.Add(modeBlock);
+            return true;
+        }
+
+        if (!TryPredictInterBlock(
+                referenceFrames,
+                header,
+                destination,
+                modeBlock,
+                predictedModeBlocks,
+                out var predictedModeBlock,
+                out diagnostic,
+                previousFrameMotionVectors))
+        {
+            return false;
+        }
+
+        predictedModeBlocks.Add(predictedModeBlock);
+        for (var plane = 0; plane < 3; plane++)
+        {
+            Vp9BlockReconstructor.AddInterResidualGroup(
+                destination,
+                modeBlock,
+                coefficientGroups[plane],
+                plane);
+        }
+
+        return true;
+    }
+
     private static bool TryReadInterBlockModeInfoAndResidual(
         ref Vp9BoolReader reader,
         Vp9FrameHeader header,
@@ -2394,6 +2948,45 @@ internal static class Vp9TileSyntaxScanner
         out Vp9DecodeDiagnostic? diagnostic,
         Vp9PreviousFrameMotionVectors? previousFrameMotionVectors)
     {
+        if (!TryReadInterBlockModeInfoCore(
+                ref reader,
+                header,
+                compressedHeader,
+                geometry,
+                syntaxContext,
+                miRow,
+                miColumn,
+                blockSize,
+                partitionPath,
+                decodedModeBlocks,
+                out var modeBlock,
+                out diagnostic,
+                previousFrameMotionVectors))
+        {
+            return false;
+        }
+
+        modes.Add(modeBlock);
+        decodedModeBlocks.Add(modeBlock);
+        return true;
+    }
+
+    private static bool TryReadInterBlockModeInfoCore(
+        ref Vp9BoolReader reader,
+        Vp9FrameHeader header,
+        Vp9CompressedHeader compressedHeader,
+        Vp9TileGeometry geometry,
+        Vp9InterFrameSyntaxContext syntaxContext,
+        int miRow,
+        int miColumn,
+        Vp9BlockSize blockSize,
+        IReadOnlyList<Vp9PartitionType> partitionPath,
+        IReadOnlyList<Vp9InterBlockModeInfoProbe> decodedModeBlocks,
+        out Vp9InterBlockModeInfoProbe modeBlock,
+        out Vp9DecodeDiagnostic? diagnostic,
+        Vp9PreviousFrameMotionVectors? previousFrameMotionVectors)
+    {
+        modeBlock = null!;
         var singleReferenceContexts = syntaxContext.GetSingleReferenceContexts(
             miRow,
             miColumn,
@@ -2450,7 +3043,7 @@ internal static class Vp9TileSyntaxScanner
             return false;
         }
 
-        var modeBlock = new Vp9InterBlockModeInfoProbe(
+        modeBlock = new Vp9InterBlockModeInfoProbe(
             geometry.Buffer.Index,
             miRow,
             miColumn,
@@ -2458,8 +3051,6 @@ internal static class Vp9TileSyntaxScanner
             modeInfo);
         if (!modeInfo.IsInterBlock)
         {
-            modes.Add(modeBlock);
-            decodedModeBlocks.Add(modeBlock);
             syntaxContext.SetModeInfo(miRow, miColumn, modeBlock.ModeInfo);
             return true;
         }
@@ -2477,8 +3068,6 @@ internal static class Vp9TileSyntaxScanner
             return false;
         }
 
-        modes.Add(modeBlock);
-        decodedModeBlocks.Add(modeBlock);
         syntaxContext.SetModeInfo(miRow, miColumn, modeBlock.ModeInfo);
         return true;
     }

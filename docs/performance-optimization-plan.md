@@ -170,3 +170,37 @@ Observed short-run benchmark after the compact metadata slice:
 The compact metadata change is a smaller win than the zero-coefficient work,
 but it removes unnecessary reconstructed-frame retention and prepares the
 production decode path for a fuller split from diagnostic probe storage.
+
+Direct inter reconstruction production path:
+
+- Added a production-only ordinary inter reconstruction path that consumes tile
+  partition, mode-info, and residual syntax while writing pixels immediately.
+- Kept the existing probe-returning path for diagnostics and tests.
+- Shared the mode-info parser between both paths so unsupported features and
+  motion-vector syntax stay consistent.
+- Removed the `packet.ToArray()` copy from the ordinary inter production path by
+  accepting the raw packet as `ReadOnlySpan<byte>`.
+- The direct path still allocates coefficient group probes per decoded block;
+  it no longer retains full-frame superblock probe lists before reconstruction.
+
+Validation:
+
+- `dotnet build VPDecoder.slnx --no-restore -m:1`
+- `dotnet test VPDecoder.slnx -m:1 --no-restore`
+- 97-frame repro sequence YUV420 comparison against libvpx for color and alpha
+  frames 0, 51, 72, and 96; all Y/U/V totals remained bitwise identical
+  (`mae=0`, `rmse=0`, `maxAbs=0`).
+
+Observed short-run benchmark after the direct production path:
+
+| Stream/output | Elapsed range | Allocated MB |
+| --- | ---: | ---: |
+| Color `Yuv420` | 5326-5453 ms | 4470 MB |
+| Alpha `Yuv420` | 5987-6075 ms | 4143 MB |
+| Color `Bgra8888` | 6320-6371 ms | 5799 MB |
+
+This slice mainly removes the second pass over retained full-frame inter
+probes, so the elapsed-time win is larger than the allocation win. The next
+highest-impact step is to stop materializing coefficient group probes in the
+production path and feed inverse transform/residual add directly from scratch
+coefficient buffers.
