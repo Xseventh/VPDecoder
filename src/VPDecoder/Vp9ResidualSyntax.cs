@@ -69,6 +69,7 @@ internal static class Vp9ResidualSyntax
         [Vp9TransformSize.Tx4X4, Vp9TransformSize.Tx8X8, Vp9TransformSize.Tx16X16, Vp9TransformSize.Tx16X16],
         [Vp9TransformSize.Tx4X4, Vp9TransformSize.Tx8X8, Vp9TransformSize.Tx16X16, Vp9TransformSize.Tx32X32]
     ];
+    private static readonly string[] ZeroCoefficientHashes = CreateZeroCoefficientHashes();
 
     public static Vp9CoefficientTokenProbe ReadFirstYCoefficientToken(
         ref Vp9BoolReader reader,
@@ -236,7 +237,7 @@ internal static class Vp9ResidualSyntax
                 for (var column = 0; column < width4; column += step)
                 {
                     var transformType = GetTransformType(modeInfo, plane, transformSize, row, column);
-                    blocks.Add(CreateBlockProbe(
+                    blocks.Add(CreateZeroBlockProbe(
                         modeInfo,
                         transformSize,
                         transformType,
@@ -244,9 +245,7 @@ internal static class Vp9ResidualSyntax
                         column,
                         plane == 0 ? 0 : 1,
                         referenceType: 0,
-                        initialCoefficientContext: 0,
-                        eob: 0,
-                        new int[Vp9ScanTables.GetMaximumEob(transformSize)]));
+                        initialCoefficientContext: 0));
                 }
             }
 
@@ -359,7 +358,7 @@ internal static class Vp9ResidualSyntax
         {
             for (var column = 0; column < width4; column += step)
             {
-                blocks.Add(CreateBlockProbe(
+                blocks.Add(CreateZeroBlockProbe(
                     modeBlock.TileIndex,
                     transformSize,
                     transformType,
@@ -367,9 +366,7 @@ internal static class Vp9ResidualSyntax
                     column,
                     planeType,
                     InterBlockReferenceType,
-                    initialCoefficientContext: 0,
-                    eob: 0,
-                    new int[Vp9ScanTables.GetMaximumEob(transformSize)]));
+                    initialCoefficientContext: 0));
             }
         }
 
@@ -397,7 +394,7 @@ internal static class Vp9ResidualSyntax
         {
             for (var column = 0; column < width4; column += step)
             {
-                blocks.Add(CreateBlockProbe(
+                blocks.Add(CreateZeroBlockProbe(
                     modeInfo,
                     transformSize,
                     GetTransformType(modeInfo, plane, transformSize, row, column),
@@ -405,9 +402,7 @@ internal static class Vp9ResidualSyntax
                     column,
                     planeType,
                     IntraBlockReferenceType,
-                    initialCoefficientContext: 0,
-                    eob: 0,
-                    new int[Vp9ScanTables.GetMaximumEob(transformSize)]));
+                    initialCoefficientContext: 0));
             }
         }
 
@@ -556,10 +551,9 @@ internal static class Vp9ResidualSyntax
         int initialCoefficientContext)
     {
         var maxEob = Vp9ScanTables.GetMaximumEob(transformSize);
-        var coefficients = new int[maxEob];
         if (skip)
         {
-            return CreateBlockProbe(
+            return CreateZeroBlockProbe(
                 tileIndex,
                 transformSize,
                 transformType,
@@ -567,35 +561,41 @@ internal static class Vp9ResidualSyntax
                 column4,
                 planeType,
                 referenceType,
-                initialCoefficientContext,
-                eob: 0,
-                coefficients);
+                initialCoefficientContext);
         }
 
         var probabilities = frameContext.CoefficientProbabilities;
-        var scan = Vp9ScanTables.GetScan(transformSize, transformType);
-        var neighbors = Vp9ScanTables.GetNeighbors(transformSize, transformType);
-        var tokenCache = new byte[maxEob];
         var coefficientIndex = 0;
         var coefficientContext = initialCoefficientContext;
         var dq = dcDequant;
+        var band = Vp9ScanTables.GetBand(transformSize, coefficientIndex);
+        var probabilityIndex = frameContext.GetCoefficientProbabilityIndex(
+            (int)transformSize,
+            planeType,
+            referenceType,
+            band,
+            coefficientContext,
+            0);
 
-        while (coefficientIndex < maxEob)
+        if (!reader.Read(probabilities[probabilityIndex]))
         {
-            var band = Vp9ScanTables.GetBand(transformSize, coefficientIndex);
-            var probabilityIndex = frameContext.GetCoefficientProbabilityIndex(
-                (int)transformSize,
+            return CreateZeroBlockProbe(
+                tileIndex,
+                transformSize,
+                transformType,
+                row4,
+                column4,
                 planeType,
                 referenceType,
-                band,
-                coefficientContext,
-                0);
+                initialCoefficientContext);
+        }
 
-            if (!reader.Read(probabilities[probabilityIndex]))
-            {
-                break;
-            }
-
+        var coefficients = new int[maxEob];
+        var scan = Vp9ScanTables.GetScan(transformSize, transformType);
+        var neighbors = Vp9ScanTables.GetNeighbors(transformSize, transformType);
+        var tokenCache = new byte[maxEob];
+        while (coefficientIndex < maxEob)
+        {
             while (!reader.Read(probabilities[probabilityIndex + 1]))
             {
                 tokenCache[scan[coefficientIndex]] = 0;
@@ -638,10 +638,25 @@ internal static class Vp9ResidualSyntax
             coefficients[rasterIndex] = dequantizedValue;
             tokenCache[rasterIndex] = coefficient.TokenCacheValue;
             coefficientIndex++;
-            if (coefficientIndex < maxEob)
+            if (coefficientIndex >= maxEob)
             {
-                coefficientContext = Vp9ScanTables.GetCoefficientContext(neighbors, tokenCache, coefficientIndex);
-                dq = acDequant;
+                break;
+            }
+
+            coefficientContext = Vp9ScanTables.GetCoefficientContext(neighbors, tokenCache, coefficientIndex);
+            band = Vp9ScanTables.GetBand(transformSize, coefficientIndex);
+            probabilityIndex = frameContext.GetCoefficientProbabilityIndex(
+                (int)transformSize,
+                planeType,
+                referenceType,
+                band,
+                coefficientContext,
+                0);
+            dq = acDequant;
+
+            if (!reader.Read(probabilities[probabilityIndex]))
+            {
+                break;
             }
         }
 
@@ -682,7 +697,7 @@ internal static class Vp9ResidualSyntax
                 var transformType = GetTransformType(modeInfo, plane: 0, modeInfo.TransformSize, row4, column4);
                 if (modeInfo.Skip)
                 {
-                    blocks[blockIndex] = CreateBlockProbe(
+                    blocks[blockIndex] = CreateZeroBlockProbe(
                         modeInfo,
                         modeInfo.TransformSize,
                         transformType,
@@ -690,9 +705,7 @@ internal static class Vp9ResidualSyntax
                         column4,
                         planeType: 0,
                         referenceType: 0,
-                        initialCoefficientContext: 0,
-                        eob: 0,
-                        new int[Vp9ScanTables.GetMaximumEob(modeInfo.TransformSize)]);
+                        initialCoefficientContext: 0);
                     continue;
                 }
 
@@ -981,6 +994,54 @@ internal static class Vp9ResidualSyntax
             coefficients);
     }
 
+    private static Vp9CoefficientBlockProbe CreateZeroBlockProbe(
+        Vp9ModeInfoProbe modeInfo,
+        Vp9TransformSize transformSize,
+        Vp9TransformType transformType,
+        int row4,
+        int column4,
+        int planeType,
+        int referenceType,
+        int initialCoefficientContext)
+    {
+        return CreateZeroBlockProbe(
+            modeInfo.TileIndex,
+            transformSize,
+            transformType,
+            row4,
+            column4,
+            planeType,
+            referenceType,
+            initialCoefficientContext);
+    }
+
+    private static Vp9CoefficientBlockProbe CreateZeroBlockProbe(
+        int tileIndex,
+        Vp9TransformSize transformSize,
+        Vp9TransformType transformType,
+        int row4,
+        int column4,
+        int planeType,
+        int referenceType,
+        int initialCoefficientContext)
+    {
+        return new Vp9CoefficientBlockProbe(
+            tileIndex,
+            transformSize,
+            transformType,
+            row4,
+            column4,
+            planeType,
+            referenceType,
+            initialCoefficientContext,
+            Eob: 0,
+            NonZeroCount: 0,
+            FirstNonZeroRasterIndex: -1,
+            LastNonZeroRasterIndex: -1,
+            DequantizedCoefficients: new int[Vp9ScanTables.GetMaximumEob(transformSize)],
+            CoefficientsSha256: GetZeroCoefficientHash(transformSize));
+    }
+
     private static Vp9CoefficientBlockProbe CreateBlockProbe(
         int tileIndex,
         Vp9TransformSize transformSize,
@@ -1029,8 +1090,37 @@ internal static class Vp9ResidualSyntax
             HashCoefficients(coefficients));
     }
 
+    private static string GetZeroCoefficientHash(Vp9TransformSize transformSize)
+    {
+        return ZeroCoefficientHashes[(int)transformSize];
+    }
+
+    private static string[] CreateZeroCoefficientHashes()
+    {
+        var hashes = new string[4];
+        hashes[(int)Vp9TransformSize.Tx4X4] = HashZeroCoefficients(Vp9TransformSize.Tx4X4);
+        hashes[(int)Vp9TransformSize.Tx8X8] = HashZeroCoefficients(Vp9TransformSize.Tx8X8);
+        hashes[(int)Vp9TransformSize.Tx16X16] = HashZeroCoefficients(Vp9TransformSize.Tx16X16);
+        hashes[(int)Vp9TransformSize.Tx32X32] = HashZeroCoefficients(Vp9TransformSize.Tx32X32);
+        return hashes;
+    }
+
+    private static string HashZeroCoefficients(Vp9TransformSize transformSize)
+    {
+        var bytes = new byte[Vp9ScanTables.GetMaximumEob(transformSize) * sizeof(int)];
+        return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes)).ToLowerInvariant();
+    }
+
     private static string HashCoefficients(ReadOnlySpan<int> coefficients)
     {
+        if (BitConverter.IsLittleEndian)
+        {
+            return Convert.ToHexString(
+                    System.Security.Cryptography.SHA256.HashData(
+                        System.Runtime.InteropServices.MemoryMarshal.AsBytes(coefficients)))
+                .ToLowerInvariant();
+        }
+
         var bytes = new byte[coefficients.Length * sizeof(int)];
         for (var i = 0; i < coefficients.Length; i++)
         {

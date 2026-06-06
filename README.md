@@ -96,6 +96,13 @@ Current status:
   2656x1352, 8 tile columns.
 - Fails explicitly for unsupported decode work instead of emitting pixels.
 
+Performance notes:
+
+- The current VP9 performance work is tracked in
+  `docs/performance-optimization-plan.md`. The immediate focus is reducing
+  inter-frame decode allocations and splitting production reconstruction from
+  diagnostic probe paths while preserving bitwise YUV420 alignment.
+
 Broader ordinary inter-frame prediction and VP8 sequence/reference state remain
 follow-up slices. The decoder must continue to return explicit unsupported
 diagnostics until those pieces are complete.
