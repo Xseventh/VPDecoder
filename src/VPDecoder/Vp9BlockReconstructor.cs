@@ -412,8 +412,20 @@ internal static class Vp9BlockReconstructor
                 visibleTransformHeight,
                 context.TransformSize,
                 coefficients.TransformType,
-                coefficients.DequantizedCoefficients,
+                coefficients.GetOrCreateDequantizedCoefficients(),
                 coefficients.Eob);
+            return;
+        }
+
+        if (coefficients.IsDcOnlyTransform)
+        {
+            Vp9DcOnlyReconstructor.AddDcOnly(
+                context.PlanePixels,
+                context.Stride,
+                x,
+                y,
+                context.TransformSizeInPixels,
+                coefficients.DcOnlyCoefficient);
             return;
         }
 
@@ -424,7 +436,7 @@ internal static class Vp9BlockReconstructor
             y,
             context.TransformSize,
             coefficients.TransformType,
-            coefficients.DequantizedCoefficients,
+            coefficients.GetOrCreateDequantizedCoefficients(),
             coefficients.Eob);
     }
 

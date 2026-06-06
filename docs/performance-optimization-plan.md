@@ -302,3 +302,34 @@ regression from the previous immediate-add slice and gives packed output a
 noticeable short-run improvement. The remaining allocation is now dominated by
 coefficient payload arrays, reconstructed/predicted mode metadata, frame
 buffers, and packed output buffers.
+
+Production DC-only coefficient payload slice:
+
+- Changed the lightweight production coefficient block data to represent eob=1
+  DCT/DC-only inter residuals with just the DC value.
+- The diagnostic probe wrapper still materializes dense coefficient arrays when
+  SHA/hash metadata is requested.
+- The inter residual adder now writes non-clipped DC-only blocks directly
+  without allocating a full coefficient array.
+
+Validation:
+
+- `dotnet build VPDecoder.slnx --no-restore -m:1`
+- `dotnet test VPDecoder.slnx -m:1 --no-restore`
+- 97-frame repro sequence YUV420 comparison against libvpx for color and alpha
+  frames 0, 51, 72, and 96; all Y/U/V totals remained bitwise identical
+  (`mae=0`, `rmse=0`, `maxAbs=0`).
+
+Observed short-run benchmark after the DC-only payload slice:
+
+| Stream/output | Elapsed range | Allocated MB |
+| --- | ---: | ---: |
+| Color `Yuv420` | 5092-5211 ms | 3997 MB |
+| Alpha `Yuv420` | 5815-6212 ms | 3842 MB |
+| Color `Bgra8888` | 6138-6289 ms | 5326 MB |
+
+This is a small allocation win: about 18 MB less for color `Yuv420` and
+`Bgra8888`, and about 34 MB less for alpha `Yuv420` over the repro sequence.
+Elapsed time is roughly neutral/noisy in this short run. The next allocation
+target is the non-DC coefficient arrays, which needs reusable scratch buffers or
+direct transform input without breaking diagnostic probe materialization.

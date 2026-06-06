@@ -61,7 +61,28 @@ internal readonly record struct Vp9CoefficientBlockData(
     int NonZeroCount,
     int FirstNonZeroRasterIndex,
     int LastNonZeroRasterIndex,
-    int[] DequantizedCoefficients);
+    int[]? DequantizedCoefficients,
+    int DcOnlyCoefficient)
+{
+    public bool IsDcOnlyTransform =>
+        Eob == 1 &&
+        NonZeroCount == 1 &&
+        FirstNonZeroRasterIndex == 0 &&
+        LastNonZeroRasterIndex == 0 &&
+        (TransformSize == Vp9TransformSize.Tx32X32 || TransformType == Vp9TransformType.DctDct);
+
+    public int[] GetOrCreateDequantizedCoefficients()
+    {
+        if (DequantizedCoefficients is { } coefficients)
+        {
+            return coefficients;
+        }
+
+        var dense = new int[Vp9ScanTables.GetMaximumEob(TransformSize)];
+        dense[0] = DcOnlyCoefficient;
+        return dense;
+    }
+}
 
 internal static class Vp9ResidualSyntax
 {
@@ -732,7 +753,9 @@ internal static class Vp9ResidualSyntax
                 initialCoefficientContext);
         }
 
-        var coefficients = new int[maxEob];
+        int[]? coefficients = null;
+        var dcOnlyCoefficient = 0;
+        var hasDcOnlyCandidate = false;
         var scan = Vp9ScanTables.GetScan(transformSize, transformType);
         var neighbors = Vp9ScanTables.GetNeighbors(transformSize, transformType);
         Span<byte> tokenCache = stackalloc byte[maxEob];
@@ -744,6 +767,10 @@ internal static class Vp9ResidualSyntax
                 coefficientIndex++;
                 if (coefficientIndex >= maxEob)
                 {
+                    coefficients ??= CreateDenseCoefficientArray(
+                        transformSize,
+                        hasDcOnlyCandidate,
+                        dcOnlyCoefficient);
                     return CreateBlockData(
                         tileIndex,
                         transformSize,
@@ -777,7 +804,24 @@ internal static class Vp9ResidualSyntax
             }
 
             var rasterIndex = scan[coefficientIndex];
-            coefficients[rasterIndex] = dequantizedValue;
+            if (coefficients is not null)
+            {
+                coefficients[rasterIndex] = dequantizedValue;
+            }
+            else if (coefficientIndex == 0 && rasterIndex == 0)
+            {
+                hasDcOnlyCandidate = true;
+                dcOnlyCoefficient = dequantizedValue;
+            }
+            else
+            {
+                coefficients = CreateDenseCoefficientArray(
+                    transformSize,
+                    hasDcOnlyCandidate,
+                    dcOnlyCoefficient);
+                coefficients[rasterIndex] = dequantizedValue;
+            }
+
             tokenCache[rasterIndex] = coefficient.TokenCacheValue;
             coefficientIndex++;
             if (coefficientIndex >= maxEob)
@@ -798,10 +842,33 @@ internal static class Vp9ResidualSyntax
 
             if (!reader.Read(probabilities[probabilityIndex]))
             {
+                if (coefficients is null && hasDcOnlyCandidate && coefficientIndex == 1)
+                {
+                    return CreateDcOnlyBlockData(
+                        tileIndex,
+                        transformSize,
+                        transformType,
+                        row4,
+                        column4,
+                        planeType,
+                        referenceType,
+                        initialCoefficientContext,
+                        dcOnlyCoefficient);
+                }
+
                 break;
             }
+
+            coefficients ??= CreateDenseCoefficientArray(
+                transformSize,
+                hasDcOnlyCandidate,
+                dcOnlyCoefficient);
         }
 
+        coefficients ??= CreateDenseCoefficientArray(
+            transformSize,
+            hasDcOnlyCandidate,
+            dcOnlyCoefficient);
         return CreateBlockData(
             tileIndex,
             transformSize,
@@ -1207,6 +1274,7 @@ internal static class Vp9ResidualSyntax
 
     private static Vp9CoefficientBlockProbe CreateBlockProbe(Vp9CoefficientBlockData block)
     {
+        var coefficients = block.GetOrCreateDequantizedCoefficients();
         return new Vp9CoefficientBlockProbe(
             block.TileIndex,
             block.TransformSize,
@@ -1220,10 +1288,10 @@ internal static class Vp9ResidualSyntax
             block.NonZeroCount,
             block.FirstNonZeroRasterIndex,
             block.LastNonZeroRasterIndex,
-            block.DequantizedCoefficients,
+            coefficients,
             block.Eob == 0
                 ? GetZeroCoefficientHash(block.TransformSize)
-                : HashCoefficients(block.DequantizedCoefficients));
+                : HashCoefficients(coefficients));
     }
 
     private static Vp9CoefficientBlockData CreateZeroBlockData(
@@ -1249,7 +1317,36 @@ internal static class Vp9ResidualSyntax
             NonZeroCount: 0,
             FirstNonZeroRasterIndex: -1,
             LastNonZeroRasterIndex: -1,
-            DequantizedCoefficients: GetZeroCoefficientArray(transformSize));
+            DequantizedCoefficients: GetZeroCoefficientArray(transformSize),
+            DcOnlyCoefficient: 0);
+    }
+
+    private static Vp9CoefficientBlockData CreateDcOnlyBlockData(
+        int tileIndex,
+        Vp9TransformSize transformSize,
+        Vp9TransformType transformType,
+        int row4,
+        int column4,
+        int planeType,
+        int referenceType,
+        int initialCoefficientContext,
+        int dcOnlyCoefficient)
+    {
+        return new Vp9CoefficientBlockData(
+            tileIndex,
+            transformSize,
+            transformType,
+            row4,
+            column4,
+            planeType,
+            referenceType,
+            initialCoefficientContext,
+            Eob: 1,
+            NonZeroCount: 1,
+            FirstNonZeroRasterIndex: 0,
+            LastNonZeroRasterIndex: 0,
+            DequantizedCoefficients: null,
+            DcOnlyCoefficient: dcOnlyCoefficient);
     }
 
     private static Vp9CoefficientBlockData CreateBlockData(
@@ -1296,7 +1393,22 @@ internal static class Vp9ResidualSyntax
             nonZeroCount,
             firstNonZero,
             lastNonZero,
-            coefficients);
+            coefficients,
+            DcOnlyCoefficient: firstNonZero == 0 && lastNonZero == 0 ? coefficients[0] : 0);
+    }
+
+    private static int[] CreateDenseCoefficientArray(
+        Vp9TransformSize transformSize,
+        bool hasDcOnlyCandidate,
+        int dcOnlyCoefficient)
+    {
+        var coefficients = new int[Vp9ScanTables.GetMaximumEob(transformSize)];
+        if (hasDcOnlyCandidate)
+        {
+            coefficients[0] = dcOnlyCoefficient;
+        }
+
+        return coefficients;
     }
 
     private static string GetZeroCoefficientHash(Vp9TransformSize transformSize)
