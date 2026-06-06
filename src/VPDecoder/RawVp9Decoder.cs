@@ -458,7 +458,8 @@ public sealed class RawVp9Decoder
                 compressedHeader,
                 tileBuffers,
                 _referenceFrames,
-                out var reconstructedFrame,
+                out var yuvFrame,
+                out var modeBlocks,
                 out var diagnostic,
                 _previousFrameMotionVectors))
         {
@@ -469,16 +470,16 @@ public sealed class RawVp9Decoder
                 compressedHeader);
         }
 
-        if (reconstructedFrame is null)
+        if (yuvFrame is null)
         {
             return Vp9DecodeResult.Fail(
                 Vp9DecodeDiagnostic.InternalDecodeFailure(
-                    "VP9 ordinary inter-frame reconstruction succeeded without returning metadata."),
+                    "VP9 ordinary inter-frame reconstruction succeeded without returning a frame."),
                 header,
                 compressedHeader);
         }
 
-        if (!Vp9LoopFilter.TryApply(header, reconstructedFrame, out diagnostic))
+        if (!Vp9LoopFilter.TryApplyInterFrame(header, yuvFrame, modeBlocks, out diagnostic))
         {
             return Vp9DecodeResult.Fail(
                 diagnostic ?? Vp9DecodeDiagnostic.InternalDecodeFailure("VP9 inter-frame loop filter failed without a diagnostic."),
@@ -488,10 +489,14 @@ public sealed class RawVp9Decoder
 
         RefreshLoopFilterDeltaState(header);
         RefreshFrameContext(header, compressedHeader.FrameContext);
-        var yuvFrame = reconstructedFrame.Frame;
         _referenceFrames.Refresh(yuvFrame, header.ColorSpace, header.ColorRange, header.RefreshFrameFlags);
         _previousFrameMotionVectors = header.ShowFrame
-            ? Vp9PreviousFrameMotionVectors.FromReconstructedFrame(header, reconstructedFrame)
+            ? Vp9PreviousFrameMotionVectors.FromModeBlocks(
+                header.Width,
+                header.Height,
+                header.TileInfo.MiRows,
+                header.TileInfo.MiColumns,
+                modeBlocks)
             : null;
         if (!header.ShowFrame)
         {

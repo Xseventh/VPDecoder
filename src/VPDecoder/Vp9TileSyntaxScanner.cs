@@ -900,11 +900,13 @@ internal static class Vp9TileSyntaxScanner
         Vp9CompressedHeader compressedHeader,
         IReadOnlyList<Vp9TileBuffer> tileBuffers,
         Vp9ReferenceFrameStore referenceFrames,
-        out Vp9ReconstructedFrame? reconstructedFrame,
+        out Vp9DecodedFrame? frame,
+        out IReadOnlyList<Vp9InterBlockModeInfoProbe> predictedModeBlocks,
         out Vp9DecodeDiagnostic? diagnostic,
         Vp9PreviousFrameMotionVectors? previousFrameMotionVectors = null)
     {
-        reconstructedFrame = null;
+        frame = null;
+        predictedModeBlocks = [];
         diagnostic = null;
 
         if (header.FrameType != Vp9FrameType.InterFrame || header.IntraOnly)
@@ -927,7 +929,7 @@ internal static class Vp9TileSyntaxScanner
             var dequantTables = Vp9DequantTables.Create(header.Quantization, header.BitDepth);
             var geometries = Vp9TileGeometryBuilder.Build(header, tileBuffers);
             var destination = Vp9YuvFrameBuffer.Create(header.Width, header.Height);
-            var predictedModeBlocks = new List<Vp9InterBlockModeInfoProbe>();
+            var modeBlocks = new List<Vp9InterBlockModeInfoProbe>();
             var residualScratch = new Vp9DirectInterResidualScratch();
             foreach (var geometry in geometries)
             {
@@ -964,7 +966,7 @@ internal static class Vp9TileSyntaxScanner
                                 miColumn,
                                 Vp9BlockSize.Block64X64,
                                 decodedModeBlocks,
-                                predictedModeBlocks,
+                                modeBlocks,
                                 residualScratch,
                                 out diagnostic,
                                 eligiblePreviousFrameMotionVectors))
@@ -988,11 +990,8 @@ internal static class Vp9TileSyntaxScanner
                 }
             }
 
-            reconstructedFrame = Vp9ReconstructedFrame.FromInterModeBlocks(
-                destination.ToDecodedFrame(),
-                predictedModeBlocks,
-                header.TileInfo.MiRows,
-                header.TileInfo.MiColumns);
+            frame = destination.ToDecodedFrame();
+            predictedModeBlocks = modeBlocks;
             return true;
         }
         catch (ArgumentException ex)

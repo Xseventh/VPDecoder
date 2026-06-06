@@ -80,6 +80,24 @@ bringing up correctness, but is too expensive for playback.
      not the first bottleneck.
    - SIMD YUV-to-BGRA remains useful once VP9 reconstruction cost comes down.
 
+## Current Near-Term Path
+
+The residual coefficient path is no longer the only large allocation source.
+After the direct reconstruction and coefficient scratch-pool slices, the next
+short-term work should prioritize metadata and ownership overhead before
+larger SIMD work:
+
+- Keep production ordinary inter decode separate from diagnostic probe decode.
+- Let production loop filtering consume compact inter mode metadata directly,
+  without rebuilding key-frame-style reconstructed mode wrappers.
+- Keep predicted inter mode blocks until previous-frame MV prediction has a
+  smaller purpose-built state representation.
+- Avoid changing reference-frame clone semantics until the public decoded-frame
+  ownership contract is made explicit. Returning mutable `byte[]` output means
+  the reference store still needs to protect itself from caller mutation.
+- Re-profile after metadata wins before starting motion-compensation SIMD or
+  packed-output SIMD work.
+
 ## Validation For Each Slice
 
 Every optimization slice should keep the same correctness and diagnostics
@@ -365,3 +383,38 @@ for packed `Bgra8888` over the repro sequence. Elapsed time is mostly neutral
 with short-run noise from pool rent/return and machine load. Further allocation
 work should now focus on reconstructed/predicted mode metadata and output
 buffer lifecycle rather than residual coefficient payloads alone.
+
+Production inter loop-filter metadata slice:
+
+- Changed ordinary inter production decode to return the reconstructed YUV frame
+  plus predicted inter mode blocks directly instead of wrapping them in
+  `Vp9ReconstructedFrame`.
+- Added a loop-filter entry that consumes compact inter mode metadata directly.
+- Built inter loop-filter superblock masks in a single indexed pass over mode
+  blocks, avoiding the previous reconstructed-mode wrapper list, synthetic
+  `Vp9ModeInfoProbe` objects, mode grid, and superblock dictionary grouping.
+- Kept the diagnostic/probe reconstruction paths intact.
+- Kept reference-frame cloning unchanged because decoded output pixels remain
+  mutable to callers.
+
+Validation:
+
+- `dotnet build VPDecoder.slnx --no-restore -m:1`
+- `dotnet test VPDecoder.slnx -m:1 --no-restore`
+- 97-frame repro sequence YUV420 comparison against libvpx for color and alpha
+  frames 0, 51, 72, and 96; all Y/U/V totals remained bitwise identical
+  (`mae=0`, `rmse=0`, `maxAbs=0`).
+
+Observed short-run benchmark after the inter loop-filter metadata slice:
+
+| Stream/output | Elapsed range | Allocated MB |
+| --- | ---: | ---: |
+| Color `Yuv420` | 5085-5157 ms | 3821 MB |
+| Alpha `Yuv420` | 5919-6018 ms | 3656 MB |
+| Color `Bgra8888` | 5927-5945 ms | 5150 MB |
+
+This removes roughly 123 MB from color `Yuv420`, 104 MB from alpha `Yuv420`,
+and 124 MB from packed `Bgra8888` over the 97-frame repro sequence compared
+with the coefficient scratch-pool slice. The elapsed-time result is also mildly
+better for color and packed output in this run, but should still be treated as
+short-run data because local machine load varies.

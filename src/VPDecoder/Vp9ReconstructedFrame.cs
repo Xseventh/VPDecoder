@@ -91,10 +91,7 @@ internal sealed class Vp9ReconstructedFrame
                 coefficientGroupCount += groups.Length;
                 coefficientBlockCount += groups.Sum(group => group.Blocks.Count);
                 interModeBlocks.Add(interModeBlock);
-                modeBlocks.Add(new Vp9ReconstructedModeBlock(
-                    CreateLoopFilterModeInfo(interModeBlock),
-                    groups,
-                    interModeBlock.ModeInfo));
+                modeBlocks.Add(new Vp9ReconstructedModeBlock(interModeBlock, groups));
             }
         }
 
@@ -122,10 +119,7 @@ internal sealed class Vp9ReconstructedFrame
         var modeBlocks = new List<Vp9ReconstructedModeBlock>(interModeBlocks.Count);
         foreach (var interModeBlock in interModeBlocks)
         {
-            modeBlocks.Add(new Vp9ReconstructedModeBlock(
-                CreateLoopFilterModeInfo(interModeBlock),
-                [],
-                interModeBlock.ModeInfo));
+            modeBlocks.Add(new Vp9ReconstructedModeBlock(interModeBlock, []));
         }
 
         ModeBlocks = modeBlocks;
@@ -236,6 +230,59 @@ internal sealed class Vp9ReconstructedFrame
         return grid;
     }
 
+}
+
+internal sealed class Vp9ReconstructedModeBlock
+{
+    private readonly Vp9InterBlockModeInfoProbe? _interBlock;
+    private Vp9ModeInfoProbe? _modeInfo;
+
+    public Vp9ReconstructedModeBlock(
+        Vp9ModeInfoProbe modeInfo,
+        IReadOnlyList<Vp9CoefficientBlockGroupProbe> coefficientGroups,
+        Vp9InterModeInfoProbe? interModeInfo = null)
+    {
+        _modeInfo = modeInfo;
+        CoefficientGroups = coefficientGroups;
+        InterModeInfo = interModeInfo;
+        MiRow = modeInfo.MiRow;
+        MiColumn = modeInfo.MiColumn;
+        BlockSize = modeInfo.BlockSize;
+        TransformSize = modeInfo.TransformSize;
+    }
+
+    public Vp9ReconstructedModeBlock(
+        Vp9InterBlockModeInfoProbe interBlock,
+        IReadOnlyList<Vp9CoefficientBlockGroupProbe> coefficientGroups)
+    {
+        _interBlock = interBlock;
+        CoefficientGroups = coefficientGroups;
+        InterModeInfo = interBlock.ModeInfo;
+        MiRow = interBlock.MiRow;
+        MiColumn = interBlock.MiColumn;
+        BlockSize = interBlock.ModeInfo.BlockSize;
+        TransformSize = interBlock.ModeInfo.TransformSize;
+    }
+
+    public Vp9ModeInfoProbe ModeInfo => _modeInfo ??= CreateLoopFilterModeInfo(_interBlock!);
+
+    public IReadOnlyList<Vp9CoefficientBlockGroupProbe> CoefficientGroups { get; }
+
+    public Vp9InterModeInfoProbe? InterModeInfo { get; }
+
+    public int MiRow { get; }
+
+    public int MiColumn { get; }
+
+    public Vp9BlockSize BlockSize { get; }
+
+    public Vp9TransformSize TransformSize { get; }
+
+    public bool IsInterBlock => InterModeInfo is not null;
+
+    public int NonZeroCoefficientBlockCount =>
+        CoefficientGroups.Sum(group => group.Blocks.Count(block => block.Eob > 0));
+
     private static Vp9ModeInfoProbe CreateLoopFilterModeInfo(Vp9InterBlockModeInfoProbe interBlock)
     {
         if (!interBlock.ModeInfo.IsInterBlock)
@@ -257,23 +304,4 @@ internal sealed class Vp9ReconstructedFrame
             Vp9PredictionMode.Dc,
             YSubModes: []);
     }
-}
-
-internal sealed record Vp9ReconstructedModeBlock(
-    Vp9ModeInfoProbe ModeInfo,
-    IReadOnlyList<Vp9CoefficientBlockGroupProbe> CoefficientGroups,
-    Vp9InterModeInfoProbe? InterModeInfo = null)
-{
-    public int MiRow => ModeInfo.MiRow;
-
-    public int MiColumn => ModeInfo.MiColumn;
-
-    public Vp9BlockSize BlockSize => ModeInfo.BlockSize;
-
-    public Vp9TransformSize TransformSize => ModeInfo.TransformSize;
-
-    public bool IsInterBlock => InterModeInfo is not null;
-
-    public int NonZeroCoefficientBlockCount =>
-        CoefficientGroups.Sum(group => group.Blocks.Count(block => block.Eob > 0));
 }

@@ -14,12 +14,8 @@ internal static class Vp9LoopFilter
         Vp9ReconstructedFrame reconstructedFrame,
         out Vp9DecodeDiagnostic? diagnostic)
     {
-        diagnostic = null;
-        if (reconstructedFrame.Frame.PixelFormat != Vp9OutputPixelFormat.Yuv420 ||
-            reconstructedFrame.Frame.Planes.Count != 3)
+        if (!TryValidateYuv420Frame(reconstructedFrame.Frame, out diagnostic))
         {
-            diagnostic = Vp9DecodeDiagnostic.InternalDecodeFailure(
-                "VP9 loop filter requires a reconstructed YUV420 frame.");
             return false;
         }
 
@@ -32,13 +28,33 @@ internal static class Vp9LoopFilter
             return false;
         }
 
-        foreach (var mask in masks)
+        ApplyMasks(reconstructedFrame.Frame, header, masks);
+
+        return true;
+    }
+
+    public static bool TryApplyInterFrame(
+        Vp9FrameHeader header,
+        Vp9DecodedFrame frame,
+        IReadOnlyList<Vp9InterBlockModeInfoProbe> modeBlocks,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
+        if (!TryValidateYuv420Frame(frame, out diagnostic))
         {
-            ApplyLumaPlane(reconstructedFrame.Frame, header, mask);
-            ApplyChromaPlane(reconstructedFrame.Frame, header, mask, planeIndex: 1);
-            ApplyChromaPlane(reconstructedFrame.Frame, header, mask, planeIndex: 2);
+            return false;
         }
 
+        if (!Vp9LoopFilterMaskBuilder.TryBuildInterFrameMasks(
+                header,
+                frame,
+                modeBlocks,
+                out var masks,
+                out diagnostic))
+        {
+            return false;
+        }
+
+        ApplyMasks(frame, header, masks);
         return true;
     }
 
@@ -156,6 +172,33 @@ internal static class Vp9LoopFilter
             (byte)blockInsideLimit,
             (byte)macroblockLimit,
             (byte)(filterLevel >> 4));
+    }
+
+    private static bool TryValidateYuv420Frame(Vp9DecodedFrame frame, out Vp9DecodeDiagnostic? diagnostic)
+    {
+        diagnostic = null;
+        if (frame.PixelFormat == Vp9OutputPixelFormat.Yuv420 &&
+            frame.Planes.Count == 3)
+        {
+            return true;
+        }
+
+        diagnostic = Vp9DecodeDiagnostic.InternalDecodeFailure(
+            "VP9 loop filter requires a reconstructed YUV420 frame.");
+        return false;
+    }
+
+    private static void ApplyMasks(
+        Vp9DecodedFrame frame,
+        Vp9FrameHeader header,
+        IReadOnlyList<Vp9LoopFilterSuperblockMask> masks)
+    {
+        foreach (var mask in masks)
+        {
+            ApplyLumaPlane(frame, header, mask);
+            ApplyChromaPlane(frame, header, mask, planeIndex: 1);
+            ApplyChromaPlane(frame, header, mask, planeIndex: 2);
+        }
     }
 
     private static int GetReferenceLoopFilterDeltaIndex(Vp9InterReferenceFrame referenceFrame)
