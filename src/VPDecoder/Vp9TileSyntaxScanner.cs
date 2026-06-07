@@ -933,7 +933,7 @@ internal static class Vp9TileSyntaxScanner
             var geometries = Vp9TileGeometryBuilder.Build(header, tileBuffers);
             var destination = Vp9YuvFrameBuffer.Create(header.Width, header.Height);
             var modeBlocks = new List<Vp9InterBlockModeInfoProbe>();
-            var residualScratch = new Vp9DirectInterResidualScratch();
+            using var residualScratch = new Vp9DirectInterResidualScratch();
             foreach (var geometry in geometries)
             {
                 if (geometry.Buffer.DataOffset + geometry.Buffer.Size > packet.Length)
@@ -2849,7 +2849,9 @@ internal static class Vp9TileSyntaxScanner
                 modeBlock,
                 entropyContext,
                 destination,
-                plane);
+                plane,
+                residualScratch.CoefficientScratch,
+                residualScratch.TokenScratch);
         }
 
         if (reader.HasError)
@@ -5448,8 +5450,36 @@ internal static class Vp9TileSyntaxScanner
         };
     }
 
-    private sealed class Vp9DirectInterResidualScratch
+    private sealed class Vp9DirectInterResidualScratch : IDisposable
     {
+        private int[]? _coefficientScratch = System.Buffers.ArrayPool<int>.Shared.Rent(
+            Vp9ResidualSyntax.MaximumCoefficientScratchLength);
+        private byte[]? _tokenScratch = System.Buffers.ArrayPool<byte>.Shared.Rent(
+            Vp9ResidualSyntax.MaximumCoefficientScratchLength);
+
         public List<Vp9CoefficientBlockGroupProbe> Groups { get; } = new(3);
+
+        public Span<int> CoefficientScratch =>
+            (_coefficientScratch ?? throw new ObjectDisposedException(nameof(Vp9DirectInterResidualScratch)))
+                .AsSpan(0, Vp9ResidualSyntax.MaximumCoefficientScratchLength);
+
+        public Span<byte> TokenScratch =>
+            (_tokenScratch ?? throw new ObjectDisposedException(nameof(Vp9DirectInterResidualScratch)))
+                .AsSpan(0, Vp9ResidualSyntax.MaximumCoefficientScratchLength);
+
+        public void Dispose()
+        {
+            if (_coefficientScratch is { } coefficientScratch)
+            {
+                System.Buffers.ArrayPool<int>.Shared.Return(coefficientScratch);
+                _coefficientScratch = null;
+            }
+
+            if (_tokenScratch is { } tokenScratch)
+            {
+                System.Buffers.ArrayPool<byte>.Shared.Return(tokenScratch);
+                _tokenScratch = null;
+            }
+        }
     }
 }

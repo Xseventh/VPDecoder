@@ -665,3 +665,45 @@ Observed short-run benchmark after pair-based packed conversion:
 This targets the packed-output-only overhead. Color `Bgra8888` drops from about
 3.85 seconds to about 3.67 seconds over the 97-frame repro sequence, while YUV
 decode timings remain in the same range as the loop-filter slice.
+
+Reusable production residual scratch slice:
+
+- Added a scratch-aware production overload for inter residual read/add.
+- Changed the direct inter reconstruction path to rent coefficient and token
+  scratch buffers once for the direct decode operation instead of renting and
+  returning them for every inter plane.
+- Kept the existing residual API as a compatibility wrapper for tests and
+  diagnostic/probe callers.
+- Kept intra-in-inter residual group scratch behavior unchanged.
+
+Validation:
+
+- `dotnet build VPDecoder.slnx --no-restore -m:1`
+- `dotnet test VPDecoder.slnx -m:1 --no-restore`
+- 97-frame repro sequence YUV420 comparison against libvpx for color and alpha
+  frames 0, 51, 72, and 96; all Y/U/V totals remained bitwise identical
+  (`mae=0`, `rmse=0`, `maxAbs=0`).
+- Packed color benchmark checksum remained unchanged at
+  `3711330852910723308`.
+
+Observed short-run benchmark after reusable residual scratch:
+
+| Stream/output | Elapsed range | Allocated MB |
+| --- | ---: | ---: |
+| Color `Yuv420` | 2938-2963 ms | 3725 MB |
+| Alpha `Yuv420` | 3179-3255 ms | 3592 MB |
+| Color `Bgra8888` | 3648-3746 ms | 5054 MB |
+
+This is a small CPU cleanup rather than an allocation win. It removes repeated
+ArrayPool traffic from the hottest production residual path and keeps packed
+output checksum and YUV bitwise alignment unchanged. The alpha and packed-output
+timings remain noisy, but the color `Yuv420` runs are consistently at or below
+the previous pair-based conversion baseline.
+
+Non-committed local trials that did not show stable benefit:
+
+- Studio-range luma lookup table in packed color conversion.
+- Little-endian BGRA `uint` word writes.
+- Removing the hybrid inverse-transform row scratch clear.
+
+These were reverted because benchmark results were neutral or slightly worse.

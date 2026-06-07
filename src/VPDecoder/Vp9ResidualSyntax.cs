@@ -88,7 +88,7 @@ internal static class Vp9ResidualSyntax
 {
     public const int IntraBlockReferenceType = 0;
     public const int InterBlockReferenceType = 1;
-    private const int MaximumCoefficientScratchLength = 1024;
+    internal const int MaximumCoefficientScratchLength = 1024;
 
     private static readonly Vp9TransformSize[][] Yuv420UvTransformSizeLookup =
     [
@@ -553,6 +553,41 @@ internal static class Vp9ResidualSyntax
         Vp9YuvFrameBuffer destination,
         int plane)
     {
+        var coefficientScratchArray = System.Buffers.ArrayPool<int>.Shared.Rent(MaximumCoefficientScratchLength);
+        var tokenScratchArray = System.Buffers.ArrayPool<byte>.Shared.Rent(MaximumCoefficientScratchLength);
+        try
+        {
+            return ReadAndAddInterPlaneCoefficientBlocks(
+                ref reader,
+                header,
+                compressedHeader,
+                dequantTables,
+                modeBlock,
+                entropyContext,
+                destination,
+                plane,
+                coefficientScratchArray.AsSpan(0, MaximumCoefficientScratchLength),
+                tokenScratchArray.AsSpan(0, MaximumCoefficientScratchLength));
+        }
+        finally
+        {
+            System.Buffers.ArrayPool<int>.Shared.Return(coefficientScratchArray);
+            System.Buffers.ArrayPool<byte>.Shared.Return(tokenScratchArray);
+        }
+    }
+
+    internal static int ReadAndAddInterPlaneCoefficientBlocks(
+        ref Vp9BoolReader reader,
+        Vp9FrameHeader header,
+        Vp9CompressedHeader compressedHeader,
+        Vp9DequantTables dequantTables,
+        Vp9InterBlockModeInfoProbe modeBlock,
+        Vp9CoefficientEntropyContext entropyContext,
+        Vp9YuvFrameBuffer destination,
+        int plane,
+        Span<int> coefficientScratch,
+        Span<byte> tokenScratch)
+    {
         if (plane is < 0 or > 2)
         {
             throw new ArgumentOutOfRangeException(nameof(plane), plane, "VP9 plane index must be 0, 1, or 2.");
@@ -591,57 +626,46 @@ internal static class Vp9ResidualSyntax
             modeBlock,
             transformSize,
             plane);
-        var coefficientScratchArray = System.Buffers.ArrayPool<int>.Shared.Rent(MaximumCoefficientScratchLength);
-        var tokenScratchArray = System.Buffers.ArrayPool<byte>.Shared.Rent(MaximumCoefficientScratchLength);
-        try
+
+        var eobTotal = 0;
+        for (var row = 0; row < height4; row += step)
         {
-            var coefficientScratch = coefficientScratchArray.AsSpan(0, MaximumCoefficientScratchLength);
-            var tokenScratch = tokenScratchArray.AsSpan(0, MaximumCoefficientScratchLength);
-            var eobTotal = 0;
-            for (var row = 0; row < height4; row += step)
+            for (var column = 0; column < width4; column += step)
             {
-                for (var column = 0; column < width4; column += step)
-                {
-                    var x4 = originX4 + column;
-                    var y4 = originY4 + row;
-                    var context = entropyContext.GetInitialContext(plane, x4, y4, transformSize);
-                    var visibleWidth4 = Math.Min(step, width4 - column);
-                    var visibleHeight4 = Math.Min(step, height4 - row);
-                    var eob = ReadAndAddCoefficientBlock(
-                        ref reader,
-                        compressedHeader.FrameContext,
-                        residualContext,
-                        transformSize,
-                        GetInterTransformType(modeInfo, plane),
-                        row,
-                        column,
-                        planeType,
-                        InterBlockReferenceType,
-                        dc,
-                        ac,
-                        context,
-                        coefficientScratch,
-                        tokenScratch);
-                    eobTotal += eob;
+                var x4 = originX4 + column;
+                var y4 = originY4 + row;
+                var context = entropyContext.GetInitialContext(plane, x4, y4, transformSize);
+                var visibleWidth4 = Math.Min(step, width4 - column);
+                var visibleHeight4 = Math.Min(step, height4 - row);
+                var eob = ReadAndAddCoefficientBlock(
+                    ref reader,
+                    compressedHeader.FrameContext,
+                    residualContext,
+                    transformSize,
+                    GetInterTransformType(modeInfo, plane),
+                    row,
+                    column,
+                    planeType,
+                    InterBlockReferenceType,
+                    dc,
+                    ac,
+                    context,
+                    coefficientScratch,
+                    tokenScratch);
+                eobTotal += eob;
 
-                    entropyContext.SetTransformContext(
-                        plane,
-                        x4,
-                        y4,
-                        transformSize,
-                        eob > 0,
-                        visibleWidth4,
-                        visibleHeight4);
-                }
+                entropyContext.SetTransformContext(
+                    plane,
+                    x4,
+                    y4,
+                    transformSize,
+                    eob > 0,
+                    visibleWidth4,
+                    visibleHeight4);
             }
+        }
 
-            return eobTotal;
-        }
-        finally
-        {
-            System.Buffers.ArrayPool<int>.Shared.Return(coefficientScratchArray);
-            System.Buffers.ArrayPool<byte>.Shared.Return(tokenScratchArray);
-        }
+        return eobTotal;
     }
 
     private static Vp9CoefficientBlockProbe ReadCoefficientBlock(
