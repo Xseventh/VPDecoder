@@ -431,7 +431,7 @@ public sealed class RawVp9Decoder
         }
 
         return Vp9DecodeResult.Success(
-            Vp9AlphaComposer.MergeBgraWithBgraAlpha(colorResult.Frame, alphaResult.Frame),
+            Vp9AlphaComposer.MergeBgraWithBgraAlphaInPlace(colorResult.Frame, alphaResult.Frame),
             colorResult.Header!,
             colorResult.CompressedHeader);
     }

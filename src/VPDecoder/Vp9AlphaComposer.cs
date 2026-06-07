@@ -58,6 +58,27 @@ public static class Vp9AlphaComposer
             colorFrame.Stride);
     }
 
+    internal static Vp9DecodedFrame MergeBgraWithBgraAlphaInPlace(Vp9DecodedFrame colorFrame, Vp9DecodedFrame alphaFrame)
+    {
+        if (colorFrame.PixelFormat != Vp9OutputPixelFormat.Bgra8888 || alphaFrame.PixelFormat != Vp9OutputPixelFormat.Bgra8888)
+        {
+            throw new ArgumentException("VP9 BGRA alpha merge requires BGRA8888 color and alpha frames.");
+        }
+
+        ValidateMatchingDimensions(colorFrame, alphaFrame);
+        for (var y = 0; y < colorFrame.Height; y++)
+        {
+            var colorRow = y * colorFrame.Stride;
+            var alphaRow = y * alphaFrame.Stride;
+            for (var x = 0; x < colorFrame.Width; x++)
+            {
+                colorFrame.Pixels[colorRow + (x * 4) + 3] = alphaFrame.Pixels[alphaRow + (x * 4) + 2];
+            }
+        }
+
+        return colorFrame;
+    }
+
     public static Vp9DecodedFrame MergeBgraWithYuvAlpha(Vp9DecodedFrame colorFrame, Vp9DecodedFrame alphaFrame)
     {
         if (colorFrame.PixelFormat != Vp9OutputPixelFormat.Bgra8888 || alphaFrame.PixelFormat != Vp9OutputPixelFormat.Yuv420)

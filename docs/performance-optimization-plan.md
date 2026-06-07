@@ -738,3 +738,42 @@ Observed short-run benchmark after residual loop invariant cleanup:
 This is another small CPU-only cleanup. The main value is keeping residual
 production loops in a JIT-friendly shape before moving to larger metadata and
 motion-compensation changes.
+
+In-place alpha merge slice:
+
+- Added an internal BGRA+BGRA alpha merge path that writes the alpha channel
+  into the temporary color output frame produced by `DecodeFrameWithAlpha`.
+- Kept the public `Vp9AlphaComposer.MergeBgraWithBgraAlpha` method clone-based,
+  so standalone composer callers keep non-mutating input semantics.
+- Added tests for the public non-mutating merge and the internal in-place merge.
+
+Validation:
+
+- `dotnet build VPDecoder.slnx --no-restore -m:1`
+- `dotnet test VPDecoder.slnx -m:1 --no-restore`
+- 97-frame repro sequence YUV420 comparison against libvpx for color and alpha
+  frames 0, 51, 72, and 96; all Y/U/V totals remained bitwise identical
+  (`mae=0`, `rmse=0`, `maxAbs=0`).
+- Merged color+alpha BGRA benchmark checksum remained unchanged at
+  `10561845111562233601`.
+
+Observed short-run merged color+alpha benchmark:
+
+| Merge path | Elapsed range | Allocated MB |
+| --- | ---: | ---: |
+| Clone color frame | 8019-8102 ms | 11303 MB |
+| In-place temporary color frame | 7938-8004 ms | 9974 MB |
+
+This removes about 1.3 GB of allocation over the 97-frame color+alpha repro
+sequence by avoiding one full BGRA clone per visible merged frame. It is mainly
+a WCX-facing memory improvement; elapsed time is slightly better but still
+dominated by decoding both color and alpha streams.
+
+Additional non-committed local trials that did not show stable benefit:
+
+- Grid-only direct inter mode metadata: reduced allocation by about 10 MB over
+  the 97-frame repro but made color `Yuv420` consistently slower.
+- Generic compound unclamped motion-compensation loop: preserved bitwise output
+  but made color, alpha, and packed runs slower.
+- Reference refresh flag zero-clone guard: correct in isolation, but the repro
+  did not show a measurable current-path benefit.

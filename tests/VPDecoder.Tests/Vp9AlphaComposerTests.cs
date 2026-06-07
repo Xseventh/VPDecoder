@@ -40,6 +40,49 @@ public sealed class Vp9AlphaComposerTests
     }
 
     [Fact]
+    public void MergeBgraWithBgraAlpha_DoesNotMutateColorInput()
+    {
+        var color = Vp9DecodedFrame.CreatePacked(
+            1,
+            1,
+            Vp9OutputPixelFormat.Bgra8888,
+            [10, 20, 30, 255],
+            4);
+        var alpha = Vp9DecodedFrame.CreatePacked(
+            1,
+            1,
+            Vp9OutputPixelFormat.Bgra8888,
+            [0, 0, 77, 255],
+            4);
+
+        _ = Vp9AlphaComposer.MergeBgraWithBgraAlpha(color, alpha);
+
+        Assert.Equal([10, 20, 30, 255], color.Pixels);
+    }
+
+    [Fact]
+    public void MergeBgraWithBgraAlphaInPlace_MutatesAndReturnsColorInput()
+    {
+        var color = Vp9DecodedFrame.CreatePacked(
+            1,
+            1,
+            Vp9OutputPixelFormat.Bgra8888,
+            [10, 20, 30, 255],
+            4);
+        var alpha = Vp9DecodedFrame.CreatePacked(
+            1,
+            1,
+            Vp9OutputPixelFormat.Bgra8888,
+            [0, 0, 77, 255],
+            4);
+
+        var merged = Vp9AlphaComposer.MergeBgraWithBgraAlphaInPlace(color, alpha);
+
+        Assert.Same(color, merged);
+        Assert.Equal([10, 20, 30, 77], color.Pixels);
+    }
+
+    [Fact]
     public void MergeBgraWithYuvAlpha_UsesAlphaLumaAsOutputAlpha()
     {
         var color = Vp9DecodedFrame.CreatePacked(
