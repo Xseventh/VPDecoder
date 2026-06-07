@@ -164,6 +164,39 @@ public sealed class Vp9MotionCompensatorTests
     }
 
     [Fact]
+    public void TryCopyPlaneBlock_WithInsideTwoDimensionalFractionalMv_MatchesSeparableFilter()
+    {
+        var reference = CreatePatternYuvFrame(width: 16, height: 16);
+        var destination = Vp9YuvFrameBuffer.Create(16, 16);
+        const int destinationX = 4;
+        const int destinationY = 5;
+        const int width = 8;
+        const int height = 6;
+        var motionVector = new Vp9MotionVector(Row: 8, Column: 8);
+
+        Assert.True(Vp9MotionCompensator.TryCopyPlaneBlock(
+            reference,
+            destination,
+            Vp9Plane.Y,
+            destinationX,
+            destinationY,
+            width,
+            height,
+            motionVector,
+            Vp9InterpolationFilter.Bilinear,
+            out var diagnostic), diagnostic?.Message);
+
+        var expected = ComputeBilinearHalfPixelBlock(reference, destinationX, destinationY, width, height);
+        for (var row = 0; row < height; row++)
+        {
+            var actualRow = destination.Pixels.AsSpan(
+                destination.YPlane.Offset + ((destinationY + row) * destination.YPlane.Stride) + destinationX,
+                width);
+            Assert.Equal(expected.AsSpan(row * width, width).ToArray(), actualRow.ToArray());
+        }
+    }
+
+    [Fact]
     public void TryAveragePlaneBlock_WithZeroMv_AveragesTwoReferencePredictors()
     {
         var reference0 = CreatePatternYuvFrame(width: 4, height: 4);
@@ -270,6 +303,55 @@ public sealed class Vp9MotionCompensatorTests
         }
 
         return buffer.ToDecodedFrame();
+    }
+
+    private static byte[] ComputeBilinearHalfPixelBlock(
+        Vp9DecodedFrame reference,
+        int sourceX,
+        int sourceY,
+        int width,
+        int height)
+    {
+        ReadOnlySpan<short> halfPixelKernel = [0, 0, 0, 64, 64, 0, 0, 0];
+        var output = new byte[width * height];
+        var plane = reference.Planes[0];
+        for (var row = 0; row < height; row++)
+        {
+            for (var column = 0; column < width; column++)
+            {
+                var sum = 0;
+                for (var tapY = 0; tapY < 8; tapY++)
+                {
+                    var intermediate = 0;
+                    for (var tapX = 0; tapX < 8; tapX++)
+                    {
+                        var x = sourceX + column + tapX - 3;
+                        var y = sourceY + row + tapY - 3;
+                        intermediate += reference.Pixels[plane.Offset + (y * plane.Stride) + x] * halfPixelKernel[tapX];
+                    }
+
+                    sum += ClipPixel(RoundPowerOfTwo(intermediate, 7)) * halfPixelKernel[tapY];
+                }
+
+                output[(row * width) + column] = ClipPixel(RoundPowerOfTwo(sum, 7));
+            }
+        }
+
+        return output;
+    }
+
+    private static int RoundPowerOfTwo(int value, int bits)
+    {
+        return (value + (1 << (bits - 1))) >> bits;
+    }
+
+    private static byte ClipPixel(int value)
+    {
+        return value <= byte.MinValue
+            ? byte.MinValue
+            : value >= byte.MaxValue
+                ? byte.MaxValue
+                : (byte)value;
     }
 
     private static Vp9DecodedFrame CreateOffsetPatternYuvFrame(int width, int height, int yOffset)
