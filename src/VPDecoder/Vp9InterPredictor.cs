@@ -1,3 +1,5 @@
+using System.Buffers;
+
 namespace VPDecoder;
 
 internal readonly struct Vp9MotionVectorCandidateSet
@@ -37,9 +39,10 @@ internal readonly struct Vp9MotionVectorCandidateSet
     }
 }
 
-internal sealed class Vp9InterBlockModeInfoGrid
+internal sealed class Vp9InterBlockModeInfoGrid : IDisposable
 {
-    private readonly Vp9InterBlockModeInfoProbe?[] _grid;
+    private Vp9InterBlockModeInfoProbe?[]? _grid;
+    private readonly int _length;
 
     public Vp9InterBlockModeInfoGrid(
         int tileIndex,
@@ -65,7 +68,8 @@ internal sealed class Vp9InterBlockModeInfoGrid
         MiColumnEnd = miColumnEnd;
         MiRows = miRowEnd - miRowStart;
         MiColumns = miColumnEnd - miColumnStart;
-        _grid = new Vp9InterBlockModeInfoProbe?[checked(MiRows * MiColumns)];
+        _length = checked(MiRows * MiColumns);
+        _grid = ArrayPool<Vp9InterBlockModeInfoProbe?>.Shared.Rent(_length);
     }
 
     public int TileIndex { get; }
@@ -84,6 +88,7 @@ internal sealed class Vp9InterBlockModeInfoGrid
 
     public void Set(Vp9InterBlockModeInfoProbe modeBlock)
     {
+        var grid = _grid ?? throw new ObjectDisposedException(nameof(Vp9InterBlockModeInfoGrid));
         if (modeBlock.TileIndex != TileIndex)
         {
             return;
@@ -109,13 +114,14 @@ internal sealed class Vp9InterBlockModeInfoGrid
             var offset = ((row - MiRowStart) * MiColumns) + columnStart - MiColumnStart;
             for (var column = columnStart; column < columnEnd; column++)
             {
-                _grid[offset + column - columnStart] = modeBlock;
+                grid[offset + column - columnStart] = modeBlock;
             }
         }
     }
 
     public bool TryGetAtMi(int miRow, int miColumn, out Vp9InterBlockModeInfoProbe modeBlock)
     {
+        var grid = _grid ?? throw new ObjectDisposedException(nameof(Vp9InterBlockModeInfoGrid));
         if (miRow < MiRowStart ||
             miRow >= MiRowEnd ||
             miColumn < MiColumnStart ||
@@ -125,7 +131,7 @@ internal sealed class Vp9InterBlockModeInfoGrid
             return false;
         }
 
-        var existing = _grid[((miRow - MiRowStart) * MiColumns) + miColumn - MiColumnStart];
+        var existing = grid[((miRow - MiRowStart) * MiColumns) + miColumn - MiColumnStart];
         if (existing is null)
         {
             modeBlock = default!;
@@ -134,6 +140,19 @@ internal sealed class Vp9InterBlockModeInfoGrid
 
         modeBlock = existing;
         return true;
+    }
+
+    public void Dispose()
+    {
+        var grid = _grid;
+        if (grid is null)
+        {
+            return;
+        }
+
+        Array.Clear(grid, 0, _length);
+        ArrayPool<Vp9InterBlockModeInfoProbe?>.Shared.Return(grid, clearArray: false);
+        _grid = null;
     }
 }
 

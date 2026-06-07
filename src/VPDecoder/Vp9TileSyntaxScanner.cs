@@ -959,51 +959,55 @@ internal static class Vp9TileSyntaxScanner
                     geometry.MiRowEnd,
                     geometry.MiColumnStart,
                     geometry.MiColumnEnd);
-
-                for (var miRow = geometry.MiRowStart; miRow < geometry.MiRowEnd; miRow += SuperblockSizeInMiUnits)
+                using (decodedModeBlockGrid)
+                using (predictedModeBlockGrid)
                 {
-                    syntaxContext.ResetLeftPartitionContext();
-                    entropyContext.ResetLeftContexts();
 
-                    for (var miColumn = geometry.MiColumnStart; miColumn < geometry.MiColumnEnd; miColumn += SuperblockSizeInMiUnits)
+                    for (var miRow = geometry.MiRowStart; miRow < geometry.MiRowEnd; miRow += SuperblockSizeInMiUnits)
                     {
-                        if (!TryReconstructInterPartitionResidualSyntaxDirect(
-                                ref reader,
-                                header,
-                                compressedHeader,
-                                dequantTables,
-                                geometry,
-                                syntaxContext,
-                                entropyContext,
-                                destination,
-                                referenceFrames,
-                                miRow,
-                                miColumn,
-                                Vp9BlockSize.Block64X64,
-                                decodedModeBlocks,
-                                decodedModeBlockGrid,
-                                modeBlocks,
-                                predictedModeBlockGrid,
-                                residualScratch,
-                                out diagnostic,
-                                eligiblePreviousFrameMotionVectors))
-                        {
-                            return false;
-                        }
+                        syntaxContext.ResetLeftPartitionContext();
+                        entropyContext.ResetLeftContexts();
 
-                        if (reader.HasError)
+                        for (var miColumn = geometry.MiColumnStart; miColumn < geometry.MiColumnEnd; miColumn += SuperblockSizeInMiUnits)
                         {
-                            diagnostic = Vp9DecodeDiagnostic.TruncatedPacket(
-                                $"VP9 direct inter reconstruction ended unexpectedly at tile {geometry.Buffer.Index} MI ({miRow},{miColumn}).");
-                            return false;
+                            if (!TryReconstructInterPartitionResidualSyntaxDirect(
+                                    ref reader,
+                                    header,
+                                    compressedHeader,
+                                    dequantTables,
+                                    geometry,
+                                    syntaxContext,
+                                    entropyContext,
+                                    destination,
+                                    referenceFrames,
+                                    miRow,
+                                    miColumn,
+                                    Vp9BlockSize.Block64X64,
+                                    decodedModeBlocks,
+                                    decodedModeBlockGrid,
+                                    modeBlocks,
+                                    predictedModeBlockGrid,
+                                    residualScratch,
+                                    out diagnostic,
+                                    eligiblePreviousFrameMotionVectors))
+                            {
+                                return false;
+                            }
+
+                            if (reader.HasError)
+                            {
+                                diagnostic = Vp9DecodeDiagnostic.TruncatedPacket(
+                                    $"VP9 direct inter reconstruction ended unexpectedly at tile {geometry.Buffer.Index} MI ({miRow},{miColumn}).");
+                                return false;
+                            }
                         }
                     }
-                }
 
-                if (reader.HasError)
-                {
-                    diagnostic = Vp9DecodeDiagnostic.TruncatedPacket("VP9 direct inter reconstruction ended unexpectedly.");
-                    return false;
+                    if (reader.HasError)
+                    {
+                        diagnostic = Vp9DecodeDiagnostic.TruncatedPacket("VP9 direct inter reconstruction ended unexpectedly.");
+                        return false;
+                    }
                 }
             }
 

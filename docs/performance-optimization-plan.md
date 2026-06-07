@@ -485,3 +485,33 @@ sequence, and packed `Bgra8888` drops to about 4.61 seconds. Allocation rises
 by about 91-92 MB compared with the fixed candidate-set slice because each tile
 now allocates lookup grids. The next low-risk follow-up is to pool or otherwise
 reuse those grid backing arrays while preserving deterministic clearing.
+
+Pooled spatial MV lookup grid slice:
+
+- Changed the production tile-local MV lookup grids to rent backing arrays from
+  `ArrayPool<T>`.
+- Added deterministic clearing before returning each grid to the pool.
+- Scoped the pooled grids with `using` in the direct inter tile loop so early
+  diagnostics and exceptions still return arrays.
+
+Validation:
+
+- `dotnet build VPDecoder.slnx --no-restore -m:1`
+- `dotnet test VPDecoder.slnx -m:1 --no-restore`
+- 97-frame repro sequence YUV420 comparison against libvpx for color and alpha
+  frames 0, 51, 72, and 96; all Y/U/V totals remained bitwise identical
+  (`mae=0`, `rmse=0`, `maxAbs=0`).
+
+Observed short-run benchmark after the pooled spatial MV lookup grid slice:
+
+| Stream/output | Elapsed range | Allocated MB |
+| --- | ---: | ---: |
+| Color `Yuv420` | 3797-3864 ms | 3742 MB |
+| Alpha `Yuv420` | 5195-5363 ms | 3609 MB |
+| Color `Bgra8888` | 4646-4655 ms | 5071 MB |
+
+This recovers the roughly 90 MB allocation regression introduced by the
+tile-local lookup grids while keeping most of the CPU win. Color `Yuv420` and
+packed `Bgra8888` allocation are back near the fixed candidate-set slice, while
+elapsed time remains around 3.8 seconds for color `Yuv420` and 4.65 seconds for
+packed `Bgra8888` on this repro run.
