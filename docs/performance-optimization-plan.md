@@ -451,3 +451,37 @@ and 79 MB from packed `Bgra8888` over the 97-frame repro sequence compared
 with the inter loop-filter metadata slice. Elapsed time is mixed in this short
 run; the more reliable signal is reduced allocation from eliminating frequent
 small candidate containers.
+
+Tile-local spatial MV lookup grid slice:
+
+- Added a production-only tile-local MI grid for decoded and predicted inter
+  mode blocks.
+- Changed ordinary inter motion-vector candidate lookup to use O(1) grid
+  lookup instead of reverse-scanning the decoded/predicted mode-block lists for
+  each neighbor probe.
+- Kept diagnostic/probe paths on the existing list-scan implementation.
+- Preserved tile-local lookup semantics: the grid is created per tile and does
+  not return candidates outside the current tile.
+
+Validation:
+
+- `dotnet build VPDecoder.slnx --no-restore -m:1`
+- `dotnet test VPDecoder.slnx -m:1 --no-restore`
+- 97-frame repro sequence YUV420 comparison against libvpx for color and alpha
+  frames 0, 51, 72, and 96; all Y/U/V totals remained bitwise identical
+  (`mae=0`, `rmse=0`, `maxAbs=0`).
+
+Observed short-run benchmark after the tile-local spatial MV lookup grid slice:
+
+| Stream/output | Elapsed range | Allocated MB |
+| --- | ---: | ---: |
+| Color `Yuv420` | 3754-3760 ms | 3833 MB |
+| Alpha `Yuv420` | 4915-5085 ms | 3701 MB |
+| Color `Bgra8888` | 4606-4618 ms | 5162 MB |
+
+This is the first clearly CPU-dominant win in the optimization series: color
+`Yuv420` drops from roughly 5.2 seconds to 3.75 seconds over the 97-frame repro
+sequence, and packed `Bgra8888` drops to about 4.61 seconds. Allocation rises
+by about 91-92 MB compared with the fixed candidate-set slice because each tile
+now allocates lookup grids. The next low-risk follow-up is to pool or otherwise
+reuse those grid backing arrays while preserving deterministic clearing.

@@ -37,6 +37,106 @@ internal readonly struct Vp9MotionVectorCandidateSet
     }
 }
 
+internal sealed class Vp9InterBlockModeInfoGrid
+{
+    private readonly Vp9InterBlockModeInfoProbe?[] _grid;
+
+    public Vp9InterBlockModeInfoGrid(
+        int tileIndex,
+        int miRowStart,
+        int miRowEnd,
+        int miColumnStart,
+        int miColumnEnd)
+    {
+        if (miRowStart < 0 || miRowEnd <= miRowStart)
+        {
+            throw new ArgumentOutOfRangeException(nameof(miRowEnd), "VP9 MV lookup grid requires a non-empty MI row range.");
+        }
+
+        if (miColumnStart < 0 || miColumnEnd <= miColumnStart)
+        {
+            throw new ArgumentOutOfRangeException(nameof(miColumnEnd), "VP9 MV lookup grid requires a non-empty MI column range.");
+        }
+
+        TileIndex = tileIndex;
+        MiRowStart = miRowStart;
+        MiRowEnd = miRowEnd;
+        MiColumnStart = miColumnStart;
+        MiColumnEnd = miColumnEnd;
+        MiRows = miRowEnd - miRowStart;
+        MiColumns = miColumnEnd - miColumnStart;
+        _grid = new Vp9InterBlockModeInfoProbe?[checked(MiRows * MiColumns)];
+    }
+
+    public int TileIndex { get; }
+
+    public int MiRowStart { get; }
+
+    public int MiRowEnd { get; }
+
+    public int MiColumnStart { get; }
+
+    public int MiColumnEnd { get; }
+
+    public int MiRows { get; }
+
+    public int MiColumns { get; }
+
+    public void Set(Vp9InterBlockModeInfoProbe modeBlock)
+    {
+        if (modeBlock.TileIndex != TileIndex)
+        {
+            return;
+        }
+
+        var width = Math.Min(
+            Vp9ModeInfoSyntax.GetBlockWidthInMiUnits(modeBlock.ModeInfo.BlockSize),
+            MiColumnEnd - modeBlock.MiColumn);
+        var height = Math.Min(
+            Vp9ModeInfoSyntax.GetBlockHeightInMiUnits(modeBlock.ModeInfo.BlockSize),
+            MiRowEnd - modeBlock.MiRow);
+        if (width <= 0 || height <= 0)
+        {
+            return;
+        }
+
+        var rowStart = Math.Max(modeBlock.MiRow, MiRowStart);
+        var columnStart = Math.Max(modeBlock.MiColumn, MiColumnStart);
+        var rowEnd = Math.Min(modeBlock.MiRow + height, MiRowEnd);
+        var columnEnd = Math.Min(modeBlock.MiColumn + width, MiColumnEnd);
+        for (var row = rowStart; row < rowEnd; row++)
+        {
+            var offset = ((row - MiRowStart) * MiColumns) + columnStart - MiColumnStart;
+            for (var column = columnStart; column < columnEnd; column++)
+            {
+                _grid[offset + column - columnStart] = modeBlock;
+            }
+        }
+    }
+
+    public bool TryGetAtMi(int miRow, int miColumn, out Vp9InterBlockModeInfoProbe modeBlock)
+    {
+        if (miRow < MiRowStart ||
+            miRow >= MiRowEnd ||
+            miColumn < MiColumnStart ||
+            miColumn >= MiColumnEnd)
+        {
+            modeBlock = default!;
+            return false;
+        }
+
+        var existing = _grid[((miRow - MiRowStart) * MiColumns) + miColumn - MiColumnStart];
+        if (existing is null)
+        {
+            modeBlock = default!;
+            return false;
+        }
+
+        modeBlock = existing;
+        return true;
+    }
+}
+
 internal static class Vp9InterPredictor
 {
     private const int MotionVectorLowerBound = -(1 << 14);
@@ -265,6 +365,21 @@ internal static class Vp9InterPredictor
             previousFrameMotionVectors);
     }
 
+    public static Vp9MotionVectorCandidateSet BuildSpatialMotionVectorCandidateSet(
+        Vp9InterBlockModeInfoProbe currentBlock,
+        Vp9InterBlockModeInfoGrid decodedBlocks,
+        IReadOnlyList<bool>? referenceFrameSignBiases = null,
+        Vp9PreviousFrameMotionVectors? previousFrameMotionVectors = null)
+    {
+        return BuildSpatialMotionVectorCandidateSet(
+            currentBlock,
+            decodedBlocks: null,
+            decodedBlockGrid: decodedBlocks,
+            sub8X8BlockIndex: null,
+            referenceFrameSignBiases,
+            previousFrameMotionVectors);
+    }
+
     public static IReadOnlyList<Vp9MotionVector> BuildSub8X8MotionVectorCandidates(
         Vp9InterBlockModeInfoProbe currentBlock,
         IReadOnlyList<Vp9InterBlockModeInfoProbe> decodedBlocks,
@@ -305,9 +420,47 @@ internal static class Vp9InterPredictor
             previousFrameMotionVectors);
     }
 
+    public static Vp9MotionVectorCandidateSet BuildSub8X8MotionVectorCandidateSet(
+        Vp9InterBlockModeInfoProbe currentBlock,
+        Vp9InterBlockModeInfoGrid decodedBlocks,
+        int blockIndex,
+        IReadOnlyList<bool>? referenceFrameSignBiases = null,
+        Vp9PreviousFrameMotionVectors? previousFrameMotionVectors = null)
+    {
+        if (blockIndex is < 0 or > 3)
+        {
+            return default;
+        }
+
+        return BuildSpatialMotionVectorCandidateSet(
+            currentBlock,
+            decodedBlocks: null,
+            decodedBlockGrid: decodedBlocks,
+            blockIndex,
+            referenceFrameSignBiases,
+            previousFrameMotionVectors);
+    }
+
     private static Vp9MotionVectorCandidateSet BuildSpatialMotionVectorCandidateSet(
         Vp9InterBlockModeInfoProbe currentBlock,
         IReadOnlyList<Vp9InterBlockModeInfoProbe> decodedBlocks,
+        int? sub8X8BlockIndex,
+        IReadOnlyList<bool>? referenceFrameSignBiases,
+        Vp9PreviousFrameMotionVectors? previousFrameMotionVectors)
+    {
+        return BuildSpatialMotionVectorCandidateSet(
+            currentBlock,
+            decodedBlocks,
+            decodedBlockGrid: null,
+            sub8X8BlockIndex,
+            referenceFrameSignBiases,
+            previousFrameMotionVectors);
+    }
+
+    private static Vp9MotionVectorCandidateSet BuildSpatialMotionVectorCandidateSet(
+        Vp9InterBlockModeInfoProbe currentBlock,
+        IReadOnlyList<Vp9InterBlockModeInfoProbe>? decodedBlocks,
+        Vp9InterBlockModeInfoGrid? decodedBlockGrid,
         int? sub8X8BlockIndex,
         IReadOnlyList<bool>? referenceFrameSignBiases,
         Vp9PreviousFrameMotionVectors? previousFrameMotionVectors)
@@ -321,6 +474,7 @@ internal static class Vp9InterPredictor
             if (TryFindSpatialCandidateAtMiPosition(
                     currentBlock,
                     decodedBlocks,
+                    decodedBlockGrid,
                     currentBlock.MiRow + rowOffset,
                     currentBlock.MiColumn + columnOffset,
                     out var candidate) &&
@@ -365,6 +519,7 @@ internal static class Vp9InterPredictor
             if (TryFindSpatialCandidateAtMiPosition(
                     currentBlock,
                     decodedBlocks,
+                    decodedBlockGrid,
                     currentBlock.MiRow + rowOffset,
                     currentBlock.MiColumn + columnOffset,
                     out var candidate) &&
@@ -737,11 +892,23 @@ internal static class Vp9InterPredictor
 
     private static bool TryFindSpatialCandidateAtMiPosition(
         Vp9InterBlockModeInfoProbe currentBlock,
-        IReadOnlyList<Vp9InterBlockModeInfoProbe> decodedBlocks,
+        IReadOnlyList<Vp9InterBlockModeInfoProbe>? decodedBlocks,
+        Vp9InterBlockModeInfoGrid? decodedBlockGrid,
         int miRow,
         int miColumn,
         out Vp9InterBlockModeInfoProbe candidate)
     {
+        if (decodedBlockGrid is not null)
+        {
+            return decodedBlockGrid.TryGetAtMi(miRow, miColumn, out candidate);
+        }
+
+        if (decodedBlocks is null)
+        {
+            candidate = default!;
+            return false;
+        }
+
         for (var index = decodedBlocks.Count - 1; index >= 0; index--)
         {
             var block = decodedBlocks[index];
