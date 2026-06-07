@@ -238,11 +238,17 @@ internal static class Vp9LoopFilter
         var left8 = mask.LeftY[(int)Vp9TransformSize.Tx8X8];
         var left4 = mask.LeftY[(int)Vp9TransformSize.Tx4X4];
         var internal4 = mask.Internal4x4Y;
+        var verticalMask = left16 | left8 | left4 | internal4;
         for (var row = 0; row < SuperblockSizeInMiUnits && mask.MiRow + row < header.TileInfo.MiRows; row++)
         {
             for (var column = 0; column < SuperblockSizeInMiUnits; column++)
             {
                 var bit = 1UL << ((row * SuperblockSizeInMiUnits) + column);
+                if ((verticalMask & bit) == 0)
+                {
+                    continue;
+                }
+
                 var bitIndex = (row * SuperblockSizeInMiUnits) + column;
                 var startIndex = baseIndex + (row * 8 * plane.Stride) + (column * 8);
                 var rows = Math.Min(8, plane.Height - (baseY + (row * 8)));
@@ -254,11 +260,24 @@ internal static class Vp9LoopFilter
         var above8 = mask.AboveY[(int)Vp9TransformSize.Tx8X8];
         var above4 = mask.AboveY[(int)Vp9TransformSize.Tx4X4];
         internal4 = mask.Internal4x4Y;
+        var horizontalMask = above16 | above8 | above4 | internal4;
         for (var row = 0; row < SuperblockSizeInMiUnits && mask.MiRow + row < header.TileInfo.MiRows; row++)
         {
             for (var column = 0; column < SuperblockSizeInMiUnits; column++)
             {
                 var bit = 1UL << ((row * SuperblockSizeInMiUnits) + column);
+                if (mask.MiRow + row == 0)
+                {
+                    if ((internal4 & bit) == 0)
+                    {
+                        continue;
+                    }
+                }
+                else if ((horizontalMask & bit) == 0)
+                {
+                    continue;
+                }
+
                 var bitIndex = (row * SuperblockSizeInMiUnits) + column;
                 var startIndex = baseIndex + (row * 8 * plane.Stride) + (column * 8);
                 var columns = Math.Min(8, plane.Width - (baseX + (column * 8)));
@@ -288,11 +307,17 @@ internal static class Vp9LoopFilter
         var left8 = (uint)mask.LeftUv[(int)Vp9TransformSize.Tx8X8];
         var left4 = (uint)mask.LeftUv[(int)Vp9TransformSize.Tx4X4];
         var internal4 = (uint)mask.Internal4x4Uv;
+        var verticalMask = left16 | left8 | left4 | internal4;
         for (var row = 0; row < 4 && mask.MiRow + (row * 2) < header.TileInfo.MiRows; row++)
         {
             for (var column = 0; column < 4; column++)
             {
                 var bit = 1U << ((row * 4) + column);
+                if ((verticalMask & bit) == 0)
+                {
+                    continue;
+                }
+
                 var startIndex = baseIndex + (row * 8 * plane.Stride) + (column * 8);
                 var rows = Math.Min(8, plane.Height - (baseY + (row * 8)));
                 ApplyVerticalEdge(frame.Pixels, plane.Stride, startIndex, mask.GetChromaThresholds(row, column), left16, left8, left4, internal4, bit, rows);
@@ -303,12 +328,25 @@ internal static class Vp9LoopFilter
         var above8 = (uint)mask.AboveUv[(int)Vp9TransformSize.Tx8X8];
         var above4 = (uint)mask.AboveUv[(int)Vp9TransformSize.Tx4X4];
         internal4 = mask.Internal4x4Uv;
+        var horizontalMask = above16 | above8 | above4 | internal4;
         for (var row = 0; row < 4 && mask.MiRow + (row * 2) < header.TileInfo.MiRows; row++)
         {
             var skipBorderInternal4 = mask.MiRow + (row * 2) == header.TileInfo.MiRows - 1;
             for (var column = 0; column < 4; column++)
             {
                 var bit = 1U << ((row * 4) + column);
+                if (mask.MiRow + (row * 2) == 0)
+                {
+                    if (skipBorderInternal4 || (internal4 & bit) == 0)
+                    {
+                        continue;
+                    }
+                }
+                else if (((skipBorderInternal4 ? above16 | above8 | above4 : horizontalMask) & bit) == 0)
+                {
+                    continue;
+                }
+
                 var startIndex = baseIndex + (row * 8 * plane.Stride) + (column * 8);
                 var columns = Math.Min(8, plane.Width - (baseX + (column * 8)));
                 if (mask.MiRow + (row * 2) == 0)

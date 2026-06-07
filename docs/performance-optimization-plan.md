@@ -607,3 +607,31 @@ This is primarily an allocation cleanup. CPU time stays close to the previous
 compound subpel slice, while allocation drops by roughly 16 MB for color
 `Yuv420`, 17 MB for alpha `Yuv420`, and 17 MB for packed color output over the
 97-frame repro sequence.
+
+Loop-filter empty-bit skip slice:
+
+- Added precomputed vertical and horizontal active masks in luma and chroma
+  loop-filter application.
+- Skipped threshold lookup and edge-helper dispatch when the current mask bit
+  has no 16x16, 8x8, 4x4, or internal 4x4 edge to filter.
+- Kept the top-row horizontal special cases intact so frame-boundary behavior
+  remains unchanged.
+
+Validation:
+
+- `dotnet build VPDecoder.slnx --no-restore -m:1`
+- `dotnet test VPDecoder.slnx -m:1 --no-restore`
+- 97-frame repro sequence YUV420 comparison against libvpx for color and alpha
+  frames 0, 51, 72, and 96; all Y/U/V totals remained bitwise identical
+  (`mae=0`, `rmse=0`, `maxAbs=0`).
+
+Observed short-run benchmark after empty loop-filter mask-bit skipping:
+
+| Stream/output | Elapsed range | Allocated MB |
+| --- | ---: | ---: |
+| Color `Yuv420` | 2935-2987 ms | 3725 MB |
+| Alpha `Yuv420` | 3242-3286 ms | 3592 MB |
+| Color `Bgra8888` | 3854-3867 ms | 5054 MB |
+
+This is a small CPU win over the lazy threshold-cache slice. It trims empty
+loop-filter dispatch work without changing allocation meaningfully.
