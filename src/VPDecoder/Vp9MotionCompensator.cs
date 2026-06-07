@@ -9,6 +9,7 @@ internal static class Vp9MotionCompensator
     private const int SubpelMask = (1 << SubpelBits) - 1;
     private const int SubpelTaps = 8;
     private const int SubpelTapOffset = (SubpelTaps / 2) - 1;
+    private const int SubpelRightTapOffset = SubpelTaps - SubpelTapOffset - 1;
     private const int MotionVectorQ4LowerBound = -(1 << 15);
     private const int MotionVectorQ4UpperBound = (1 << 15) - 1;
 
@@ -179,23 +180,112 @@ internal static class Vp9MotionCompensator
         }
 
         var sourcePixels = referenceFrame.Pixels.AsSpan();
+        var destinationPixels = destination.Pixels;
         var kernels = GetFilterKernels(interpolationFilter);
-        for (var row = 0; row < height; row++)
+
+        if (subpelY == 0)
         {
-            var destinationOffset = destinationPlane.Offset + ((destinationY + row) * destinationPlane.Stride) + destinationX;
-            for (var column = 0; column < width; column++)
+            var xKernel = kernels.Slice(subpelX * SubpelTaps, SubpelTaps);
+            if (IsHorizontalFilterInputInside(sourcePlane, sourceX, sourceY, width, height))
             {
-                destination.Pixels[destinationOffset + column] = PredictPixel(
+                PredictHorizontalRows(
                     sourcePixels,
                     sourcePlane,
-                    sourceX + column,
-                    sourceY + row,
-                    subpelX,
-                    subpelY,
-                    kernels);
+                    sourceX,
+                    sourceY,
+                    destinationPixels,
+                    destinationPlane,
+                    destinationX,
+                    destinationY,
+                    width,
+                    height,
+                    xKernel);
+                return true;
             }
+
+            PredictHorizontalRowsClamped(
+                sourcePixels,
+                sourcePlane,
+                sourceX,
+                sourceY,
+                destinationPixels,
+                destinationPlane,
+                destinationX,
+                destinationY,
+                width,
+                height,
+                xKernel);
+            return true;
         }
 
+        if (subpelX == 0)
+        {
+            var yKernel = kernels.Slice(subpelY * SubpelTaps, SubpelTaps);
+            if (IsVerticalFilterInputInside(sourcePlane, sourceX, sourceY, width, height))
+            {
+                PredictVerticalRows(
+                    sourcePixels,
+                    sourcePlane,
+                    sourceX,
+                    sourceY,
+                    destinationPixels,
+                    destinationPlane,
+                    destinationX,
+                    destinationY,
+                    width,
+                    height,
+                    yKernel);
+                return true;
+            }
+
+            PredictVerticalRowsClamped(
+                sourcePixels,
+                sourcePlane,
+                sourceX,
+                sourceY,
+                destinationPixels,
+                destinationPlane,
+                destinationX,
+                destinationY,
+                width,
+                height,
+                yKernel);
+            return true;
+        }
+
+        var twoDimensionalXKernel = kernels.Slice(subpelX * SubpelTaps, SubpelTaps);
+        var twoDimensionalYKernel = kernels.Slice(subpelY * SubpelTaps, SubpelTaps);
+        if (IsTwoDimensionalFilterInputInside(sourcePlane, sourceX, sourceY, width, height))
+        {
+            PredictTwoDimensionalRows(
+                sourcePixels,
+                sourcePlane,
+                sourceX,
+                sourceY,
+                destinationPixels,
+                destinationPlane,
+                destinationX,
+                destinationY,
+                width,
+                height,
+                twoDimensionalXKernel,
+                twoDimensionalYKernel);
+            return true;
+        }
+
+        PredictTwoDimensionalRowsClamped(
+            sourcePixels,
+            sourcePlane,
+            sourceX,
+            sourceY,
+            destinationPixels,
+            destinationPlane,
+            destinationX,
+            destinationY,
+            width,
+            height,
+            twoDimensionalXKernel,
+            twoDimensionalYKernel);
         return true;
     }
 
@@ -405,6 +495,189 @@ internal static class Vp9MotionCompensator
         }
     }
 
+    private static void PredictHorizontalRows(
+        ReadOnlySpan<byte> sourcePixels,
+        Vp9DecodedPlane sourcePlane,
+        int sourceX,
+        int sourceY,
+        byte[] destinationPixels,
+        Vp9DecodedPlane destinationPlane,
+        int destinationX,
+        int destinationY,
+        int width,
+        int height,
+        ReadOnlySpan<short> kernel)
+    {
+        for (var row = 0; row < height; row++)
+        {
+            var sourceOffset = sourcePlane.Offset + ((sourceY + row) * sourcePlane.Stride) + sourceX;
+            var destinationOffset = destinationPlane.Offset + ((destinationY + row) * destinationPlane.Stride) + destinationX;
+            for (var column = 0; column < width; column++)
+            {
+                destinationPixels[destinationOffset + column] = ApplyHorizontalFilterUnclamped(
+                    sourcePixels,
+                    sourceOffset + column,
+                    kernel);
+            }
+        }
+    }
+
+    private static void PredictHorizontalRowsClamped(
+        ReadOnlySpan<byte> sourcePixels,
+        Vp9DecodedPlane sourcePlane,
+        int sourceX,
+        int sourceY,
+        byte[] destinationPixels,
+        Vp9DecodedPlane destinationPlane,
+        int destinationX,
+        int destinationY,
+        int width,
+        int height,
+        ReadOnlySpan<short> kernel)
+    {
+        for (var row = 0; row < height; row++)
+        {
+            var destinationOffset = destinationPlane.Offset + ((destinationY + row) * destinationPlane.Stride) + destinationX;
+            for (var column = 0; column < width; column++)
+            {
+                destinationPixels[destinationOffset + column] = ApplyHorizontalFilter(
+                    sourcePixels,
+                    sourcePlane,
+                    sourceX + column,
+                    sourceY + row,
+                    kernel);
+            }
+        }
+    }
+
+    private static void PredictVerticalRows(
+        ReadOnlySpan<byte> sourcePixels,
+        Vp9DecodedPlane sourcePlane,
+        int sourceX,
+        int sourceY,
+        byte[] destinationPixels,
+        Vp9DecodedPlane destinationPlane,
+        int destinationX,
+        int destinationY,
+        int width,
+        int height,
+        ReadOnlySpan<short> kernel)
+    {
+        for (var row = 0; row < height; row++)
+        {
+            var sourceOffset = sourcePlane.Offset + ((sourceY + row) * sourcePlane.Stride) + sourceX;
+            var destinationOffset = destinationPlane.Offset + ((destinationY + row) * destinationPlane.Stride) + destinationX;
+            for (var column = 0; column < width; column++)
+            {
+                destinationPixels[destinationOffset + column] = ApplyVerticalFilterUnclamped(
+                    sourcePixels,
+                    sourceOffset + column,
+                    sourcePlane.Stride,
+                    kernel);
+            }
+        }
+    }
+
+    private static void PredictVerticalRowsClamped(
+        ReadOnlySpan<byte> sourcePixels,
+        Vp9DecodedPlane sourcePlane,
+        int sourceX,
+        int sourceY,
+        byte[] destinationPixels,
+        Vp9DecodedPlane destinationPlane,
+        int destinationX,
+        int destinationY,
+        int width,
+        int height,
+        ReadOnlySpan<short> kernel)
+    {
+        for (var row = 0; row < height; row++)
+        {
+            var destinationOffset = destinationPlane.Offset + ((destinationY + row) * destinationPlane.Stride) + destinationX;
+            for (var column = 0; column < width; column++)
+            {
+                destinationPixels[destinationOffset + column] = ApplyVerticalFilter(
+                    sourcePixels,
+                    sourcePlane,
+                    sourceX + column,
+                    sourceY + row,
+                    kernel);
+            }
+        }
+    }
+
+    private static void PredictTwoDimensionalRows(
+        ReadOnlySpan<byte> sourcePixels,
+        Vp9DecodedPlane sourcePlane,
+        int sourceX,
+        int sourceY,
+        byte[] destinationPixels,
+        Vp9DecodedPlane destinationPlane,
+        int destinationX,
+        int destinationY,
+        int width,
+        int height,
+        ReadOnlySpan<short> xKernel,
+        ReadOnlySpan<short> yKernel)
+    {
+        for (var row = 0; row < height; row++)
+        {
+            var sourceOffset = sourcePlane.Offset + ((sourceY + row) * sourcePlane.Stride) + sourceX;
+            var destinationOffset = destinationPlane.Offset + ((destinationY + row) * destinationPlane.Stride) + destinationX;
+            for (var column = 0; column < width; column++)
+            {
+                var sum = 0;
+                var centerOffset = sourceOffset + column;
+                for (var tapY = 0; tapY < SubpelTaps; tapY++)
+                {
+                    var intermediate = ApplyHorizontalFilterUnclamped(
+                        sourcePixels,
+                        centerOffset + ((tapY - SubpelTapOffset) * sourcePlane.Stride),
+                        xKernel);
+                    sum += intermediate * yKernel[tapY];
+                }
+
+                destinationPixels[destinationOffset + column] = ClipPixel(RoundPowerOfTwo(sum, FilterBits));
+            }
+        }
+    }
+
+    private static void PredictTwoDimensionalRowsClamped(
+        ReadOnlySpan<byte> sourcePixels,
+        Vp9DecodedPlane sourcePlane,
+        int sourceX,
+        int sourceY,
+        byte[] destinationPixels,
+        Vp9DecodedPlane destinationPlane,
+        int destinationX,
+        int destinationY,
+        int width,
+        int height,
+        ReadOnlySpan<short> xKernel,
+        ReadOnlySpan<short> yKernel)
+    {
+        for (var row = 0; row < height; row++)
+        {
+            var destinationOffset = destinationPlane.Offset + ((destinationY + row) * destinationPlane.Stride) + destinationX;
+            for (var column = 0; column < width; column++)
+            {
+                var sum = 0;
+                for (var tapY = 0; tapY < SubpelTaps; tapY++)
+                {
+                    var intermediate = ApplyHorizontalFilter(
+                        sourcePixels,
+                        sourcePlane,
+                        sourceX + column,
+                        sourceY + row + tapY - SubpelTapOffset,
+                        xKernel);
+                    sum += intermediate * yKernel[tapY];
+                }
+
+                destinationPixels[destinationOffset + column] = ClipPixel(RoundPowerOfTwo(sum, FilterBits));
+            }
+        }
+    }
+
     private static bool ValidateReferenceFrame(
         Vp9DecodedFrame referenceFrame,
         Vp9YuvFrameBuffer destination,
@@ -456,6 +729,45 @@ internal static class Vp9MotionCompensator
         {
             sum += ReadClamped(pixels, sourcePlane, sourceX, sourceY + tap - SubpelTapOffset) * kernel[tap];
         }
+
+        return ClipPixel(RoundPowerOfTwo(sum, FilterBits));
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static byte ApplyHorizontalFilterUnclamped(
+        ReadOnlySpan<byte> pixels,
+        int centerOffset,
+        ReadOnlySpan<short> kernel)
+    {
+        var sum =
+            (pixels[centerOffset - 3] * kernel[0]) +
+            (pixels[centerOffset - 2] * kernel[1]) +
+            (pixels[centerOffset - 1] * kernel[2]) +
+            (pixels[centerOffset] * kernel[3]) +
+            (pixels[centerOffset + 1] * kernel[4]) +
+            (pixels[centerOffset + 2] * kernel[5]) +
+            (pixels[centerOffset + 3] * kernel[6]) +
+            (pixels[centerOffset + 4] * kernel[7]);
+
+        return ClipPixel(RoundPowerOfTwo(sum, FilterBits));
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static byte ApplyVerticalFilterUnclamped(
+        ReadOnlySpan<byte> pixels,
+        int centerOffset,
+        int stride,
+        ReadOnlySpan<short> kernel)
+    {
+        var sum =
+            (pixels[centerOffset - (3 * stride)] * kernel[0]) +
+            (pixels[centerOffset - (2 * stride)] * kernel[1]) +
+            (pixels[centerOffset - stride] * kernel[2]) +
+            (pixels[centerOffset] * kernel[3]) +
+            (pixels[centerOffset + stride] * kernel[4]) +
+            (pixels[centerOffset + (2 * stride)] * kernel[5]) +
+            (pixels[centerOffset + (3 * stride)] * kernel[6]) +
+            (pixels[centerOffset + (4 * stride)] * kernel[7]);
 
         return ClipPixel(RoundPowerOfTwo(sum, FilterBits));
     }
@@ -558,5 +870,44 @@ internal static class Vp9MotionCompensator
             y >= 0 &&
             width <= plane.Width - x &&
             height <= plane.Height - y;
+    }
+
+    private static bool IsHorizontalFilterInputInside(
+        Vp9DecodedPlane plane,
+        int x,
+        int y,
+        int width,
+        int height)
+    {
+        return x >= SubpelTapOffset &&
+            y >= 0 &&
+            width <= plane.Width - x - SubpelRightTapOffset &&
+            height <= plane.Height - y;
+    }
+
+    private static bool IsVerticalFilterInputInside(
+        Vp9DecodedPlane plane,
+        int x,
+        int y,
+        int width,
+        int height)
+    {
+        return x >= 0 &&
+            y >= SubpelTapOffset &&
+            width <= plane.Width - x &&
+            height <= plane.Height - y - SubpelRightTapOffset;
+    }
+
+    private static bool IsTwoDimensionalFilterInputInside(
+        Vp9DecodedPlane plane,
+        int x,
+        int y,
+        int width,
+        int height)
+    {
+        return x >= SubpelTapOffset &&
+            y >= SubpelTapOffset &&
+            width <= plane.Width - x - SubpelRightTapOffset &&
+            height <= plane.Height - y - SubpelRightTapOffset;
     }
 }

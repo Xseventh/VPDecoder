@@ -515,3 +515,36 @@ tile-local lookup grids while keeping most of the CPU win. Color `Yuv420` and
 packed `Bgra8888` allocation are back near the fixed candidate-set slice, while
 elapsed time remains around 3.8 seconds for color `Yuv420` and 4.65 seconds for
 packed `Bgra8888` on this repro run.
+
+Single-reference subpel motion-compensation fast-path slice:
+
+- Split the single-reference fractional prediction path into horizontal-only,
+  vertical-only, and two-dimensional subpel loops.
+- Added unclamped inner loops for blocks whose full filter tap footprint is
+  inside the reference plane.
+- Kept the existing clamped filter helpers for border blocks and left compound
+  prediction unchanged for this slice.
+- Cached interpolation kernels once per block instead of slicing the kernel
+  table for every predicted pixel.
+
+Validation:
+
+- `dotnet build VPDecoder.slnx --no-restore -m:1`
+- `dotnet test VPDecoder.slnx -m:1 --no-restore`
+- 97-frame repro sequence YUV420 comparison against libvpx for color and alpha
+  frames 0, 51, 72, and 96; all Y/U/V totals remained bitwise identical
+  (`mae=0`, `rmse=0`, `maxAbs=0`).
+
+Observed short-run benchmark after the single-reference subpel fast path:
+
+| Stream/output | Elapsed range | Allocated MB |
+| --- | ---: | ---: |
+| Color `Yuv420` | 3114-3125 ms | 3742 MB |
+| Alpha `Yuv420` | 3590-3642 ms | 3609 MB |
+| Color `Bgra8888` | 3949-3972 ms | 5071 MB |
+
+This is a CPU-only win over the pooled spatial-grid slice: allocations stay
+flat, while color `Yuv420` drops by roughly another 18%, alpha `Yuv420` drops
+by about 30%, and packed `Bgra8888` drops by about 15% on the repro workload.
+The result confirms that scalar motion-compensation shape was the next high
+leverage target before SIMD work.
