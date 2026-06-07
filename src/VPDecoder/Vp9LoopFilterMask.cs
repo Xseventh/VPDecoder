@@ -17,7 +17,7 @@ internal sealed class Vp9LoopFilterSuperblockMask
     }
 
     private readonly int _sharpnessLevel;
-    private readonly Vp9LoopFilterThresholds?[] _thresholdsByLevel = new Vp9LoopFilterThresholds?[64];
+    private Vp9LoopFilterThresholds?[]? _thresholdsByLevel;
 
     public int MiRow { get; }
 
@@ -88,8 +88,9 @@ internal sealed class Vp9LoopFilterSuperblockMask
             throw new ArgumentOutOfRangeException(nameof(filterLevel), filterLevel, "VP9 loop-filter level must be 0..63.");
         }
 
-        _thresholdsByLevel[filterLevel] ??= Vp9LoopFilter.GetThresholds(filterLevel, _sharpnessLevel);
-        return _thresholdsByLevel[filterLevel]!.Value;
+        var thresholdsByLevel = _thresholdsByLevel ??= new Vp9LoopFilterThresholds?[64];
+        thresholdsByLevel[filterLevel] ??= Vp9LoopFilter.GetThresholds(filterLevel, _sharpnessLevel);
+        return thresholdsByLevel[filterLevel]!.Value;
     }
 }
 

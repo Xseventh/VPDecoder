@@ -577,3 +577,33 @@ This is another CPU-only improvement. It is smaller than the single-reference
 fast path for color frames, but alpha benefits more on this sequence. The
 managed scalar path is now near 3.0 seconds for color `Yuv420` and below
 3.9 seconds for packed color output over the 97-frame repro sequence.
+
+Lazy loop-filter threshold cache slice:
+
+- Changed each loop-filter superblock mask to allocate the per-level threshold
+  cache lazily.
+- Kept the base frame-level threshold stored directly on the mask, so the
+  common same-level path does not allocate an extra 64-entry nullable cache.
+- Kept mode/ref delta threshold caching behavior unchanged when a block uses a
+  filter level different from the mask's base level.
+
+Validation:
+
+- `dotnet build VPDecoder.slnx --no-restore -m:1`
+- `dotnet test VPDecoder.slnx -m:1 --no-restore`
+- 97-frame repro sequence YUV420 comparison against libvpx for color and alpha
+  frames 0, 51, 72, and 96; all Y/U/V totals remained bitwise identical
+  (`mae=0`, `rmse=0`, `maxAbs=0`).
+
+Observed short-run benchmark after lazy loop-filter threshold caches:
+
+| Stream/output | Elapsed range | Allocated MB |
+| --- | ---: | ---: |
+| Color `Yuv420` | 3002-3061 ms | 3726 MB |
+| Alpha `Yuv420` | 3328-3350 ms | 3592 MB |
+| Color `Bgra8888` | 3906-3907 ms | 5054 MB |
+
+This is primarily an allocation cleanup. CPU time stays close to the previous
+compound subpel slice, while allocation drops by roughly 16 MB for color
+`Yuv420`, 17 MB for alpha `Yuv420`, and 17 MB for packed color output over the
+97-frame repro sequence.
