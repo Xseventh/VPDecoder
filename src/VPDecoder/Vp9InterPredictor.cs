@@ -1,5 +1,42 @@
 namespace VPDecoder;
 
+internal readonly struct Vp9MotionVectorCandidateSet
+{
+    private readonly Vp9MotionVector _first;
+    private readonly Vp9MotionVector _second;
+
+    public Vp9MotionVectorCandidateSet(int count, Vp9MotionVector first, Vp9MotionVector second = default)
+    {
+        if (count is < 0 or > 2)
+        {
+            throw new ArgumentOutOfRangeException(nameof(count), count, "VP9 MV candidate count must be 0..2.");
+        }
+
+        Count = count;
+        _first = first;
+        _second = second;
+    }
+
+    public int Count { get; }
+
+    public Vp9MotionVector this[int index] => index switch
+    {
+        0 when Count >= 1 => _first,
+        1 when Count >= 2 => _second,
+        _ => throw new ArgumentOutOfRangeException(nameof(index), index, "VP9 MV candidate index is out of range.")
+    };
+
+    public IReadOnlyList<Vp9MotionVector> ToReadOnlyList()
+    {
+        return Count switch
+        {
+            0 => [],
+            1 => [_first],
+            _ => [_first, _second]
+        };
+    }
+}
+
 internal static class Vp9InterPredictor
 {
     private const int MotionVectorLowerBound = -(1 << 14);
@@ -7,6 +44,48 @@ internal static class Vp9InterPredictor
     private const int MotionVectorReferenceBorder = 16 << 3;
     private const int MotionVectorReferenceNeighborCount = 8;
     private static readonly Vp9MotionVector ZeroMotionVector = new(0, 0);
+
+    private struct MotionVectorCandidateBuilder
+    {
+        private Vp9MotionVector _first;
+        private Vp9MotionVector _second;
+
+        public int Count { get; private set; }
+
+        public void Add(Vp9MotionVector? candidate)
+        {
+            if (candidate is not { } motionVector || Contains(motionVector) || Count == 2)
+            {
+                return;
+            }
+
+            if (Count == 0)
+            {
+                _first = motionVector;
+            }
+            else
+            {
+                _second = motionVector;
+            }
+
+            Count++;
+        }
+
+        public Vp9MotionVectorCandidateSet ToSet()
+        {
+            return new Vp9MotionVectorCandidateSet(Count, _first, _second);
+        }
+
+        private bool Contains(Vp9MotionVector motionVector)
+        {
+            return Count switch
+            {
+                0 => false,
+                1 => _first == motionVector,
+                _ => _first == motionVector || _second == motionVector
+            };
+        }
+    }
 
     private static ReadOnlySpan<sbyte> MotionVectorReferencePositions =>
     [
@@ -60,6 +139,22 @@ internal static class Vp9InterPredictor
         out Vp9MotionVector motionVector,
         out Vp9DecodeDiagnostic? diagnostic)
     {
+        return TrySelectMotionVector(
+            predictionMode,
+            new Vp9MotionVectorCandidateSet(
+                Math.Min(candidates.Count, 2),
+                candidates.Count >= 1 ? candidates[0] : default,
+                candidates.Count >= 2 ? candidates[1] : default),
+            out motionVector,
+            out diagnostic);
+    }
+
+    public static bool TrySelectMotionVector(
+        Vp9InterPredictionMode predictionMode,
+        Vp9MotionVectorCandidateSet candidates,
+        out Vp9MotionVector motionVector,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
         motionVector = default;
         diagnostic = null;
 
@@ -92,6 +187,22 @@ internal static class Vp9InterPredictor
     public static bool TrySelectMotionVector(
         Vp9InterBlockModeInfoProbe modeBlock,
         IReadOnlyList<Vp9MotionVector> candidates,
+        out Vp9MotionVector motionVector,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
+        return TrySelectMotionVector(
+            modeBlock,
+            new Vp9MotionVectorCandidateSet(
+                Math.Min(candidates.Count, 2),
+                candidates.Count >= 1 ? candidates[0] : default,
+                candidates.Count >= 2 ? candidates[1] : default),
+            out motionVector,
+            out diagnostic);
+    }
+
+    public static bool TrySelectMotionVector(
+        Vp9InterBlockModeInfoProbe modeBlock,
+        Vp9MotionVectorCandidateSet candidates,
         out Vp9MotionVector motionVector,
         out Vp9DecodeDiagnostic? diagnostic)
     {
@@ -132,7 +243,21 @@ internal static class Vp9InterPredictor
         IReadOnlyList<bool>? referenceFrameSignBiases = null,
         Vp9PreviousFrameMotionVectors? previousFrameMotionVectors = null)
     {
-        return BuildSpatialMotionVectorCandidates(
+        return BuildSpatialMotionVectorCandidateSet(
+            currentBlock,
+            decodedBlocks,
+            sub8X8BlockIndex: null,
+            referenceFrameSignBiases,
+            previousFrameMotionVectors).ToReadOnlyList();
+    }
+
+    public static Vp9MotionVectorCandidateSet BuildSpatialMotionVectorCandidateSet(
+        Vp9InterBlockModeInfoProbe currentBlock,
+        IReadOnlyList<Vp9InterBlockModeInfoProbe> decodedBlocks,
+        IReadOnlyList<bool>? referenceFrameSignBiases = null,
+        Vp9PreviousFrameMotionVectors? previousFrameMotionVectors = null)
+    {
+        return BuildSpatialMotionVectorCandidateSet(
             currentBlock,
             decodedBlocks,
             sub8X8BlockIndex: null,
@@ -152,7 +277,27 @@ internal static class Vp9InterPredictor
             return [];
         }
 
-        return BuildSpatialMotionVectorCandidates(
+        return BuildSpatialMotionVectorCandidateSet(
+            currentBlock,
+            decodedBlocks,
+            blockIndex,
+            referenceFrameSignBiases,
+            previousFrameMotionVectors).ToReadOnlyList();
+    }
+
+    public static Vp9MotionVectorCandidateSet BuildSub8X8MotionVectorCandidateSet(
+        Vp9InterBlockModeInfoProbe currentBlock,
+        IReadOnlyList<Vp9InterBlockModeInfoProbe> decodedBlocks,
+        int blockIndex,
+        IReadOnlyList<bool>? referenceFrameSignBiases = null,
+        Vp9PreviousFrameMotionVectors? previousFrameMotionVectors = null)
+    {
+        if (blockIndex is < 0 or > 3)
+        {
+            return default;
+        }
+
+        return BuildSpatialMotionVectorCandidateSet(
             currentBlock,
             decodedBlocks,
             blockIndex,
@@ -160,14 +305,14 @@ internal static class Vp9InterPredictor
             previousFrameMotionVectors);
     }
 
-    private static IReadOnlyList<Vp9MotionVector> BuildSpatialMotionVectorCandidates(
+    private static Vp9MotionVectorCandidateSet BuildSpatialMotionVectorCandidateSet(
         Vp9InterBlockModeInfoProbe currentBlock,
         IReadOnlyList<Vp9InterBlockModeInfoProbe> decodedBlocks,
         int? sub8X8BlockIndex,
         IReadOnlyList<bool>? referenceFrameSignBiases,
         Vp9PreviousFrameMotionVectors? previousFrameMotionVectors)
     {
-        var candidates = new List<Vp9MotionVector>(capacity: 2);
+        var candidates = new MotionVectorCandidateBuilder();
         var positionOffset = (int)currentBlock.ModeInfo.BlockSize * MotionVectorReferenceNeighborCount * 2;
         for (var i = 0; i < MotionVectorReferenceNeighborCount; i++)
         {
@@ -188,29 +333,29 @@ internal static class Vp9InterPredictor
                     sub8X8BlockIndex,
                     out var candidateMotionVector))
             {
-                AddCandidate(candidates, candidateMotionVector);
+                AddCandidate(ref candidates, candidateMotionVector);
             }
 
             if (candidates.Count == 2)
             {
-                return candidates;
+                return candidates.ToSet();
             }
         }
 
         AddPreviousFrameCandidate(
-            candidates,
+            ref candidates,
             currentBlock,
             previousFrameMotionVectors,
             referenceFrameSignBiases,
             sameReferenceOnly: true);
         if (candidates.Count == 2)
         {
-            return candidates;
+            return candidates.ToSet();
         }
 
         if (referenceFrameSignBiases is null)
         {
-            return candidates;
+            return candidates.ToSet();
         }
 
         for (var i = 0; i < MotionVectorReferenceNeighborCount; i++)
@@ -226,7 +371,7 @@ internal static class Vp9InterPredictor
                 CanUseSpatialCandidate(candidate, currentBlock))
             {
                 AddDifferentReferenceSpatialCandidates(
-                    candidates,
+                    ref candidates,
                     currentBlock,
                     candidate,
                     referenceFrameSignBiases);
@@ -234,23 +379,43 @@ internal static class Vp9InterPredictor
 
             if (candidates.Count == 2)
             {
-                return candidates;
+                return candidates.ToSet();
             }
         }
 
         AddPreviousFrameCandidate(
-            candidates,
+            ref candidates,
             currentBlock,
             previousFrameMotionVectors,
             referenceFrameSignBiases,
             sameReferenceOnly: false);
-        return candidates;
+        return candidates.ToSet();
     }
 
     public static bool TrySelectSub8X8MotionVector(
         Vp9InterPredictionMode predictionMode,
         int blockIndex,
         IReadOnlyList<Vp9MotionVector> candidates,
+        IReadOnlyList<Vp9MotionVector> currentSubMotionVectors,
+        out Vp9MotionVector motionVector,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
+        return TrySelectSub8X8MotionVector(
+            predictionMode,
+            blockIndex,
+            new Vp9MotionVectorCandidateSet(
+                Math.Min(candidates.Count, 2),
+                candidates.Count >= 1 ? candidates[0] : default,
+                candidates.Count >= 2 ? candidates[1] : default),
+            currentSubMotionVectors,
+            out motionVector,
+            out diagnostic);
+    }
+
+    public static bool TrySelectSub8X8MotionVector(
+        Vp9InterPredictionMode predictionMode,
+        int blockIndex,
+        Vp9MotionVectorCandidateSet candidates,
         IReadOnlyList<Vp9MotionVector> currentSubMotionVectors,
         out Vp9MotionVector motionVector,
         out Vp9DecodeDiagnostic? diagnostic)
@@ -329,6 +494,24 @@ internal static class Vp9InterPredictor
         return clamped;
     }
 
+    public static Vp9MotionVectorCandidateSet ClampReferenceMotionVectorCandidates(
+        Vp9FrameHeader header,
+        Vp9InterBlockModeInfoProbe currentBlock,
+        Vp9MotionVectorCandidateSet candidates)
+    {
+        return candidates.Count switch
+        {
+            0 => candidates,
+            1 => new Vp9MotionVectorCandidateSet(
+                1,
+                ClampReferenceMotionVector(header, currentBlock, candidates[0])),
+            _ => new Vp9MotionVectorCandidateSet(
+                2,
+                ClampReferenceMotionVector(header, currentBlock, candidates[0]),
+                ClampReferenceMotionVector(header, currentBlock, candidates[1]))
+        };
+    }
+
     private static bool TryReturnMotionVector(
         Vp9MotionVector value,
         out Vp9MotionVector motionVector,
@@ -365,6 +548,20 @@ internal static class Vp9InterPredictor
         IReadOnlyList<Vp9MotionVector> candidates,
         IReadOnlyList<Vp9MotionVector> currentSubMotionVectors)
     {
+        return GetSub8X8NearestMotionVector(
+            blockIndex,
+            new Vp9MotionVectorCandidateSet(
+                Math.Min(candidates.Count, 2),
+                candidates.Count >= 1 ? candidates[0] : default,
+                candidates.Count >= 2 ? candidates[1] : default),
+            currentSubMotionVectors);
+    }
+
+    private static Vp9MotionVector GetSub8X8NearestMotionVector(
+        int blockIndex,
+        Vp9MotionVectorCandidateSet candidates,
+        IReadOnlyList<Vp9MotionVector> currentSubMotionVectors)
+    {
         return blockIndex switch
         {
             0 => candidates.Count >= 1 ? candidates[0] : ZeroMotionVector,
@@ -379,6 +576,20 @@ internal static class Vp9InterPredictor
         IReadOnlyList<Vp9MotionVector> candidates,
         IReadOnlyList<Vp9MotionVector> currentSubMotionVectors)
     {
+        return GetSub8X8NearMotionVector(
+            blockIndex,
+            new Vp9MotionVectorCandidateSet(
+                Math.Min(candidates.Count, 2),
+                candidates.Count >= 1 ? candidates[0] : default,
+                candidates.Count >= 2 ? candidates[1] : default),
+            currentSubMotionVectors);
+    }
+
+    private static Vp9MotionVector GetSub8X8NearMotionVector(
+        int blockIndex,
+        Vp9MotionVectorCandidateSet candidates,
+        IReadOnlyList<Vp9MotionVector> currentSubMotionVectors)
+    {
         return blockIndex switch
         {
             0 => candidates.Count >= 2 ? candidates[1] : ZeroMotionVector,
@@ -387,12 +598,9 @@ internal static class Vp9InterPredictor
                 candidates),
             3 => FirstDifferent(
                 GetCurrentSubMotionVector(currentSubMotionVectors, 2),
-                [
-                    GetCurrentSubMotionVector(currentSubMotionVectors, 1),
-                    GetCurrentSubMotionVector(currentSubMotionVectors, 0),
-                    candidates.Count >= 1 ? candidates[0] : ZeroMotionVector,
-                    candidates.Count >= 2 ? candidates[1] : ZeroMotionVector
-                ]),
+                GetCurrentSubMotionVector(currentSubMotionVectors, 1),
+                GetCurrentSubMotionVector(currentSubMotionVectors, 0),
+                candidates),
             _ => ZeroMotionVector
         };
     }
@@ -421,9 +629,69 @@ internal static class Vp9InterPredictor
         return ZeroMotionVector;
     }
 
+    private static Vp9MotionVector FirstDifferent(
+        Vp9MotionVector nearest,
+        Vp9MotionVectorCandidateSet candidates)
+    {
+        for (var index = 0; index < candidates.Count; index++)
+        {
+            var candidate = candidates[index];
+            if (candidate != nearest)
+            {
+                return candidate;
+            }
+        }
+
+        return ZeroMotionVector;
+    }
+
+    private static Vp9MotionVector FirstDifferent(
+        Vp9MotionVector nearest,
+        Vp9MotionVector candidate0,
+        Vp9MotionVector candidate1,
+        Vp9MotionVectorCandidateSet candidates)
+    {
+        if (candidate0 != nearest)
+        {
+            return candidate0;
+        }
+
+        if (candidate1 != nearest)
+        {
+            return candidate1;
+        }
+
+        for (var index = 0; index < candidates.Count; index++)
+        {
+            var candidate = candidates[index];
+            if (candidate != nearest)
+            {
+                return candidate;
+            }
+        }
+
+        return ZeroMotionVector;
+    }
+
     private static bool TrySelectSharedSub8X8MotionVector(
         IReadOnlyList<Vp9InterPredictionMode> subModes,
         IReadOnlyList<Vp9MotionVector> candidates,
+        out Vp9MotionVector motionVector,
+        out Vp9DecodeDiagnostic? diagnostic)
+    {
+        return TrySelectSharedSub8X8MotionVector(
+            subModes,
+            new Vp9MotionVectorCandidateSet(
+                Math.Min(candidates.Count, 2),
+                candidates.Count >= 1 ? candidates[0] : default,
+                candidates.Count >= 2 ? candidates[1] : default),
+            out motionVector,
+            out diagnostic);
+    }
+
+    private static bool TrySelectSharedSub8X8MotionVector(
+        IReadOnlyList<Vp9InterPredictionMode> subModes,
+        Vp9MotionVectorCandidateSet candidates,
         out Vp9MotionVector motionVector,
         out Vp9DecodeDiagnostic? diagnostic)
     {
@@ -462,14 +730,9 @@ internal static class Vp9InterPredictor
         return true;
     }
 
-    private static void AddCandidate(List<Vp9MotionVector> candidates, Vp9MotionVector? candidate)
+    private static void AddCandidate(ref MotionVectorCandidateBuilder candidates, Vp9MotionVector? candidate)
     {
-        if (candidate is not { } motionVector || candidates.Contains(motionVector))
-        {
-            return;
-        }
-
-        candidates.Add(motionVector);
+        candidates.Add(candidate);
     }
 
     private static bool TryFindSpatialCandidateAtMiPosition(
@@ -504,7 +767,7 @@ internal static class Vp9InterPredictor
     }
 
     private static void AddDifferentReferenceSpatialCandidates(
-        List<Vp9MotionVector> candidates,
+        ref MotionVectorCandidateBuilder candidates,
         Vp9InterBlockModeInfoProbe currentBlock,
         Vp9InterBlockModeInfoProbe candidate,
         IReadOnlyList<bool> referenceFrameSignBiases)
@@ -518,7 +781,7 @@ internal static class Vp9InterPredictor
                 referenceFrameSignBiases,
                 out var primaryMotionVector))
         {
-            AddCandidate(candidates, primaryMotionVector);
+            AddCandidate(ref candidates, primaryMotionVector);
         }
 
         if (candidate.ModeInfo.CompoundReferenceFrame is { } candidateCompoundReferenceFrame &&
@@ -532,7 +795,7 @@ internal static class Vp9InterPredictor
                 referenceFrameSignBiases,
                 out var compoundMotionVector))
         {
-            AddCandidate(candidates, compoundMotionVector);
+            AddCandidate(ref candidates, compoundMotionVector);
         }
     }
 
@@ -625,7 +888,7 @@ internal static class Vp9InterPredictor
     }
 
     private static void AddPreviousFrameCandidate(
-        List<Vp9MotionVector> candidates,
+        ref MotionVectorCandidateBuilder candidates,
         Vp9InterBlockModeInfoProbe currentBlock,
         Vp9PreviousFrameMotionVectors? previousFrameMotionVectors,
         IReadOnlyList<bool>? referenceFrameSignBiases,
@@ -641,12 +904,12 @@ internal static class Vp9InterPredictor
         {
             if (entry.ReferenceFrame == currentBlock.ModeInfo.ReferenceFrame)
             {
-                AddCandidate(candidates, entry.MotionVector);
+                AddCandidate(ref candidates, entry.MotionVector);
             }
 
             if (entry.CompoundReferenceFrame == currentBlock.ModeInfo.ReferenceFrame)
             {
-                AddCandidate(candidates, entry.CompoundMotionVector);
+                AddCandidate(ref candidates, entry.CompoundMotionVector);
             }
 
             return;
@@ -662,7 +925,7 @@ internal static class Vp9InterPredictor
         }
 
         AddPreviousDifferentReferenceCandidate(
-            candidates,
+            ref candidates,
             entry.ReferenceFrame,
             entry.MotionVector,
             currentBlock.ModeInfo.ReferenceFrame,
@@ -673,7 +936,7 @@ internal static class Vp9InterPredictor
             compoundMotionVector != entry.MotionVector)
         {
             AddPreviousDifferentReferenceCandidate(
-                candidates,
+                ref candidates,
                 compoundReferenceFrame,
                 compoundMotionVector,
                 currentBlock.ModeInfo.ReferenceFrame,
@@ -683,7 +946,7 @@ internal static class Vp9InterPredictor
     }
 
     private static void AddPreviousDifferentReferenceCandidate(
-        List<Vp9MotionVector> candidates,
+        ref MotionVectorCandidateBuilder candidates,
         Vp9InterReferenceFrame previousReferenceFrame,
         Vp9MotionVector previousMotionVector,
         Vp9InterReferenceFrame currentReferenceFrame,
@@ -702,7 +965,7 @@ internal static class Vp9InterPredictor
             motionVector = new Vp9MotionVector(-motionVector.Row, -motionVector.Column);
         }
 
-        AddCandidate(candidates, motionVector);
+        AddCandidate(ref candidates, motionVector);
     }
 
     private static bool TryGetReferenceFrameSignBias(

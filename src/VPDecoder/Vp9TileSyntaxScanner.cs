@@ -3626,7 +3626,7 @@ internal static class Vp9TileSyntaxScanner
         var candidates = Vp9InterPredictor.ClampReferenceMotionVectorCandidates(
             header,
             modeBlock,
-            Vp9InterPredictor.BuildSpatialMotionVectorCandidates(
+            Vp9InterPredictor.BuildSpatialMotionVectorCandidateSet(
                 modeBlock,
                 predictedModeBlocks,
                 header.ReferenceFrameSignBiases,
@@ -3773,7 +3773,7 @@ internal static class Vp9TileSyntaxScanner
         var candidates = Vp9InterPredictor.ClampReferenceMotionVectorCandidates(
             header,
             modeBlock,
-            Vp9InterPredictor.BuildSpatialMotionVectorCandidates(
+            Vp9InterPredictor.BuildSpatialMotionVectorCandidateSet(
                 modeBlock,
                 decodedModeBlocks,
                 header.ReferenceFrameSignBiases,
@@ -3929,7 +3929,7 @@ internal static class Vp9TileSyntaxScanner
         var candidates0 = Vp9InterPredictor.ClampReferenceMotionVectorCandidates(
             header,
             referenceBlock0,
-            Vp9InterPredictor.BuildSpatialMotionVectorCandidates(
+            Vp9InterPredictor.BuildSpatialMotionVectorCandidateSet(
                 referenceBlock0,
                 decodedModeBlocks,
                 header.ReferenceFrameSignBiases,
@@ -3937,7 +3937,7 @@ internal static class Vp9TileSyntaxScanner
         var candidates1 = Vp9InterPredictor.ClampReferenceMotionVectorCandidates(
             header,
             referenceBlock1,
-            Vp9InterPredictor.BuildSpatialMotionVectorCandidates(
+            Vp9InterPredictor.BuildSpatialMotionVectorCandidateSet(
                 referenceBlock1,
                 decodedModeBlocks,
                 header.ReferenceFrameSignBiases,
@@ -4033,7 +4033,7 @@ internal static class Vp9TileSyntaxScanner
         var candidates0 = Vp9InterPredictor.ClampReferenceMotionVectorCandidates(
             header,
             referenceBlock0,
-            Vp9InterPredictor.BuildSpatialMotionVectorCandidates(
+            Vp9InterPredictor.BuildSpatialMotionVectorCandidateSet(
                 referenceBlock0,
                 decodedModeBlocks,
                 header.ReferenceFrameSignBiases,
@@ -4041,7 +4041,7 @@ internal static class Vp9TileSyntaxScanner
         var candidates1 = Vp9InterPredictor.ClampReferenceMotionVectorCandidates(
             header,
             referenceBlock1,
-            Vp9InterPredictor.BuildSpatialMotionVectorCandidates(
+            Vp9InterPredictor.BuildSpatialMotionVectorCandidateSet(
                 referenceBlock1,
                 decodedModeBlocks,
                 header.ReferenceFrameSignBiases,
@@ -4255,7 +4255,7 @@ internal static class Vp9TileSyntaxScanner
             var subBlockCandidates0 = Vp9InterPredictor.ClampReferenceMotionVectorCandidates(
                 header,
                 referenceBlock0,
-                Vp9InterPredictor.BuildSub8X8MotionVectorCandidates(
+                Vp9InterPredictor.BuildSub8X8MotionVectorCandidateSet(
                     referenceBlock0,
                     decodedModeBlocks,
                     blockIndex,
@@ -4264,7 +4264,7 @@ internal static class Vp9TileSyntaxScanner
             var subBlockCandidates1 = Vp9InterPredictor.ClampReferenceMotionVectorCandidates(
                 header,
                 referenceBlock1,
-                Vp9InterPredictor.BuildSub8X8MotionVectorCandidates(
+                Vp9InterPredictor.BuildSub8X8MotionVectorCandidateSet(
                     referenceBlock1,
                     decodedModeBlocks,
                     blockIndex,
@@ -4330,7 +4330,7 @@ internal static class Vp9TileSyntaxScanner
         Vp9CompressedHeader compressedHeader,
         Vp9InterBlockModeInfoProbe modeBlock,
         IReadOnlyList<Vp9InterBlockModeInfoProbe> decodedModeBlocks,
-        IReadOnlyList<Vp9MotionVector> candidates,
+        Vp9MotionVectorCandidateSet candidates,
         Vp9PreviousFrameMotionVectors? previousFrameMotionVectors,
         out Vp9InterModeInfoProbe resolvedModeInfo,
         out IReadOnlyList<Vp9MotionVector> interSubMotionVectors,
@@ -4482,7 +4482,7 @@ internal static class Vp9TileSyntaxScanner
         Vp9FrameHeader header,
         Vp9InterBlockModeInfoProbe modeBlock,
         IReadOnlyList<Vp9InterBlockModeInfoProbe> decodedModeBlocks,
-        IReadOnlyList<Vp9MotionVector> candidates,
+        Vp9MotionVectorCandidateSet candidates,
         Vp9PreviousFrameMotionVectors? previousFrameMotionVectors,
         Vp9MotionVector newMvReferenceMotionVector,
         int blockIndex,
@@ -4515,7 +4515,7 @@ internal static class Vp9TileSyntaxScanner
             var subBlockCandidates = Vp9InterPredictor.ClampReferenceMotionVectorCandidates(
                 header,
                 modeBlock,
-                Vp9InterPredictor.BuildSub8X8MotionVectorCandidates(
+                Vp9InterPredictor.BuildSub8X8MotionVectorCandidateSet(
                     modeBlock,
                     decodedModeBlocks,
                     blockIndex,

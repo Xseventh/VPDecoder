@@ -418,3 +418,36 @@ and 124 MB from packed `Bgra8888` over the 97-frame repro sequence compared
 with the coefficient scratch-pool slice. The elapsed-time result is also mildly
 better for color and packed output in this run, but should still be treated as
 short-run data because local machine load varies.
+
+Fixed MV candidate-set slice:
+
+- Replaced the production motion-vector candidate `List<Vp9MotionVector>` with
+  a fixed two-entry value type, matching VP9's candidate limit.
+- Added fixed-set clamp and selection overloads so ordinary inter prediction and
+  motion-vector parsing avoid per-block list and clamp-array allocations.
+- Kept the public candidate-list helpers intact for tests and diagnostic callers
+  by materializing a list only at that boundary.
+- Preserved duplicate candidate behavior after border clamping, because
+  `NEARMV` selection depends on candidate order and count.
+
+Validation:
+
+- `dotnet build VPDecoder.slnx --no-restore -m:1`
+- `dotnet test VPDecoder.slnx -m:1 --no-restore`
+- 97-frame repro sequence YUV420 comparison against libvpx for color and alpha
+  frames 0, 51, 72, and 96; all Y/U/V totals remained bitwise identical
+  (`mae=0`, `rmse=0`, `maxAbs=0`).
+
+Observed short-run benchmark after the fixed MV candidate-set slice:
+
+| Stream/output | Elapsed range | Allocated MB |
+| --- | ---: | ---: |
+| Color `Yuv420` | 5178-5281 ms | 3742 MB |
+| Alpha `Yuv420` | 5661-5714 ms | 3609 MB |
+| Color `Bgra8888` | 5993-6228 ms | 5071 MB |
+
+This removes roughly 79 MB from color `Yuv420`, 47 MB from alpha `Yuv420`,
+and 79 MB from packed `Bgra8888` over the 97-frame repro sequence compared
+with the inter loop-filter metadata slice. Elapsed time is mixed in this short
+run; the more reliable signal is reduced allocation from eliminating frequent
+small candidate containers.
