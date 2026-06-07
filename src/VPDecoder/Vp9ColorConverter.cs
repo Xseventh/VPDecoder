@@ -38,43 +38,24 @@ public static class Vp9ColorConverter
         var packed = new byte[checked(stride * height)];
         var matrix = GetMatrix(colorSpace);
         var isStudioRange = colorRange == Vp9ColorRange.Studio;
-        var isBgra = outputFormat == Vp9OutputPixelFormat.Bgra8888;
-
-        for (var y = 0; y < height; y++)
+        if (isStudioRange)
         {
-            var yRow = yPlane.Offset + (y * yPlane.Stride);
-            var uvRow = y / 2;
-            var uRow = uPlane.Offset + (uvRow * uPlane.Stride);
-            var vRow = vPlane.Offset + (uvRow * vPlane.Stride);
-            var outRow = y * stride;
-            for (var x = 0; x < width; x += 2)
+            if (outputFormat == Vp9OutputPixelFormat.Bgra8888)
             {
-                var uvColumn = x >> 1;
-                var uSample = sourcePixels[uRow + uvColumn];
-                var vSample = sourcePixels[vRow + uvColumn];
-                WritePackedSample(
-                    sourcePixels[yRow + x],
-                    uSample,
-                    vSample,
-                    matrix,
-                    isStudioRange,
-                    packed,
-                    outRow + (x * 4),
-                    isBgra);
-
-                if (x + 1 < width)
-                {
-                    WritePackedSample(
-                        sourcePixels[yRow + x + 1],
-                        uSample,
-                        vSample,
-                        matrix,
-                        isStudioRange,
-                        packed,
-                        outRow + ((x + 1) * 4),
-                        isBgra);
-                }
+                ConvertStudioRangeBgra(sourcePixels, yPlane, uPlane, vPlane, width, height, stride, matrix, packed);
             }
+            else
+            {
+                ConvertStudioRangeRgba(sourcePixels, yPlane, uPlane, vPlane, width, height, stride, matrix, packed);
+            }
+        }
+        else if (outputFormat == Vp9OutputPixelFormat.Bgra8888)
+        {
+            ConvertFullRangeBgra(sourcePixels, yPlane, uPlane, vPlane, width, height, stride, matrix, packed);
+        }
+        else
+        {
+            ConvertFullRangeRgba(sourcePixels, yPlane, uPlane, vPlane, width, height, stride, matrix, packed);
         }
 
         return Vp9DecodedFrame.CreatePacked(
@@ -94,46 +75,209 @@ public static class Vp9ColorConverter
             Vp9ColorSpace.Smpte170;
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private static void WritePackedSample(
-        int y,
-        int u,
-        int v,
+    private static void ConvertStudioRangeBgra(
+        byte[] sourcePixels,
+        Vp9DecodedPlane yPlane,
+        Vp9DecodedPlane uPlane,
+        Vp9DecodedPlane vPlane,
+        int width,
+        int height,
+        int stride,
         Vp9YuvToRgbMatrix matrix,
-        bool isStudioRange,
-        byte[] packed,
-        int offset,
-        bool isBgra)
+        byte[] packed)
     {
-        var c = isStudioRange
-            ? (y <= 16 ? 0 : (y - 16) * 298)
-            : y * 256;
-        var d = u - 128;
-        var e = v - 128;
-
-        var r = isStudioRange
-            ? (c + (matrix.LimitedCrToR * e) + 128) >> 8
-            : y + ((matrix.FullCrToR * e) >> 8);
-        var g = isStudioRange
-            ? (c - (matrix.LimitedCbToG * d) - (matrix.LimitedCrToG * e) + 128) >> 8
-            : y - ((matrix.FullCbToG * d + matrix.FullCrToG * e) >> 8);
-        var b = isStudioRange
-            ? (c + (matrix.LimitedCbToB * d) + 128) >> 8
-            : y + ((matrix.FullCbToB * d) >> 8);
-
-        if (isBgra)
+        for (var y = 0; y < height; y++)
         {
-            packed[offset] = ClipPixel(b);
-            packed[offset + 1] = ClipPixel(g);
-            packed[offset + 2] = ClipPixel(r);
-        }
-        else
-        {
-            packed[offset] = ClipPixel(r);
-            packed[offset + 1] = ClipPixel(g);
-            packed[offset + 2] = ClipPixel(b);
-        }
+            var yRow = yPlane.Offset + (y * yPlane.Stride);
+            var uvRow = y >> 1;
+            var uRow = uPlane.Offset + (uvRow * uPlane.Stride);
+            var vRow = vPlane.Offset + (uvRow * vPlane.Stride);
+            var outRow = y * stride;
+            for (var x = 0; x < width; x += 2)
+            {
+                var uvColumn = x >> 1;
+                var d = sourcePixels[uRow + uvColumn] - 128;
+                var e = sourcePixels[vRow + uvColumn] - 128;
+                var chromaR = matrix.LimitedCrToR * e;
+                var chromaG = (matrix.LimitedCbToG * d) + (matrix.LimitedCrToG * e);
+                var chromaB = matrix.LimitedCbToB * d;
+                WriteStudioBgraSample(sourcePixels[yRow + x], chromaR, chromaG, chromaB, packed, outRow + (x * 4));
 
+                if (x + 1 < width)
+                {
+                    WriteStudioBgraSample(sourcePixels[yRow + x + 1], chromaR, chromaG, chromaB, packed, outRow + ((x + 1) * 4));
+                }
+            }
+        }
+    }
+
+    private static void ConvertStudioRangeRgba(
+        byte[] sourcePixels,
+        Vp9DecodedPlane yPlane,
+        Vp9DecodedPlane uPlane,
+        Vp9DecodedPlane vPlane,
+        int width,
+        int height,
+        int stride,
+        Vp9YuvToRgbMatrix matrix,
+        byte[] packed)
+    {
+        for (var y = 0; y < height; y++)
+        {
+            var yRow = yPlane.Offset + (y * yPlane.Stride);
+            var uvRow = y >> 1;
+            var uRow = uPlane.Offset + (uvRow * uPlane.Stride);
+            var vRow = vPlane.Offset + (uvRow * vPlane.Stride);
+            var outRow = y * stride;
+            for (var x = 0; x < width; x += 2)
+            {
+                var uvColumn = x >> 1;
+                var d = sourcePixels[uRow + uvColumn] - 128;
+                var e = sourcePixels[vRow + uvColumn] - 128;
+                var chromaR = matrix.LimitedCrToR * e;
+                var chromaG = (matrix.LimitedCbToG * d) + (matrix.LimitedCrToG * e);
+                var chromaB = matrix.LimitedCbToB * d;
+                WriteStudioRgbaSample(sourcePixels[yRow + x], chromaR, chromaG, chromaB, packed, outRow + (x * 4));
+
+                if (x + 1 < width)
+                {
+                    WriteStudioRgbaSample(sourcePixels[yRow + x + 1], chromaR, chromaG, chromaB, packed, outRow + ((x + 1) * 4));
+                }
+            }
+        }
+    }
+
+    private static void ConvertFullRangeBgra(
+        byte[] sourcePixels,
+        Vp9DecodedPlane yPlane,
+        Vp9DecodedPlane uPlane,
+        Vp9DecodedPlane vPlane,
+        int width,
+        int height,
+        int stride,
+        Vp9YuvToRgbMatrix matrix,
+        byte[] packed)
+    {
+        for (var y = 0; y < height; y++)
+        {
+            var yRow = yPlane.Offset + (y * yPlane.Stride);
+            var uvRow = y >> 1;
+            var uRow = uPlane.Offset + (uvRow * uPlane.Stride);
+            var vRow = vPlane.Offset + (uvRow * vPlane.Stride);
+            var outRow = y * stride;
+            for (var x = 0; x < width; x += 2)
+            {
+                var uvColumn = x >> 1;
+                var d = sourcePixels[uRow + uvColumn] - 128;
+                var e = sourcePixels[vRow + uvColumn] - 128;
+                var chromaR = (matrix.FullCrToR * e) >> 8;
+                var chromaG = (matrix.FullCbToG * d + matrix.FullCrToG * e) >> 8;
+                var chromaB = (matrix.FullCbToB * d) >> 8;
+                WriteFullBgraSample(sourcePixels[yRow + x], chromaR, chromaG, chromaB, packed, outRow + (x * 4));
+
+                if (x + 1 < width)
+                {
+                    WriteFullBgraSample(sourcePixels[yRow + x + 1], chromaR, chromaG, chromaB, packed, outRow + ((x + 1) * 4));
+                }
+            }
+        }
+    }
+
+    private static void ConvertFullRangeRgba(
+        byte[] sourcePixels,
+        Vp9DecodedPlane yPlane,
+        Vp9DecodedPlane uPlane,
+        Vp9DecodedPlane vPlane,
+        int width,
+        int height,
+        int stride,
+        Vp9YuvToRgbMatrix matrix,
+        byte[] packed)
+    {
+        for (var y = 0; y < height; y++)
+        {
+            var yRow = yPlane.Offset + (y * yPlane.Stride);
+            var uvRow = y >> 1;
+            var uRow = uPlane.Offset + (uvRow * uPlane.Stride);
+            var vRow = vPlane.Offset + (uvRow * vPlane.Stride);
+            var outRow = y * stride;
+            for (var x = 0; x < width; x += 2)
+            {
+                var uvColumn = x >> 1;
+                var d = sourcePixels[uRow + uvColumn] - 128;
+                var e = sourcePixels[vRow + uvColumn] - 128;
+                var chromaR = (matrix.FullCrToR * e) >> 8;
+                var chromaG = (matrix.FullCbToG * d + matrix.FullCrToG * e) >> 8;
+                var chromaB = (matrix.FullCbToB * d) >> 8;
+                WriteFullRgbaSample(sourcePixels[yRow + x], chromaR, chromaG, chromaB, packed, outRow + (x * 4));
+
+                if (x + 1 < width)
+                {
+                    WriteFullRgbaSample(sourcePixels[yRow + x + 1], chromaR, chromaG, chromaB, packed, outRow + ((x + 1) * 4));
+                }
+            }
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static void WriteStudioBgraSample(
+        int y,
+        int chromaR,
+        int chromaG,
+        int chromaB,
+        byte[] packed,
+        int offset)
+    {
+        var c = y <= 16 ? 0 : (y - 16) * 298;
+        packed[offset] = ClipPixel((c + chromaB + 128) >> 8);
+        packed[offset + 1] = ClipPixel((c - chromaG + 128) >> 8);
+        packed[offset + 2] = ClipPixel((c + chromaR + 128) >> 8);
+        packed[offset + 3] = 255;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static void WriteStudioRgbaSample(
+        int y,
+        int chromaR,
+        int chromaG,
+        int chromaB,
+        byte[] packed,
+        int offset)
+    {
+        var c = y <= 16 ? 0 : (y - 16) * 298;
+        packed[offset] = ClipPixel((c + chromaR + 128) >> 8);
+        packed[offset + 1] = ClipPixel((c - chromaG + 128) >> 8);
+        packed[offset + 2] = ClipPixel((c + chromaB + 128) >> 8);
+        packed[offset + 3] = 255;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static void WriteFullBgraSample(
+        int y,
+        int chromaR,
+        int chromaG,
+        int chromaB,
+        byte[] packed,
+        int offset)
+    {
+        packed[offset] = ClipPixel(y + chromaB);
+        packed[offset + 1] = ClipPixel(y - chromaG);
+        packed[offset + 2] = ClipPixel(y + chromaR);
+        packed[offset + 3] = 255;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static void WriteFullRgbaSample(
+        int y,
+        int chromaR,
+        int chromaG,
+        int chromaB,
+        byte[] packed,
+        int offset)
+    {
+        packed[offset] = ClipPixel(y + chromaR);
+        packed[offset + 1] = ClipPixel(y - chromaG);
+        packed[offset + 2] = ClipPixel(y + chromaB);
         packed[offset + 3] = 255;
     }
 

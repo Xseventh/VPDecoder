@@ -635,3 +635,33 @@ Observed short-run benchmark after empty loop-filter mask-bit skipping:
 
 This is a small CPU win over the lazy threshold-cache slice. It trims empty
 loop-filter dispatch work without changing allocation meaningfully.
+
+Pair-based packed color conversion slice:
+
+- Split YUV420-to-packed conversion into concrete Studio/BGRA, Studio/RGBA,
+  Full/BGRA, and Full/RGBA paths.
+- Moved output-format and range branches out of the per-pixel hot loop.
+- Reused each YUV420 chroma sample for the two luma pixels that share it,
+  computing chroma contributions once per pair instead of once per pixel.
+
+Validation:
+
+- `dotnet build VPDecoder.slnx --no-restore -m:1`
+- `dotnet test VPDecoder.slnx -m:1 --no-restore`
+- 97-frame repro sequence YUV420 comparison against libvpx for color and alpha
+  frames 0, 51, 72, and 96; all Y/U/V totals remained bitwise identical
+  (`mae=0`, `rmse=0`, `maxAbs=0`).
+- Packed color benchmark checksum remained unchanged at
+  `3711330852910723308`.
+
+Observed short-run benchmark after pair-based packed conversion:
+
+| Stream/output | Elapsed range | Allocated MB |
+| --- | ---: | ---: |
+| Color `Yuv420` | 2979-2991 ms | 3725 MB |
+| Alpha `Yuv420` | 3191-3251 ms | 3592 MB |
+| Color `Bgra8888` | 3667-3688 ms | 5054 MB |
+
+This targets the packed-output-only overhead. Color `Bgra8888` drops from about
+3.85 seconds to about 3.67 seconds over the 97-frame repro sequence, while YUV
+decode timings remain in the same range as the loop-filter slice.
