@@ -2,7 +2,10 @@ namespace VPDecoder;
 
 internal static class Vp9TreeReader
 {
-    public static int ReadTree(ref Vp9BoolReader reader, ReadOnlySpan<sbyte> tree, ReadOnlySpan<byte> probabilities)
+    public static int ReadTree(
+        ref Vp9BoolReader reader,
+        scoped ReadOnlySpan<sbyte> tree,
+        scoped ReadOnlySpan<byte> probabilities)
     {
         var index = 0;
         while (true)

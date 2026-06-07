@@ -432,7 +432,7 @@ internal static class Vp9InterModeInfoSyntax
                 "VP9 inter mode context is outside the probability table.");
         }
 
-        var probabilities = new byte[Vp9FrameContextConstants.InterModes - 1];
+        Span<byte> probabilities = stackalloc byte[Vp9FrameContextConstants.InterModes - 1];
         for (var i = 0; i < probabilities.Length; i++)
         {
             probabilities[i] = frameContext.InterModeProbabilities[interModeContext, i];
@@ -453,7 +453,7 @@ internal static class Vp9InterModeInfoSyntax
                 "VP9 inter-frame intra Y mode block-size group is outside the probability table.");
         }
 
-        var probabilities = new byte[Vp9FrameContextConstants.IntraModes - 1];
+        Span<byte> probabilities = stackalloc byte[Vp9FrameContextConstants.IntraModes - 1];
         for (var i = 0; i < probabilities.Length; i++)
         {
             probabilities[i] = frameContext.InterFrameYModeProbabilities[blockSizeGroup, i];
@@ -472,7 +472,7 @@ internal static class Vp9InterModeInfoSyntax
             throw new ArgumentOutOfRangeException(nameof(yMode), yMode, "VP9 intra Y mode is outside the probability table.");
         }
 
-        var probabilities = new byte[Vp9FrameContextConstants.IntraModes - 1];
+        Span<byte> probabilities = stackalloc byte[Vp9FrameContextConstants.IntraModes - 1];
         for (var i = 0; i < probabilities.Length; i++)
         {
             probabilities[i] = frameContext.InterFrameUvModeProbabilities[(int)yMode, i];
@@ -641,7 +641,7 @@ internal static class Vp9InterModeInfoSyntax
                 "VP9 switchable interpolation context is outside the probability table.");
         }
 
-        var probabilities = new byte[Vp9FrameContextConstants.SwitchableFilters - 1];
+        Span<byte> probabilities = stackalloc byte[Vp9FrameContextConstants.SwitchableFilters - 1];
         for (var i = 0; i < probabilities.Length; i++)
         {
             probabilities[i] = frameContext.SwitchableInterpolationProbabilities[switchableInterpolationContext, i];

@@ -121,7 +121,12 @@ internal static class Vp9MotionVectorSyntax
             magnitude = Class0Size << (motionVectorClass + 2);
         }
 
-        var fractionalProbabilities = GetFractionalProbabilities(probabilities, class0, d);
+        Span<byte> class0FractionalProbabilities = stackalloc byte[3];
+        var fractionalProbabilities = GetFractionalProbabilities(
+            probabilities,
+            class0,
+            d,
+            class0FractionalProbabilities);
         var fractional = Vp9TreeReader.ReadTree(ref reader, FractionalPrecisionTree, fractionalProbabilities);
         var highPrecision = useHighPrecision
             ? (reader.Read(class0 ? probabilities.Class0Hp : probabilities.Hp) ? 1 : 0)
@@ -141,14 +146,15 @@ internal static class Vp9MotionVectorSyntax
         return component + (component > 0 ? -1 : 1);
     }
 
-    private static byte[] GetFractionalProbabilities(
+    private static ReadOnlySpan<byte> GetFractionalProbabilities(
         Vp9MotionVectorComponentProbabilities probabilities,
         bool class0,
-        int d)
+        int d,
+        Span<byte> class0FractionalProbabilities)
     {
         if (!class0)
         {
-            return (byte[])probabilities.Fp.Clone();
+            return probabilities.Fp;
         }
 
         if (d is < 0 or >= Class0Size)
@@ -156,12 +162,10 @@ internal static class Vp9MotionVectorSyntax
             throw new ArgumentOutOfRangeException(nameof(d), "VP9 class0 motion vector offset is outside the fractional probability table.");
         }
 
-        return
-        [
-            probabilities.Class0Fp[d, 0],
-            probabilities.Class0Fp[d, 1],
-            probabilities.Class0Fp[d, 2]
-        ];
+        class0FractionalProbabilities[0] = probabilities.Class0Fp[d, 0];
+        class0FractionalProbabilities[1] = probabilities.Class0Fp[d, 1];
+        class0FractionalProbabilities[2] = probabilities.Class0Fp[d, 2];
+        return class0FractionalProbabilities;
     }
 
     private static bool HasVerticalComponent(Vp9MotionVectorJoint joint)

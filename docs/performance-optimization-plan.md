@@ -798,6 +798,34 @@ repro sequence and trims about 7-8% from merged BGRA elapsed time in the short
 run. The win comes from avoiding the alpha stream's temporary packed BGRA frame
 and computing only the red channel needed for alpha composition.
 
+Stack-allocated syntax probability buffers slice:
+
+- Changed hot VP9 mode-info probability tables from per-read small `byte[]`
+  allocations to stack spans.
+- Changed motion-vector fractional probability reading to reuse frame-context
+  arrays or a stack span instead of cloning/allocating a three-entry array per
+  component.
+- Marked the VP9 tree-reader span inputs as `scoped` so stack-backed
+  probability spans cannot escape.
+
+Validation:
+
+- `dotnet build VPDecoder.slnx --no-restore -m:1`
+- `dotnet test VPDecoder.slnx -m:1 --no-restore`
+- Color, alpha, and merged benchmark checksums remained unchanged.
+
+Observed short-run benchmark after the slice:
+
+| Stream/output | Elapsed range | Allocated MB |
+| --- | ---: | ---: |
+| Color `Yuv420` | 2863-2980 ms | 3721 MB |
+| Alpha `Yuv420` | 3145-3255 ms | 3616 MB |
+| Merged `Bgra8888` | 7159-7548 ms | 8644 MB |
+
+This is a small allocation cleanup rather than a clear CPU win. The main value
+is removing frequent tiny syntax-path allocations before moving on to larger
+motion-compensation and loop-filter work.
+
 Additional non-committed local trials that did not show stable benefit:
 
 - Grid-only direct inter mode metadata: reduced allocation by about 10 MB over
