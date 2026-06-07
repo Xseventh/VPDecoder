@@ -769,6 +769,35 @@ sequence by avoiding one full BGRA clone per visible merged frame. It is mainly
 a WCX-facing memory improvement; elapsed time is slightly better but still
 dominated by decoding both color and alpha streams.
 
+Alpha YUV red-channel merge slice:
+
+- Changed `DecodeFrameWithAlpha` to decode the alpha packet as `Yuv420`
+  instead of a full `Bgra8888` frame.
+- Added a direct YUV420-to-alpha merge helper that computes the same red channel
+  value that packed BGRA conversion would have produced, then writes it into the
+  color frame's alpha channel.
+- Kept the public clone-based `MergeBgraWithYuvAlpha` behavior unchanged and
+  kept `DecodeFrameWithAlpha` output hashes unchanged.
+
+Validation:
+
+- `dotnet build VPDecoder.slnx --no-restore -m:1`
+- `dotnet test VPDecoder.slnx -m:1 --no-restore`
+- Merged color+alpha BGRA benchmark checksum remained unchanged at
+  `10561845111562233601`.
+
+Observed short-run merged color+alpha benchmark after the slice:
+
+| Merge path | Elapsed range | Allocated MB |
+| --- | ---: | ---: |
+| Alpha decoded as BGRA | 7938-8004 ms | 9974 MB |
+| Alpha decoded as YUV420 with direct red-channel merge | 7335-7408 ms | 8650 MB |
+
+This removes another roughly 1.3 GB of allocation over the 97-frame color+alpha
+repro sequence and trims about 7-8% from merged BGRA elapsed time in the short
+run. The win comes from avoiding the alpha stream's temporary packed BGRA frame
+and computing only the red channel needed for alpha composition.
+
 Additional non-committed local trials that did not show stable benefit:
 
 - Grid-only direct inter mode metadata: reduced allocation by about 10 MB over

@@ -83,6 +83,38 @@ public sealed class Vp9ColorConverterTests
         }
     }
 
+    [Fact]
+    public void MergeYuv420RedChannelAsBgraAlphaInPlace_MatchesBgraRedChannel()
+    {
+        var alpha = CreateSolidYuv420Frame(2, 2, y: 100, u: 150, v: 200);
+        var alphaBgra = Vp9ColorConverter.ConvertYuv420ToPacked(
+            alpha,
+            Vp9ColorSpace.Bt709,
+            Vp9ColorRange.Studio,
+            Vp9OutputPixelFormat.Bgra8888);
+        var color = Vp9DecodedFrame.CreatePacked(
+            2,
+            2,
+            Vp9OutputPixelFormat.Bgra8888,
+            [
+                1, 2, 3, 255, 4, 5, 6, 255,
+                7, 8, 9, 255, 10, 11, 12, 255
+            ],
+            8);
+
+        var merged = Vp9ColorConverter.MergeYuv420RedChannelAsBgraAlphaInPlace(
+            color,
+            alpha,
+            Vp9ColorSpace.Bt709,
+            Vp9ColorRange.Studio);
+
+        Assert.Same(color, merged);
+        for (var i = 0; i < color.Pixels.Length; i += 4)
+        {
+            Assert.Equal(alphaBgra.Pixels[i + 2], color.Pixels[i + 3]);
+        }
+    }
+
     private static Vp9DecodedFrame CreateSolidYuv420Frame(int width, int height, byte y, byte u, byte v)
     {
         var buffer = Vp9YuvFrameBuffer.Create(width, height);

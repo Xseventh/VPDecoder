@@ -75,6 +75,56 @@ public static class Vp9ColorConverter
             Vp9ColorSpace.Smpte170;
     }
 
+    internal static Vp9DecodedFrame MergeYuv420RedChannelAsBgraAlphaInPlace(
+        Vp9DecodedFrame colorFrame,
+        Vp9DecodedFrame alphaFrame,
+        Vp9ColorSpace alphaColorSpace,
+        Vp9ColorRange alphaColorRange)
+    {
+        if (colorFrame.PixelFormat != Vp9OutputPixelFormat.Bgra8888 ||
+            alphaFrame.PixelFormat != Vp9OutputPixelFormat.Yuv420)
+        {
+            throw new ArgumentException("VP9 alpha composition requires a BGRA8888 color frame and a YUV420 alpha frame.");
+        }
+
+        if (colorFrame.Width != alphaFrame.Width || colorFrame.Height != alphaFrame.Height)
+        {
+            throw new ArgumentException("VP9 alpha frame dimensions must match the color frame.");
+        }
+
+        var yPlane = alphaFrame.Planes[0];
+        var vPlane = alphaFrame.Planes[2];
+        var alphaPixels = alphaFrame.Pixels;
+        var colorPixels = colorFrame.Pixels;
+        var matrix = GetMatrix(alphaColorSpace);
+        if (alphaColorRange == Vp9ColorRange.Studio)
+        {
+            MergeStudioRangeRedChannelAsBgraAlpha(
+                alphaPixels,
+                yPlane,
+                vPlane,
+                colorFrame.Width,
+                colorFrame.Height,
+                colorFrame.Stride,
+                matrix,
+                colorPixels);
+        }
+        else
+        {
+            MergeFullRangeRedChannelAsBgraAlpha(
+                alphaPixels,
+                yPlane,
+                vPlane,
+                colorFrame.Width,
+                colorFrame.Height,
+                colorFrame.Stride,
+                matrix,
+                colorPixels);
+        }
+
+        return colorFrame;
+    }
+
     private static void ConvertStudioRangeBgra(
         byte[] sourcePixels,
         Vp9DecodedPlane yPlane,
@@ -219,6 +269,60 @@ public static class Vp9ColorConverter
         }
     }
 
+    private static void MergeStudioRangeRedChannelAsBgraAlpha(
+        byte[] alphaPixels,
+        Vp9DecodedPlane yPlane,
+        Vp9DecodedPlane vPlane,
+        int width,
+        int height,
+        int stride,
+        Vp9YuvToRgbMatrix matrix,
+        byte[] colorPixels)
+    {
+        for (var y = 0; y < height; y++)
+        {
+            var yRow = yPlane.Offset + (y * yPlane.Stride);
+            var vRow = vPlane.Offset + ((y >> 1) * vPlane.Stride);
+            var outRow = y * stride;
+            for (var x = 0; x < width; x += 2)
+            {
+                var chromaR = matrix.LimitedCrToR * (alphaPixels[vRow + (x >> 1)] - 128);
+                colorPixels[outRow + (x * 4) + 3] = ConvertStudioRedSample(alphaPixels[yRow + x], chromaR);
+                if (x + 1 < width)
+                {
+                    colorPixels[outRow + ((x + 1) * 4) + 3] = ConvertStudioRedSample(alphaPixels[yRow + x + 1], chromaR);
+                }
+            }
+        }
+    }
+
+    private static void MergeFullRangeRedChannelAsBgraAlpha(
+        byte[] alphaPixels,
+        Vp9DecodedPlane yPlane,
+        Vp9DecodedPlane vPlane,
+        int width,
+        int height,
+        int stride,
+        Vp9YuvToRgbMatrix matrix,
+        byte[] colorPixels)
+    {
+        for (var y = 0; y < height; y++)
+        {
+            var yRow = yPlane.Offset + (y * yPlane.Stride);
+            var vRow = vPlane.Offset + ((y >> 1) * vPlane.Stride);
+            var outRow = y * stride;
+            for (var x = 0; x < width; x += 2)
+            {
+                var chromaR = (matrix.FullCrToR * (alphaPixels[vRow + (x >> 1)] - 128)) >> 8;
+                colorPixels[outRow + (x * 4) + 3] = ConvertFullRedSample(alphaPixels[yRow + x], chromaR);
+                if (x + 1 < width)
+                {
+                    colorPixels[outRow + ((x + 1) * 4) + 3] = ConvertFullRedSample(alphaPixels[yRow + x + 1], chromaR);
+                }
+            }
+        }
+    }
+
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static void WriteStudioBgraSample(
         int y,
@@ -233,6 +337,19 @@ public static class Vp9ColorConverter
         packed[offset + 1] = ClipPixel((c - chromaG + 128) >> 8);
         packed[offset + 2] = ClipPixel((c + chromaR + 128) >> 8);
         packed[offset + 3] = 255;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static byte ConvertStudioRedSample(int y, int chromaR)
+    {
+        var c = y <= 16 ? 0 : (y - 16) * 298;
+        return ClipPixel((c + chromaR + 128) >> 8);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static byte ConvertFullRedSample(int y, int chromaR)
+    {
+        return ClipPixel(y + chromaR);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

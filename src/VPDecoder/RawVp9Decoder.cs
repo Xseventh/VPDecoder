@@ -307,7 +307,7 @@ public sealed class RawVp9Decoder
         {
             ExpectedWidth = colorResult.Frame?.Width ?? colorResult.Header?.Width,
             ExpectedHeight = colorResult.Frame?.Height ?? colorResult.Header?.Height,
-            OutputFormat = Vp9OutputPixelFormat.Bgra8888
+            OutputFormat = Vp9OutputPixelFormat.Yuv420
         };
         var alphaDecoder = _alphaDecoder ??= new RawVp9Decoder();
         var alphaResult = alphaDecoder.DecodeFrame(alphaPacket, alphaOptions);
@@ -421,17 +421,50 @@ public sealed class RawVp9Decoder
                 colorResult.CompressedHeader);
         }
 
-        if (colorResult.Frame.PixelFormat != Vp9OutputPixelFormat.Bgra8888 ||
-            alphaResult.Frame.PixelFormat != Vp9OutputPixelFormat.Bgra8888)
+        if (colorResult.Frame.PixelFormat != Vp9OutputPixelFormat.Bgra8888)
         {
             return Vp9DecodeResult.Fail(
-                Vp9DecodeDiagnostic.UnsupportedFeature("VP9 alpha merge currently requires BGRA8888 color and alpha frames."),
+                Vp9DecodeDiagnostic.UnsupportedFeature("VP9 alpha merge requires BGRA8888 color frames."),
                 colorResult.Header,
                 colorResult.CompressedHeader);
         }
 
+        if (alphaResult.Frame.PixelFormat is not (Vp9OutputPixelFormat.Bgra8888 or Vp9OutputPixelFormat.Yuv420))
+        {
+            return Vp9DecodeResult.Fail(
+                Vp9DecodeDiagnostic.UnsupportedFeature("VP9 alpha merge requires BGRA8888 or YUV420 alpha frames."),
+                colorResult.Header,
+                colorResult.CompressedHeader);
+        }
+
+        if (alphaResult.Frame.PixelFormat == Vp9OutputPixelFormat.Yuv420)
+        {
+            if (alphaResult.Header is null)
+            {
+                return Vp9DecodeResult.Fail(
+                    Vp9DecodeDiagnostic.InternalDecodeFailure("VP9 alpha merge requires alpha color metadata."),
+                    colorResult.Header,
+                    colorResult.CompressedHeader);
+            }
+
+            if (!Vp9ColorConverter.IsSupportedColorSpace(alphaResult.Header.ColorSpace))
+            {
+                return Vp9DecodeResult.Fail(
+                    Vp9DecodeDiagnostic.UnsupportedFeature(
+                        $"VP9 alpha color space {alphaResult.Header.ColorSpace} is not supported by alpha composition."),
+                    colorResult.Header,
+                    colorResult.CompressedHeader);
+            }
+        }
+
         return Vp9DecodeResult.Success(
-            Vp9AlphaComposer.MergeBgraWithBgraAlphaInPlace(colorResult.Frame, alphaResult.Frame),
+            alphaResult.Frame.PixelFormat == Vp9OutputPixelFormat.Yuv420
+                ? Vp9ColorConverter.MergeYuv420RedChannelAsBgraAlphaInPlace(
+                    colorResult.Frame,
+                    alphaResult.Frame,
+                    alphaResult.Header!.ColorSpace,
+                    alphaResult.Header.ColorRange)
+                : Vp9AlphaComposer.MergeBgraWithBgraAlphaInPlace(colorResult.Frame, alphaResult.Frame),
             colorResult.Header!,
             colorResult.CompressedHeader);
     }
