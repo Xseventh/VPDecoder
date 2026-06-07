@@ -621,6 +621,8 @@ internal static class Vp9ResidualSyntax
         var planeType = plane == 0 ? 0 : 1;
         var originX4 = GetPlaneX4(modeBlock.MiColumn, plane);
         var originY4 = GetPlaneLeftContextOffset(modeBlock.MiRow, plane);
+        var transformType = GetInterTransformType(modeInfo, plane);
+        var frameContext = compressedHeader.FrameContext;
         var residualContext = Vp9BlockReconstructor.CreateInterResidualPlaneContext(
             destination,
             modeBlock,
@@ -639,10 +641,10 @@ internal static class Vp9ResidualSyntax
                 var visibleHeight4 = Math.Min(step, height4 - row);
                 var eob = ReadAndAddCoefficientBlock(
                     ref reader,
-                    compressedHeader.FrameContext,
+                    frameContext,
                     residualContext,
                     transformSize,
-                    GetInterTransformType(modeInfo, plane),
+                    transformType,
                     row,
                     column,
                     planeType,

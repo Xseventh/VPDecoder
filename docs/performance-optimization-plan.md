@@ -707,3 +707,34 @@ Non-committed local trials that did not show stable benefit:
 - Removing the hybrid inverse-transform row scratch clear.
 
 These were reverted because benchmark results were neutral or slightly worse.
+
+Residual loop invariant cleanup slice:
+
+- Hoisted inter transform type and frame context lookup out of the per-transform
+  residual block loop.
+- Fetched reusable production coefficient/token scratch spans once per inter
+  mode block instead of once per plane.
+- Kept the same residual parsing and reconstruction APIs; this is only a hot
+  loop shape cleanup.
+
+Validation:
+
+- `dotnet build VPDecoder.slnx --no-restore -m:1`
+- `dotnet test VPDecoder.slnx -m:1 --no-restore`
+- 97-frame repro sequence YUV420 comparison against libvpx for color and alpha
+  frames 0, 51, 72, and 96; all Y/U/V totals remained bitwise identical
+  (`mae=0`, `rmse=0`, `maxAbs=0`).
+- Packed color benchmark checksum remained unchanged at
+  `3711330852910723308`.
+
+Observed short-run benchmark after residual loop invariant cleanup:
+
+| Stream/output | Elapsed range | Allocated MB |
+| --- | ---: | ---: |
+| Color `Yuv420` | 2932-2946 ms | 3725 MB |
+| Alpha `Yuv420` | 3220-3231 ms | 3592 MB |
+| Color `Bgra8888` | 3695-3731 ms | 5054 MB |
+
+This is another small CPU-only cleanup. The main value is keeping residual
+production loops in a JIT-friendly shape before moving to larger metadata and
+motion-compensation changes.

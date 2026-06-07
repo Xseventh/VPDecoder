@@ -2839,6 +2839,8 @@ internal static class Vp9TileSyntaxScanner
         }
 
         var eobTotal = 0;
+        var coefficientScratch = residualScratch.CoefficientScratch;
+        var tokenScratch = residualScratch.TokenScratch;
         for (var plane = 0; plane < 3; plane++)
         {
             eobTotal += Vp9ResidualSyntax.ReadAndAddInterPlaneCoefficientBlocks(
@@ -2850,8 +2852,8 @@ internal static class Vp9TileSyntaxScanner
                 entropyContext,
                 destination,
                 plane,
-                residualScratch.CoefficientScratch,
-                residualScratch.TokenScratch);
+                coefficientScratch,
+                tokenScratch);
         }
 
         if (reader.HasError)
