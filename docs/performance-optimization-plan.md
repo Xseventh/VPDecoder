@@ -548,3 +548,32 @@ flat, while color `Yuv420` drops by roughly another 18%, alpha `Yuv420` drops
 by about 30%, and packed `Bgra8888` drops by about 15% on the repro workload.
 The result confirms that scalar motion-compensation shape was the next high
 leverage target before SIMD work.
+
+Compound subpel average kernel-reuse slice:
+
+- Changed compound prediction to cache each reference block's x/y interpolation
+  kernels once per block.
+- Reused the single-reference unclamped/clamped pixel helpers when averaging
+  fractional compound predictors.
+- Kept the existing whole-pixel compound row-average fast path unchanged.
+
+Validation:
+
+- `dotnet build VPDecoder.slnx --no-restore -m:1`
+- `dotnet test VPDecoder.slnx -m:1 --no-restore`
+- 97-frame repro sequence YUV420 comparison against libvpx for color and alpha
+  frames 0, 51, 72, and 96; all Y/U/V totals remained bitwise identical
+  (`mae=0`, `rmse=0`, `maxAbs=0`).
+
+Observed short-run benchmark after compound subpel kernel reuse:
+
+| Stream/output | Elapsed range | Allocated MB |
+| --- | ---: | ---: |
+| Color `Yuv420` | 3034-3052 ms | 3742 MB |
+| Alpha `Yuv420` | 3262-3308 ms | 3609 MB |
+| Color `Bgra8888` | 3855-3881 ms | 5071 MB |
+
+This is another CPU-only improvement. It is smaller than the single-reference
+fast path for color frames, but alpha benefits more on this sequence. The
+managed scalar path is now near 3.0 seconds for color `Yuv420` and below
+3.9 seconds for packed color output over the 97-frame repro sequence.

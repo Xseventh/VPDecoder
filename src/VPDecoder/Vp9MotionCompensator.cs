@@ -377,71 +377,124 @@ internal static class Vp9MotionCompensator
 
         var sourcePixels0 = referenceFrame0.Pixels.AsSpan();
         var sourcePixels1 = referenceFrame1.Pixels.AsSpan();
+        var destinationPixels = destination.Pixels;
         var kernels = GetFilterKernels(interpolationFilter);
+        var xKernel0 = kernels.Slice(subpelX0 * SubpelTaps, SubpelTaps);
+        var yKernel0 = kernels.Slice(subpelY0 * SubpelTaps, SubpelTaps);
+        var xKernel1 = kernels.Slice(subpelX1 * SubpelTaps, SubpelTaps);
+        var yKernel1 = kernels.Slice(subpelY1 * SubpelTaps, SubpelTaps);
+        var isSource0FilterInputInside = IsFilterInputInside(
+            sourcePlane0,
+            sourceX0,
+            sourceY0,
+            width,
+            height,
+            subpelX0,
+            subpelY0);
+        var isSource1FilterInputInside = IsFilterInputInside(
+            sourcePlane1,
+            sourceX1,
+            sourceY1,
+            width,
+            height,
+            subpelX1,
+            subpelY1);
         for (var row = 0; row < height; row++)
         {
             var destinationOffset = destinationPlane.Offset + ((destinationY + row) * destinationPlane.Stride) + destinationX;
             for (var column = 0; column < width; column++)
             {
-                var pixel0 = PredictPixel(
+                var pixel0 = PredictPixelPrepared(
                     sourcePixels0,
                     sourcePlane0,
                     sourceX0 + column,
                     sourceY0 + row,
                     subpelX0,
                     subpelY0,
-                    kernels);
-                var pixel1 = PredictPixel(
+                    xKernel0,
+                    yKernel0,
+                    isSource0FilterInputInside);
+                var pixel1 = PredictPixelPrepared(
                     sourcePixels1,
                     sourcePlane1,
                     sourceX1 + column,
                     sourceY1 + row,
                     subpelX1,
                     subpelY1,
-                    kernels);
-                destination.Pixels[destinationOffset + column] = (byte)((pixel0 + pixel1 + 1) >> 1);
+                    xKernel1,
+                    yKernel1,
+                    isSource1FilterInputInside);
+                destinationPixels[destinationOffset + column] = (byte)((pixel0 + pixel1 + 1) >> 1);
             }
         }
 
         return true;
     }
 
-    private static byte PredictPixel(
+    private static byte PredictPixelPrepared(
         ReadOnlySpan<byte> pixels,
         Vp9DecodedPlane sourcePlane,
         int sourceX,
         int sourceY,
         int subpelX,
         int subpelY,
-        ReadOnlySpan<short> kernels)
+        ReadOnlySpan<short> xKernel,
+        ReadOnlySpan<short> yKernel,
+        bool isFilterInputInside)
     {
         if (subpelX == 0 && subpelY == 0)
         {
-            return ReadClamped(pixels, sourcePlane, sourceX, sourceY);
+            return isFilterInputInside
+                ? pixels[sourcePlane.Offset + (sourceY * sourcePlane.Stride) + sourceX]
+                : ReadClamped(pixels, sourcePlane, sourceX, sourceY);
         }
 
         if (subpelY == 0)
         {
-            return ApplyHorizontalFilter(pixels, sourcePlane, sourceX, sourceY, kernels.Slice(subpelX * SubpelTaps, SubpelTaps));
+            return isFilterInputInside
+                ? ApplyHorizontalFilterUnclamped(
+                    pixels,
+                    sourcePlane.Offset + (sourceY * sourcePlane.Stride) + sourceX,
+                    xKernel)
+                : ApplyHorizontalFilter(pixels, sourcePlane, sourceX, sourceY, xKernel);
         }
 
         if (subpelX == 0)
         {
-            return ApplyVerticalFilter(pixels, sourcePlane, sourceX, sourceY, kernels.Slice(subpelY * SubpelTaps, SubpelTaps));
+            return isFilterInputInside
+                ? ApplyVerticalFilterUnclamped(
+                    pixels,
+                    sourcePlane.Offset + (sourceY * sourcePlane.Stride) + sourceX,
+                    sourcePlane.Stride,
+                    yKernel)
+                : ApplyVerticalFilter(pixels, sourcePlane, sourceX, sourceY, yKernel);
         }
 
-        var xKernel = kernels.Slice(subpelX * SubpelTaps, SubpelTaps);
-        var yKernel = kernels.Slice(subpelY * SubpelTaps, SubpelTaps);
         var sum = 0;
-        for (var tapY = 0; tapY < SubpelTaps; tapY++)
+        if (isFilterInputInside)
         {
-            var intermediate = ApplyHorizontalFilter(
-                pixels,
-                sourcePlane,
-                sourceX,
-                sourceY + tapY - SubpelTapOffset,
-                xKernel);
-            sum += intermediate * yKernel[tapY];
+            var centerOffset = sourcePlane.Offset + (sourceY * sourcePlane.Stride) + sourceX;
+            for (var tapY = 0; tapY < SubpelTaps; tapY++)
+            {
+                var intermediate = ApplyHorizontalFilterUnclamped(
+                    pixels,
+                    centerOffset + ((tapY - SubpelTapOffset) * sourcePlane.Stride),
+                    xKernel);
+                sum += intermediate * yKernel[tapY];
+            }
+        }
+        else
+        {
+            for (var tapY = 0; tapY < SubpelTaps; tapY++)
+            {
+                var intermediate = ApplyHorizontalFilter(
+                    pixels,
+                    sourcePlane,
+                    sourceX,
+                    sourceY + tapY - SubpelTapOffset,
+                    xKernel);
+                sum += intermediate * yKernel[tapY];
+            }
         }
 
         return ClipPixel(RoundPowerOfTwo(sum, FilterBits));
@@ -909,5 +962,29 @@ internal static class Vp9MotionCompensator
             y >= SubpelTapOffset &&
             width <= plane.Width - x - SubpelRightTapOffset &&
             height <= plane.Height - y - SubpelRightTapOffset;
+    }
+
+    private static bool IsFilterInputInside(
+        Vp9DecodedPlane plane,
+        int x,
+        int y,
+        int width,
+        int height,
+        int subpelX,
+        int subpelY)
+    {
+        if (subpelX == 0 && subpelY == 0)
+        {
+            return IsInside(plane, x, y, width, height);
+        }
+
+        if (subpelY == 0)
+        {
+            return IsHorizontalFilterInputInside(plane, x, y, width, height);
+        }
+
+        return subpelX == 0
+            ? IsVerticalFilterInputInside(plane, x, y, width, height)
+            : IsTwoDimensionalFilterInputInside(plane, x, y, width, height);
     }
 }
