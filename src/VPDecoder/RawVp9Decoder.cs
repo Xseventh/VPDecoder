@@ -21,6 +21,14 @@ public sealed class RawVp9Decoder
 
     public Vp9DecodeResult DecodeFrame(ReadOnlySpan<byte> packet, Vp9DecodeOptions? options = null)
     {
+        return DecodeFrameCore(packet, options, exposeDecodedFrame: true);
+    }
+
+    private Vp9DecodeResult DecodeFrameCore(
+        ReadOnlySpan<byte> packet,
+        Vp9DecodeOptions? options,
+        bool exposeDecodedFrame)
+    {
         options ??= Vp9DecodeOptions.Default;
 
         var diagnostic = ValidateOptions(options);
@@ -36,7 +44,7 @@ public sealed class RawVp9Decoder
 
         if (TryParseSuperframeIndex(packet, out var superframeIndex, out diagnostic))
         {
-            return DecodeSuperframe(packet, superframeIndex, options);
+            return DecodeSuperframe(packet, superframeIndex, options, exposeDecodedFrame);
         }
 
         if (diagnostic is not null)
@@ -44,10 +52,13 @@ public sealed class RawVp9Decoder
             return Vp9DecodeResult.Fail(diagnostic);
         }
 
-        return DecodeSingleFrame(packet, options);
+        return DecodeSingleFrame(packet, options, exposeDecodedFrame);
     }
 
-    private Vp9DecodeResult DecodeSingleFrame(ReadOnlySpan<byte> packet, Vp9DecodeOptions options)
+    private Vp9DecodeResult DecodeSingleFrame(
+        ReadOnlySpan<byte> packet,
+        Vp9DecodeOptions options,
+        bool exposeDecodedFrame)
     {
         Vp9DecodeDiagnostic? diagnostic;
         if (!Vp9FrameHeaderParser.TryParse(
@@ -118,7 +129,7 @@ public sealed class RawVp9Decoder
 
         if (header.FrameType != Vp9FrameType.KeyFrame)
         {
-            return DecodeOrdinaryInterFrame(packet, header, compressedHeader, tileBuffers, options);
+            return DecodeOrdinaryInterFrame(packet, header, compressedHeader, tileBuffers, options, exposeDecodedFrame);
         }
 
         if (!Vp9KeyFrameDecodeState.TryCreate(header, compressedHeader, tileBuffers, out var state, out diagnostic))
@@ -164,7 +175,12 @@ public sealed class RawVp9Decoder
         RefreshLoopFilterDeltaState(header);
         RefreshFrameContext(header, compressedHeader.FrameContext);
         var yuvFrame = reconstructedFrame.Frame;
-        _referenceFrames.Refresh(yuvFrame, header.ColorSpace, header.ColorRange, header.RefreshFrameFlags);
+        _referenceFrames.Refresh(
+            yuvFrame,
+            header.ColorSpace,
+            header.ColorRange,
+            header.RefreshFrameFlags,
+            cloneFrame: options.OutputFormat == Vp9OutputPixelFormat.Yuv420 && header.ShowFrame && exposeDecodedFrame);
         _previousFrameMotionVectors = null;
         if (!header.ShowFrame)
         {
@@ -184,14 +200,15 @@ public sealed class RawVp9Decoder
     private Vp9DecodeResult DecodeSuperframe(
         ReadOnlySpan<byte> packet,
         Vp9SuperframeIndex superframeIndex,
-        Vp9DecodeOptions options)
+        Vp9DecodeOptions options,
+        bool exposeDecodedFrame)
     {
         var offset = 0;
         Vp9DecodeResult? lastResult = null;
         Vp9DecodeResult? lastVisibleResult = null;
         foreach (var frameSize in superframeIndex.FrameSizes)
         {
-            var result = DecodeSingleFrame(packet.Slice(offset, frameSize), options);
+            var result = DecodeSingleFrame(packet.Slice(offset, frameSize), options, exposeDecodedFrame);
             if (!result.Succeeded)
             {
                 return result;
@@ -310,7 +327,7 @@ public sealed class RawVp9Decoder
             OutputFormat = Vp9OutputPixelFormat.Yuv420
         };
         var alphaDecoder = _alphaDecoder ??= new RawVp9Decoder();
-        var alphaResult = alphaDecoder.DecodeFrame(alphaPacket, alphaOptions);
+        var alphaResult = alphaDecoder.DecodeFrameCore(alphaPacket, alphaOptions, exposeDecodedFrame: false);
         if (!alphaResult.Succeeded)
         {
             return alphaResult;
@@ -474,7 +491,8 @@ public sealed class RawVp9Decoder
         Vp9FrameHeader header,
         Vp9CompressedHeader compressedHeader,
         IReadOnlyList<Vp9TileBuffer> tileBuffers,
-        Vp9DecodeOptions options)
+        Vp9DecodeOptions options,
+        bool exposeDecodedFrame)
     {
         if (header.IntraOnly)
         {
@@ -522,7 +540,12 @@ public sealed class RawVp9Decoder
 
         RefreshLoopFilterDeltaState(header);
         RefreshFrameContext(header, compressedHeader.FrameContext);
-        _referenceFrames.Refresh(yuvFrame, header.ColorSpace, header.ColorRange, header.RefreshFrameFlags);
+        _referenceFrames.Refresh(
+            yuvFrame,
+            header.ColorSpace,
+            header.ColorRange,
+            header.RefreshFrameFlags,
+            cloneFrame: options.OutputFormat == Vp9OutputPixelFormat.Yuv420 && header.ShowFrame && exposeDecodedFrame);
         _previousFrameMotionVectors = header.ShowFrame
             ? Vp9PreviousFrameMotionVectors.FromModeBlocks(
                 header.Width,

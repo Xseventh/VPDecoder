@@ -34,6 +34,19 @@ public sealed class Vp9ReferenceFrameStoreTests
     }
 
     [Fact]
+    public void Refresh_WhenCloneFrameIsFalse_StoresCallerFrame()
+    {
+        var store = new Vp9ReferenceFrameStore();
+        var frame = CreateYuvFrame(width: 4, height: 4, yValue: 10);
+
+        store.Refresh(frame, Vp9ColorSpace.Bt601, Vp9ColorRange.Studio, refreshFrameFlags: 0x01, cloneFrame: false);
+        frame.Pixels[0] = 99;
+
+        Assert.True(store.TryGet(0, out var referenceFrame));
+        Assert.Equal(99, referenceFrame!.Frame.Pixels[0]);
+    }
+
+    [Fact]
     public void Reset_ClearsReferenceSlots()
     {
         var store = new Vp9ReferenceFrameStore();
