@@ -544,9 +544,12 @@ internal static class Vp9MotionCompensator
             var sourceOffset0 = sourcePlane0.Offset + ((sourceY0 + row) * sourcePlane0.Stride) + sourceX0;
             var sourceOffset1 = sourcePlane1.Offset + ((sourceY1 + row) * sourcePlane1.Stride) + sourceX1;
             var destinationOffset = destinationPlane.Offset + ((destinationY + row) * destinationPlane.Stride) + destinationX;
+            var sourceRow0 = sourcePixels0.AsSpan(sourceOffset0, width);
+            var sourceRow1 = sourcePixels1.AsSpan(sourceOffset1, width);
+            var destinationRow = destinationPixels.AsSpan(destinationOffset, width);
             for (var column = 0; column < width; column++)
             {
-                destinationPixels[destinationOffset + column] = (byte)((sourcePixels0[sourceOffset0 + column] + sourcePixels1[sourceOffset1 + column] + 1) >> 1);
+                destinationRow[column] = (byte)((sourceRow0[column] + sourceRow1[column] + 1) >> 1);
             }
         }
     }
