@@ -861,6 +861,35 @@ merged `Bgra8888`. This is a modest CPU win, but it keeps the loop-filter path
 closer to libvpx's active-mask traversal shape without introducing SIMD or
 unsafe code.
 
+Motion-compensation clip-shape slice:
+
+- Changed the motion-compensation `ClipPixel` helper from a two-branch
+  min/max-style ternary to an unsigned in-range check with a single saturation
+  fallback.
+- Kept all interpolation, prediction, and edge-clamping semantics unchanged.
+- This targets the hot subpel prediction path where every filtered pixel is
+  rounded and clipped.
+
+Validation:
+
+- `dotnet test VPDecoder.slnx -m:1 --no-restore`
+- Full 97-frame color and alpha YUV420 comparison against libvpx; both streams
+  remained bitwise identical for every frame.
+- Color, alpha, and merged benchmark checksums remained unchanged.
+
+Observed short-run benchmark after the slice:
+
+| Stream/output | Average elapsed | Elapsed range | Allocated MB |
+| --- | ---: | ---: | ---: |
+| Color `Yuv420` | 2598 ms | 2495-2641 ms | 3611 MB |
+| Alpha `Yuv420` | 2468 ms | 2422-2544 ms | 3490 MB |
+| Merged `Bgra8888` | 6082 ms | 5552-7142 ms | 7429 MB |
+
+The color and alpha `Yuv420` paths both improved in this short run, while the
+merged packed run had a large outlier and should be treated as noisy. The
+change is intentionally tiny and keeps the scalar motion-compensation code in a
+JIT-friendly shape without changing the broader architecture.
+
 Additional non-committed local trials that did not show stable benefit:
 
 - Grid-only direct inter mode metadata: reduced allocation by about 10 MB over

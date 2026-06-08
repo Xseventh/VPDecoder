@@ -1190,11 +1190,12 @@ internal static class Vp9MotionCompensator
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static byte ClipPixel(int value)
     {
-        return value <= byte.MinValue
-            ? byte.MinValue
-            : value >= byte.MaxValue
-                ? byte.MaxValue
-                : (byte)value;
+        if ((uint)value <= byte.MaxValue)
+        {
+            return (byte)value;
+        }
+
+        return value < byte.MinValue ? byte.MinValue : byte.MaxValue;
     }
 
     private static bool IsValidQ4MotionVector(Vp9MotionVector motionVector)
