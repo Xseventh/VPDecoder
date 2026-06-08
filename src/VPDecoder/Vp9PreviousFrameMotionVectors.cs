@@ -43,7 +43,7 @@ internal sealed class Vp9PreviousFrameMotionVectors
         int height,
         int miRows,
         int miColumns,
-        IEnumerable<Vp9InterBlockModeInfoProbe> modeBlocks)
+        IReadOnlyList<Vp9InterBlockModeInfoProbe> modeBlocks)
     {
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(width);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(height);
@@ -51,8 +51,9 @@ internal sealed class Vp9PreviousFrameMotionVectors
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(miColumns);
 
         var grid = new Vp9PreviousFrameMotionVectorEntry?[checked(miRows * miColumns)];
-        foreach (var modeBlock in modeBlocks)
+        for (var blockIndex = 0; blockIndex < modeBlocks.Count; blockIndex++)
         {
+            var modeBlock = modeBlocks[blockIndex];
             if (!modeBlock.ModeInfo.IsInterBlock || modeBlock.MotionVector is not { } motionVector)
             {
                 continue;
