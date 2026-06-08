@@ -1,5 +1,7 @@
 namespace VPDecoder;
 
+using System.Runtime.CompilerServices;
+
 internal readonly record struct Vp9LoopFilterThresholds(
     byte Limit,
     byte MacroblockLimit,
@@ -706,6 +708,7 @@ internal static class Vp9LoopFilter
         }
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static int FilterMask(
         byte limit,
         byte macroblockLimit,
@@ -729,6 +732,7 @@ internal static class Vp9LoopFilter
                 : 0;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static int FlatMask4(
         byte threshold,
         byte p3,
@@ -750,6 +754,7 @@ internal static class Vp9LoopFilter
                 : 0;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static int FlatMask5(
         byte threshold,
         byte p4,
@@ -770,6 +775,7 @@ internal static class Vp9LoopFilter
                 : 0;
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static int HevMask(byte threshold, byte p1, byte p0, byte q0, byte q1)
     {
         return Math.Abs(p1 - p0) > threshold || Math.Abs(q1 - q0) > threshold
@@ -898,21 +904,25 @@ internal static class Vp9LoopFilter
         Filter8(mask, threshold, flat, plane, op3, op2, op1, op0, oq0, oq1, oq2, oq3);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static int SignedCharClamp(int value)
     {
         return Math.Clamp(value, -128, 127);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static int ToSigned(byte value)
     {
         return unchecked((sbyte)(value ^ 0x80));
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static byte FromSigned(int value)
     {
         return (byte)(unchecked((byte)(sbyte)value) ^ 0x80);
     }
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static int RoundPowerOfTwo(int value, int bit)
     {
         return (value + (1 << (bit - 1))) >> bit;
