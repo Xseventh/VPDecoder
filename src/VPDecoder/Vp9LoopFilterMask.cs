@@ -17,7 +17,6 @@ internal sealed class Vp9LoopFilterSuperblockMask
     }
 
     private readonly int _sharpnessLevel;
-    private Vp9LoopFilterThresholds?[]? _thresholdsByLevel;
 
     public int MiRow { get; }
 
@@ -61,6 +60,11 @@ internal sealed class Vp9LoopFilterSuperblockMask
         return GetThresholdsForLevel(LevelsY[bitIndex]);
     }
 
+    public Vp9LoopFilterThresholds GetLumaThresholds(int bitIndex, ReadOnlySpan<Vp9LoopFilterThresholds> thresholdsByLevel)
+    {
+        return thresholdsByLevel[LevelsY[bitIndex]];
+    }
+
     public Vp9LoopFilterThresholds GetChromaThresholds(int row, int column)
     {
         if (row is < 0 or >= 4)
@@ -76,6 +80,11 @@ internal sealed class Vp9LoopFilterSuperblockMask
         return GetThresholdsForLevel(LevelsY[((row * 2) * 8) + (column * 2)]);
     }
 
+    public Vp9LoopFilterThresholds GetChromaThresholds(int row, int column, ReadOnlySpan<Vp9LoopFilterThresholds> thresholdsByLevel)
+    {
+        return thresholdsByLevel[LevelsY[((row * 2) * 8) + (column * 2)]];
+    }
+
     private Vp9LoopFilterThresholds GetThresholdsForLevel(int filterLevel)
     {
         if (filterLevel == FilterLevel)
@@ -88,9 +97,7 @@ internal sealed class Vp9LoopFilterSuperblockMask
             throw new ArgumentOutOfRangeException(nameof(filterLevel), filterLevel, "VP9 loop-filter level must be 0..63.");
         }
 
-        var thresholdsByLevel = _thresholdsByLevel ??= new Vp9LoopFilterThresholds?[64];
-        thresholdsByLevel[filterLevel] ??= Vp9LoopFilter.GetThresholds(filterLevel, _sharpnessLevel);
-        return thresholdsByLevel[filterLevel]!.Value;
+        return Vp9LoopFilter.GetThresholds(filterLevel, _sharpnessLevel);
     }
 }
 

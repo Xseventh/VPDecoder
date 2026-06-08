@@ -826,6 +826,41 @@ This is a small allocation cleanup rather than a clear CPU win. The main value
 is removing frequent tiny syntax-path allocations before moving on to larger
 motion-compensation and loop-filter work.
 
+Scalar loop-filter traversal slice:
+
+- Added a per-frame 64-entry loop-filter threshold table, backed by stack
+  storage, so hot edge application no longer builds nullable per-superblock
+  threshold caches.
+- Changed luma and chroma loop-filter application to iterate active mask bits
+  in row-major order instead of scanning every grid position and checking for
+  empty bits.
+- Preserved the existing edge order, border handling, and scalar filter
+  formulas.
+- Replaced hot `Math.Abs(byte - byte)` checks with an inlined byte absolute
+  difference helper.
+
+Validation:
+
+- `dotnet test VPDecoder.slnx -m:1 --no-restore`
+- Full 97-frame color and alpha YUV420 comparison against libvpx; both streams
+  remained bitwise identical for every frame.
+- Color, alpha, and merged benchmark checksums remained unchanged.
+
+Observed short-run benchmark after the slice:
+
+| Stream/output | Average elapsed | Elapsed range | Allocated MB |
+| --- | ---: | ---: | ---: |
+| Color `Yuv420` | 2624 ms | 2594-2660 ms | 3611 MB |
+| Alpha `Yuv420` | 2558 ms | 2514-2618 ms | 3490 MB |
+| Merged `Bgra8888` | 6042 ms | 5984-6114 ms | 7429 MB |
+
+Compared with the previous scalar reconstruction checkpoint, the same
+benchmark moved from about 2687 ms to 2624 ms for color `Yuv420`, from about
+2615 ms to 2558 ms for alpha `Yuv420`, and from about 6185 ms to 6042 ms for
+merged `Bgra8888`. This is a modest CPU win, but it keeps the loop-filter path
+closer to libvpx's active-mask traversal shape without introducing SIMD or
+unsafe code.
+
 Additional non-committed local trials that did not show stable benefit:
 
 - Grid-only direct inter mode metadata: reduced allocation by about 10 MB over
