@@ -2,6 +2,9 @@ namespace VPDecoder;
 
 internal static class Vp9BlockReconstructor
 {
+    private const int MaximumTransformSizeInPixels = 32;
+    private const int MaximumIntraAboveEdgeLength = MaximumTransformSizeInPixels + 2;
+
     public static void ReconstructDcOnlyGroup(
         Vp9YuvFrameBuffer frameBuffer,
         Vp9TileGeometry geometry,
@@ -43,6 +46,8 @@ internal static class Vp9BlockReconstructor
             planeInfo.Metadata.Width,
             plane == 0 ? geometry.MiColumnEnd * 8 : geometry.MiColumnEnd * 4);
         var planePixels = frameBuffer.Pixels.AsSpan(planeInfo.Metadata.Offset, planeInfo.Metadata.Length);
+        Span<byte> aboveScratch = stackalloc byte[MaximumIntraAboveEdgeLength];
+        Span<byte> leftScratch = stackalloc byte[MaximumTransformSizeInPixels];
 
         foreach (var coefficients in group.Blocks)
         {
@@ -81,20 +86,36 @@ internal static class Vp9BlockReconstructor
                 coefficients.Column4,
                 transformStep4,
                 width4);
-            var above = y > 0
+            ReadOnlySpan<byte> above = y > 0
                 ? ReadAboveEdge(
                     planePixels,
                     planeInfo.Stride,
                     tileEndX,
                     x,
                     y,
-                    readAboveLength)
-                : [];
-            var left = x > tileStartX
-                ? ReadLeftEdge(planePixels, planeInfo.Stride, planeInfo.Metadata.Height, x, y, transformSize)
-                : [];
+                    readAboveLength,
+                    aboveScratch)
+                : default;
+            ReadOnlySpan<byte> left = x > tileStartX
+                ? ReadLeftEdge(
+                    planePixels,
+                    planeInfo.Stride,
+                    planeInfo.Metadata.Height,
+                    x,
+                    y,
+                    transformSize,
+                    leftScratch)
+                : default;
             var aboveLeft = GetAboveLeft(planePixels, planeInfo.Stride, x, y, above, left);
-            NormalizeEdges(predictionMode, transformSize, requiredAboveLength, ref above, ref left, ref aboveLeft);
+            NormalizeEdges(
+                predictionMode,
+                transformSize,
+                requiredAboveLength,
+                aboveScratch,
+                leftScratch,
+                ref above,
+                ref left,
+                ref aboveLeft);
 
             var visibleWidth = Math.Min(transformSize, planeInfo.Metadata.Width - x);
             var visibleHeight = Math.Min(transformSize, planeInfo.Metadata.Height - y);
@@ -106,28 +127,37 @@ internal static class Vp9BlockReconstructor
             var isClipped = visibleWidth != transformSize || visibleHeight != transformSize;
             if (isClipped)
             {
-                var temp = new byte[checked(transformSize * transformSize)];
-                PredictAndAddResidual(
-                    temp,
-                    transformSize,
-                    x: 0,
-                    y: 0,
-                    transformSize,
-                    group.TransformSize,
-                    coefficients,
-                    predictionMode,
-                    above,
-                    left,
-                    aboveLeft);
-                CopyVisibleBlock(
-                    temp,
-                    transformSize,
-                    planePixels,
-                    planeInfo.Stride,
-                    x,
-                    y,
-                    visibleWidth,
-                    visibleHeight);
+                var tempArray = System.Buffers.ArrayPool<byte>.Shared.Rent(checked(transformSize * transformSize));
+                try
+                {
+                    var temp = tempArray.AsSpan(0, checked(transformSize * transformSize));
+                    PredictAndAddResidual(
+                        temp,
+                        transformSize,
+                        x: 0,
+                        y: 0,
+                        transformSize,
+                        group.TransformSize,
+                        coefficients,
+                        predictionMode,
+                        above,
+                        left,
+                        aboveLeft);
+                    CopyVisibleBlock(
+                        temp,
+                        transformSize,
+                        planePixels,
+                        planeInfo.Stride,
+                        x,
+                        y,
+                        visibleWidth,
+                        visibleHeight);
+                }
+                finally
+                {
+                    System.Buffers.ArrayPool<byte>.Shared.Return(tempArray);
+                }
+
                 continue;
             }
 
@@ -512,32 +542,42 @@ internal static class Vp9BlockReconstructor
         ReadOnlySpan<int> coefficients,
         int eob)
     {
-        var temp = new byte[checked(transformSizeInPixels * transformSizeInPixels)];
-        for (var row = 0; row < visibleHeight; row++)
+        var tempLength = checked(transformSizeInPixels * transformSizeInPixels);
+        var tempArray = System.Buffers.ArrayPool<byte>.Shared.Rent(tempLength);
+        try
         {
-            plane.Slice(((y + row) * stride) + x, visibleWidth)
-                .CopyTo(temp.AsSpan(row * transformSizeInPixels, visibleWidth));
+            var temp = tempArray.AsSpan(0, tempLength);
+            temp.Clear();
+            for (var row = 0; row < visibleHeight; row++)
+            {
+                plane.Slice(((y + row) * stride) + x, visibleWidth)
+                    .CopyTo(temp.Slice(row * transformSizeInPixels, visibleWidth));
+            }
+
+            Vp9InverseTransform.AddBlock(
+                temp,
+                transformSizeInPixels,
+                x: 0,
+                y: 0,
+                transformSize,
+                transformType,
+                coefficients,
+                eob);
+
+            CopyVisibleBlock(
+                temp,
+                transformSizeInPixels,
+                plane,
+                stride,
+                x,
+                y,
+                visibleWidth,
+                visibleHeight);
         }
-
-        Vp9InverseTransform.AddBlock(
-            temp,
-            transformSizeInPixels,
-            x: 0,
-            y: 0,
-            transformSize,
-            transformType,
-            coefficients,
-            eob);
-
-        CopyVisibleBlock(
-            temp,
-            transformSizeInPixels,
-            plane,
-            stride,
-            x,
-            y,
-            visibleWidth,
-            visibleHeight);
+        finally
+        {
+            System.Buffers.ArrayPool<byte>.Shared.Return(tempArray);
+        }
     }
 
     private static int DivideRoundUp(int value, int divisor)
@@ -666,8 +706,10 @@ internal static class Vp9BlockReconstructor
         Vp9PredictionMode mode,
         int transformSize,
         int requiredAboveLength,
-        ref byte[] above,
-        ref byte[] left,
+        Span<byte> aboveScratch,
+        Span<byte> leftScratch,
+        ref ReadOnlySpan<byte> above,
+        ref ReadOnlySpan<byte> left,
         ref byte? aboveLeft)
     {
         if (mode == Vp9PredictionMode.Dc)
@@ -677,22 +719,20 @@ internal static class Vp9BlockReconstructor
 
         if (NeedsAbove(mode) && above.Length == 0)
         {
-            above = new byte[requiredAboveLength];
-            Array.Fill(above, (byte)127);
+            aboveScratch.Slice(0, requiredAboveLength).Fill(127);
+            above = aboveScratch.Slice(0, requiredAboveLength);
             aboveLeft = 127;
         }
         else if (NeedsAbove(mode) && above.Length < requiredAboveLength)
         {
-            var extended = new byte[requiredAboveLength];
-            above.CopyTo(extended, 0);
-            Array.Fill(extended, above[^1], above.Length, requiredAboveLength - above.Length);
-            above = extended;
+            aboveScratch.Slice(above.Length, requiredAboveLength - above.Length).Fill(above[^1]);
+            above = aboveScratch.Slice(0, requiredAboveLength);
         }
 
         if (NeedsLeft(mode) && left.Length == 0)
         {
-            left = new byte[transformSize];
-            Array.Fill(left, (byte)129);
+            leftScratch.Slice(0, transformSize).Fill(129);
+            left = leftScratch.Slice(0, transformSize);
             aboveLeft ??= 129;
         }
     }
@@ -720,22 +760,36 @@ internal static class Vp9BlockReconstructor
             Vp9PredictionMode.TrueMotion;
     }
 
-    private static byte[] ReadAboveEdge(ReadOnlySpan<byte> plane, int stride, int planeWidth, int x, int y, int length)
+    private static ReadOnlySpan<byte> ReadAboveEdge(
+        ReadOnlySpan<byte> plane,
+        int stride,
+        int planeWidth,
+        int x,
+        int y,
+        int length,
+        Span<byte> scratch)
     {
-        var above = new byte[length];
         var available = Math.Min(length, planeWidth - x);
+        var above = scratch.Slice(0, length);
         plane.Slice(((y - 1) * stride) + x, available).CopyTo(above);
         if (available < length)
         {
-            Array.Fill(above, above[available - 1], available, length - available);
+            above.Slice(available, length - available).Fill(above[available - 1]);
         }
 
         return above;
     }
 
-    private static byte[] ReadLeftEdge(ReadOnlySpan<byte> plane, int stride, int planeHeight, int x, int y, int size)
+    private static ReadOnlySpan<byte> ReadLeftEdge(
+        ReadOnlySpan<byte> plane,
+        int stride,
+        int planeHeight,
+        int x,
+        int y,
+        int size,
+        Span<byte> scratch)
     {
-        var left = new byte[size];
+        var left = scratch.Slice(0, size);
         var available = Math.Min(size, planeHeight - y);
         for (var row = 0; row < available; row++)
         {
@@ -744,7 +798,7 @@ internal static class Vp9BlockReconstructor
 
         if (available < size)
         {
-            Array.Fill(left, left[available - 1], available, size - available);
+            left.Slice(available, size - available).Fill(left[available - 1]);
         }
 
         return left;
