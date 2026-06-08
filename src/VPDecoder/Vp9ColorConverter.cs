@@ -143,7 +143,8 @@ public static class Vp9ColorConverter
             var uRow = uPlane.Offset + (uvRow * uPlane.Stride);
             var vRow = vPlane.Offset + (uvRow * vPlane.Stride);
             var outRow = y * stride;
-            for (var x = 0; x < width; x += 2)
+            var evenWidth = width & ~1;
+            for (var x = 0; x < evenWidth; x += 2)
             {
                 var uvColumn = x >> 1;
                 var d = sourcePixels[uRow + uvColumn] - 128;
@@ -151,12 +152,20 @@ public static class Vp9ColorConverter
                 var chromaR = matrix.LimitedCrToR * e;
                 var chromaG = (matrix.LimitedCbToG * d) + (matrix.LimitedCrToG * e);
                 var chromaB = matrix.LimitedCbToB * d;
-                WriteStudioBgraSample(sourcePixels[yRow + x], chromaR, chromaG, chromaB, packed, outRow + (x * 4));
+                var outputOffset = outRow + (x * 4);
+                WriteStudioBgraSample(sourcePixels[yRow + x], chromaR, chromaG, chromaB, packed, outputOffset);
+                WriteStudioBgraSample(sourcePixels[yRow + x + 1], chromaR, chromaG, chromaB, packed, outputOffset + 4);
+            }
 
-                if (x + 1 < width)
-                {
-                    WriteStudioBgraSample(sourcePixels[yRow + x + 1], chromaR, chromaG, chromaB, packed, outRow + ((x + 1) * 4));
-                }
+            if (evenWidth < width)
+            {
+                var uvColumn = evenWidth >> 1;
+                var d = sourcePixels[uRow + uvColumn] - 128;
+                var e = sourcePixels[vRow + uvColumn] - 128;
+                var chromaR = matrix.LimitedCrToR * e;
+                var chromaG = (matrix.LimitedCbToG * d) + (matrix.LimitedCrToG * e);
+                var chromaB = matrix.LimitedCbToB * d;
+                WriteStudioBgraSample(sourcePixels[yRow + evenWidth], chromaR, chromaG, chromaB, packed, outRow + (evenWidth * 4));
             }
         }
     }
@@ -179,7 +188,8 @@ public static class Vp9ColorConverter
             var uRow = uPlane.Offset + (uvRow * uPlane.Stride);
             var vRow = vPlane.Offset + (uvRow * vPlane.Stride);
             var outRow = y * stride;
-            for (var x = 0; x < width; x += 2)
+            var evenWidth = width & ~1;
+            for (var x = 0; x < evenWidth; x += 2)
             {
                 var uvColumn = x >> 1;
                 var d = sourcePixels[uRow + uvColumn] - 128;
@@ -187,12 +197,20 @@ public static class Vp9ColorConverter
                 var chromaR = matrix.LimitedCrToR * e;
                 var chromaG = (matrix.LimitedCbToG * d) + (matrix.LimitedCrToG * e);
                 var chromaB = matrix.LimitedCbToB * d;
-                WriteStudioRgbaSample(sourcePixels[yRow + x], chromaR, chromaG, chromaB, packed, outRow + (x * 4));
+                var outputOffset = outRow + (x * 4);
+                WriteStudioRgbaSample(sourcePixels[yRow + x], chromaR, chromaG, chromaB, packed, outputOffset);
+                WriteStudioRgbaSample(sourcePixels[yRow + x + 1], chromaR, chromaG, chromaB, packed, outputOffset + 4);
+            }
 
-                if (x + 1 < width)
-                {
-                    WriteStudioRgbaSample(sourcePixels[yRow + x + 1], chromaR, chromaG, chromaB, packed, outRow + ((x + 1) * 4));
-                }
+            if (evenWidth < width)
+            {
+                var uvColumn = evenWidth >> 1;
+                var d = sourcePixels[uRow + uvColumn] - 128;
+                var e = sourcePixels[vRow + uvColumn] - 128;
+                var chromaR = matrix.LimitedCrToR * e;
+                var chromaG = (matrix.LimitedCbToG * d) + (matrix.LimitedCrToG * e);
+                var chromaB = matrix.LimitedCbToB * d;
+                WriteStudioRgbaSample(sourcePixels[yRow + evenWidth], chromaR, chromaG, chromaB, packed, outRow + (evenWidth * 4));
             }
         }
     }
@@ -215,7 +233,8 @@ public static class Vp9ColorConverter
             var uRow = uPlane.Offset + (uvRow * uPlane.Stride);
             var vRow = vPlane.Offset + (uvRow * vPlane.Stride);
             var outRow = y * stride;
-            for (var x = 0; x < width; x += 2)
+            var evenWidth = width & ~1;
+            for (var x = 0; x < evenWidth; x += 2)
             {
                 var uvColumn = x >> 1;
                 var d = sourcePixels[uRow + uvColumn] - 128;
@@ -223,12 +242,20 @@ public static class Vp9ColorConverter
                 var chromaR = (matrix.FullCrToR * e) >> 8;
                 var chromaG = (matrix.FullCbToG * d + matrix.FullCrToG * e) >> 8;
                 var chromaB = (matrix.FullCbToB * d) >> 8;
-                WriteFullBgraSample(sourcePixels[yRow + x], chromaR, chromaG, chromaB, packed, outRow + (x * 4));
+                var outputOffset = outRow + (x * 4);
+                WriteFullBgraSample(sourcePixels[yRow + x], chromaR, chromaG, chromaB, packed, outputOffset);
+                WriteFullBgraSample(sourcePixels[yRow + x + 1], chromaR, chromaG, chromaB, packed, outputOffset + 4);
+            }
 
-                if (x + 1 < width)
-                {
-                    WriteFullBgraSample(sourcePixels[yRow + x + 1], chromaR, chromaG, chromaB, packed, outRow + ((x + 1) * 4));
-                }
+            if (evenWidth < width)
+            {
+                var uvColumn = evenWidth >> 1;
+                var d = sourcePixels[uRow + uvColumn] - 128;
+                var e = sourcePixels[vRow + uvColumn] - 128;
+                var chromaR = (matrix.FullCrToR * e) >> 8;
+                var chromaG = (matrix.FullCbToG * d + matrix.FullCrToG * e) >> 8;
+                var chromaB = (matrix.FullCbToB * d) >> 8;
+                WriteFullBgraSample(sourcePixels[yRow + evenWidth], chromaR, chromaG, chromaB, packed, outRow + (evenWidth * 4));
             }
         }
     }
@@ -251,7 +278,8 @@ public static class Vp9ColorConverter
             var uRow = uPlane.Offset + (uvRow * uPlane.Stride);
             var vRow = vPlane.Offset + (uvRow * vPlane.Stride);
             var outRow = y * stride;
-            for (var x = 0; x < width; x += 2)
+            var evenWidth = width & ~1;
+            for (var x = 0; x < evenWidth; x += 2)
             {
                 var uvColumn = x >> 1;
                 var d = sourcePixels[uRow + uvColumn] - 128;
@@ -259,12 +287,20 @@ public static class Vp9ColorConverter
                 var chromaR = (matrix.FullCrToR * e) >> 8;
                 var chromaG = (matrix.FullCbToG * d + matrix.FullCrToG * e) >> 8;
                 var chromaB = (matrix.FullCbToB * d) >> 8;
-                WriteFullRgbaSample(sourcePixels[yRow + x], chromaR, chromaG, chromaB, packed, outRow + (x * 4));
+                var outputOffset = outRow + (x * 4);
+                WriteFullRgbaSample(sourcePixels[yRow + x], chromaR, chromaG, chromaB, packed, outputOffset);
+                WriteFullRgbaSample(sourcePixels[yRow + x + 1], chromaR, chromaG, chromaB, packed, outputOffset + 4);
+            }
 
-                if (x + 1 < width)
-                {
-                    WriteFullRgbaSample(sourcePixels[yRow + x + 1], chromaR, chromaG, chromaB, packed, outRow + ((x + 1) * 4));
-                }
+            if (evenWidth < width)
+            {
+                var uvColumn = evenWidth >> 1;
+                var d = sourcePixels[uRow + uvColumn] - 128;
+                var e = sourcePixels[vRow + uvColumn] - 128;
+                var chromaR = (matrix.FullCrToR * e) >> 8;
+                var chromaG = (matrix.FullCbToG * d + matrix.FullCrToG * e) >> 8;
+                var chromaB = (matrix.FullCbToB * d) >> 8;
+                WriteFullRgbaSample(sourcePixels[yRow + evenWidth], chromaR, chromaG, chromaB, packed, outRow + (evenWidth * 4));
             }
         }
     }
@@ -284,14 +320,19 @@ public static class Vp9ColorConverter
             var yRow = yPlane.Offset + (y * yPlane.Stride);
             var vRow = vPlane.Offset + ((y >> 1) * vPlane.Stride);
             var outRow = y * stride;
-            for (var x = 0; x < width; x += 2)
+            var evenWidth = width & ~1;
+            for (var x = 0; x < evenWidth; x += 2)
             {
                 var chromaR = matrix.LimitedCrToR * (alphaPixels[vRow + (x >> 1)] - 128);
-                colorPixels[outRow + (x * 4) + 3] = ConvertStudioRedSample(alphaPixels[yRow + x], chromaR);
-                if (x + 1 < width)
-                {
-                    colorPixels[outRow + ((x + 1) * 4) + 3] = ConvertStudioRedSample(alphaPixels[yRow + x + 1], chromaR);
-                }
+                var outputOffset = outRow + (x * 4) + 3;
+                colorPixels[outputOffset] = ConvertStudioRedSample(alphaPixels[yRow + x], chromaR);
+                colorPixels[outputOffset + 4] = ConvertStudioRedSample(alphaPixels[yRow + x + 1], chromaR);
+            }
+
+            if (evenWidth < width)
+            {
+                var chromaR = matrix.LimitedCrToR * (alphaPixels[vRow + (evenWidth >> 1)] - 128);
+                colorPixels[outRow + (evenWidth * 4) + 3] = ConvertStudioRedSample(alphaPixels[yRow + evenWidth], chromaR);
             }
         }
     }
@@ -311,14 +352,19 @@ public static class Vp9ColorConverter
             var yRow = yPlane.Offset + (y * yPlane.Stride);
             var vRow = vPlane.Offset + ((y >> 1) * vPlane.Stride);
             var outRow = y * stride;
-            for (var x = 0; x < width; x += 2)
+            var evenWidth = width & ~1;
+            for (var x = 0; x < evenWidth; x += 2)
             {
                 var chromaR = (matrix.FullCrToR * (alphaPixels[vRow + (x >> 1)] - 128)) >> 8;
-                colorPixels[outRow + (x * 4) + 3] = ConvertFullRedSample(alphaPixels[yRow + x], chromaR);
-                if (x + 1 < width)
-                {
-                    colorPixels[outRow + ((x + 1) * 4) + 3] = ConvertFullRedSample(alphaPixels[yRow + x + 1], chromaR);
-                }
+                var outputOffset = outRow + (x * 4) + 3;
+                colorPixels[outputOffset] = ConvertFullRedSample(alphaPixels[yRow + x], chromaR);
+                colorPixels[outputOffset + 4] = ConvertFullRedSample(alphaPixels[yRow + x + 1], chromaR);
+            }
+
+            if (evenWidth < width)
+            {
+                var chromaR = (matrix.FullCrToR * (alphaPixels[vRow + (evenWidth >> 1)] - 128)) >> 8;
+                colorPixels[outRow + (evenWidth * 4) + 3] = ConvertFullRedSample(alphaPixels[yRow + evenWidth], chromaR);
             }
         }
     }
