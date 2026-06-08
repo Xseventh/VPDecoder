@@ -2,20 +2,23 @@ namespace VPDecoder;
 
 internal sealed class Vp9PreviousFrameMotionVectors
 {
-    private readonly Vp9PreviousFrameMotionVectorEntry?[] _grid;
+    private readonly Vp9PreviousFrameMotionVectorEntry[] _grid;
+    private readonly bool[] _hasEntry;
 
     private Vp9PreviousFrameMotionVectors(
         int width,
         int height,
         int miRows,
         int miColumns,
-        Vp9PreviousFrameMotionVectorEntry?[] grid)
+        Vp9PreviousFrameMotionVectorEntry[] grid,
+        bool[] hasEntry)
     {
         Width = width;
         Height = height;
         MiRows = miRows;
         MiColumns = miColumns;
         _grid = grid;
+        _hasEntry = hasEntry;
     }
 
     public int Width { get; }
@@ -50,7 +53,9 @@ internal sealed class Vp9PreviousFrameMotionVectors
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(miRows);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(miColumns);
 
-        var grid = new Vp9PreviousFrameMotionVectorEntry?[checked(miRows * miColumns)];
+        var gridSize = checked(miRows * miColumns);
+        var grid = new Vp9PreviousFrameMotionVectorEntry[gridSize];
+        var hasEntry = new bool[gridSize];
         for (var blockIndex = 0; blockIndex < modeBlocks.Count; blockIndex++)
         {
             var modeBlock = modeBlocks[blockIndex];
@@ -82,12 +87,14 @@ internal sealed class Vp9PreviousFrameMotionVectors
                 var offset = ((modeBlock.MiRow + row) * miColumns) + modeBlock.MiColumn;
                 for (var column = 0; column < widthInMiUnits; column++)
                 {
-                    grid[offset + column] = entry;
+                    var index = offset + column;
+                    grid[index] = entry;
+                    hasEntry[index] = true;
                 }
             }
         }
 
-        return new Vp9PreviousFrameMotionVectors(width, height, miRows, miColumns, grid);
+        return new Vp9PreviousFrameMotionVectors(width, height, miRows, miColumns, grid, hasEntry);
     }
 
     public bool CanUseFor(Vp9FrameHeader header)
@@ -110,10 +117,10 @@ internal sealed class Vp9PreviousFrameMotionVectors
             return false;
         }
 
-        var existing = _grid[(miRow * MiColumns) + miColumn];
-        if (existing is { } value)
+        var index = (miRow * MiColumns) + miColumn;
+        if (_hasEntry[index])
         {
-            entry = value;
+            entry = _grid[index];
             return true;
         }
 

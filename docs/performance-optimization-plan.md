@@ -893,6 +893,36 @@ merged packed run had a large outlier and should be treated as noisy. The
 change is intentionally tiny and keeps the scalar motion-compensation code in a
 JIT-friendly shape without changing the broader architecture.
 
+Previous-frame MV grid storage slice:
+
+- Replaced the nullable previous-frame MV grid array with separate value and
+  occupancy arrays.
+- Kept previous-frame MV lookup semantics unchanged: empty MI slots still
+  return no candidate, while populated slots return the same reference and
+  compound motion-vector data.
+- This targets both allocation size and lookup shape in the inter prediction
+  candidate path.
+
+Validation:
+
+- `dotnet test VPDecoder.slnx -m:1 --no-restore`
+- Full 97-frame color and alpha YUV420 comparison against libvpx; both streams
+  remained bitwise identical for every frame.
+- Color, alpha, and merged benchmark checksums remained unchanged.
+
+Observed short-run benchmark after the slice:
+
+| Stream/output | Average elapsed | Elapsed range | Allocated MB |
+| --- | ---: | ---: | ---: |
+| Color `Yuv420` | 2190 ms | 2185-2194 ms | 3596 MB |
+| Alpha `Yuv420` | 2048 ms | 2035-2057 ms | 3475 MB |
+| Merged `Bgra8888` | 5089 ms | 5059-5117 ms | 7399 MB |
+
+Compared with the repository benchmark baseline immediately before this slice,
+allocation dropped by roughly 15 MB per single stream and roughly 31 MB for
+merged color+alpha. The alpha and merged elapsed times also improved in this
+short run, while color `Yuv420` was essentially flat.
+
 Additional non-committed local trials that did not show stable benefit:
 
 - Grid-only direct inter mode metadata: reduced allocation by about 10 MB over
