@@ -11,6 +11,7 @@ internal static class Vp9MotionCompensator
     private const int SubpelTapOffset = (SubpelTaps / 2) - 1;
     private const int SubpelRightTapOffset = SubpelTaps - SubpelTapOffset - 1;
     private const int MaxConvolveBlockDimension = 64;
+    private const int MaxConvolveBlockPixels = MaxConvolveBlockDimension * MaxConvolveBlockDimension;
     private const int MaxTwoDimensionalTempRows = MaxConvolveBlockDimension + SubpelTaps - 1;
     private const int MaxTwoDimensionalTempPixels = MaxConvolveBlockDimension * MaxTwoDimensionalTempRows;
     private const int MotionVectorQ4LowerBound = -(1 << 15);
@@ -402,105 +403,338 @@ internal static class Vp9MotionCompensator
             height,
             subpelX1,
             subpelY1);
-        for (var row = 0; row < height; row++)
-        {
-            var destinationOffset = destinationPlane.Offset + ((destinationY + row) * destinationPlane.Stride) + destinationX;
-            for (var column = 0; column < width; column++)
-            {
-                var pixel0 = PredictPixelPrepared(
-                    sourcePixels0,
-                    sourcePlane0,
-                    sourceX0 + column,
-                    sourceY0 + row,
-                    subpelX0,
-                    subpelY0,
-                    xKernel0,
-                    yKernel0,
-                    isSource0FilterInputInside);
-                var pixel1 = PredictPixelPrepared(
-                    sourcePixels1,
-                    sourcePlane1,
-                    sourceX1 + column,
-                    sourceY1 + row,
-                    subpelX1,
-                    subpelY1,
-                    xKernel1,
-                    yKernel1,
-                    isSource1FilterInputInside);
-                destinationPixels[destinationOffset + column] = (byte)((pixel0 + pixel1 + 1) >> 1);
-            }
-        }
+        Span<byte> prediction0 = stackalloc byte[MaxConvolveBlockPixels];
+        Span<byte> prediction1 = stackalloc byte[MaxConvolveBlockPixels];
+        PredictPlaneBlockToSpan(
+            sourcePixels0,
+            sourcePlane0,
+            sourceX0,
+            sourceY0,
+            width,
+            height,
+            subpelX0,
+            subpelY0,
+            xKernel0,
+            yKernel0,
+            isSource0FilterInputInside,
+            prediction0,
+            MaxConvolveBlockDimension);
+        PredictPlaneBlockToSpan(
+            sourcePixels1,
+            sourcePlane1,
+            sourceX1,
+            sourceY1,
+            width,
+            height,
+            subpelX1,
+            subpelY1,
+            xKernel1,
+            yKernel1,
+            isSource1FilterInputInside,
+            prediction1,
+            MaxConvolveBlockDimension);
+        AveragePredictionRows(
+            prediction0,
+            prediction1,
+            destinationPixels,
+            destinationPlane,
+            destinationX,
+            destinationY,
+            width,
+            height,
+            MaxConvolveBlockDimension);
 
         return true;
     }
 
-    private static byte PredictPixelPrepared(
-        ReadOnlySpan<byte> pixels,
+    private static void PredictPlaneBlockToSpan(
+        ReadOnlySpan<byte> sourcePixels,
         Vp9DecodedPlane sourcePlane,
         int sourceX,
         int sourceY,
+        int width,
+        int height,
         int subpelX,
         int subpelY,
         ReadOnlySpan<short> xKernel,
         ReadOnlySpan<short> yKernel,
-        bool isFilterInputInside)
+        bool isFilterInputInside,
+        Span<byte> destination,
+        int destinationStride)
     {
         if (subpelX == 0 && subpelY == 0)
         {
-            return isFilterInputInside
-                ? pixels[sourcePlane.Offset + (sourceY * sourcePlane.Stride) + sourceX]
-                : ReadClamped(pixels, sourcePlane, sourceX, sourceY);
+            PredictWholePixelToSpan(
+                sourcePixels,
+                sourcePlane,
+                sourceX,
+                sourceY,
+                width,
+                height,
+                isFilterInputInside,
+                destination,
+                destinationStride);
+            return;
         }
 
         if (subpelY == 0)
         {
-            return isFilterInputInside
-                ? ApplyHorizontalFilterUnclamped(
-                    pixels,
-                    sourcePlane.Offset + (sourceY * sourcePlane.Stride) + sourceX,
-                    xKernel)
-                : ApplyHorizontalFilter(pixels, sourcePlane, sourceX, sourceY, xKernel);
+            PredictHorizontalToSpan(
+                sourcePixels,
+                sourcePlane,
+                sourceX,
+                sourceY,
+                width,
+                height,
+                xKernel,
+                isFilterInputInside,
+                destination,
+                destinationStride);
+            return;
         }
 
         if (subpelX == 0)
         {
-            return isFilterInputInside
-                ? ApplyVerticalFilterUnclamped(
-                    pixels,
-                    sourcePlane.Offset + (sourceY * sourcePlane.Stride) + sourceX,
-                    sourcePlane.Stride,
-                    yKernel)
-                : ApplyVerticalFilter(pixels, sourcePlane, sourceX, sourceY, yKernel);
+            PredictVerticalToSpan(
+                sourcePixels,
+                sourcePlane,
+                sourceX,
+                sourceY,
+                width,
+                height,
+                yKernel,
+                isFilterInputInside,
+                destination,
+                destinationStride);
+            return;
         }
 
-        var sum = 0;
+        PredictTwoDimensionalToSpan(
+            sourcePixels,
+            sourcePlane,
+            sourceX,
+            sourceY,
+            width,
+            height,
+            xKernel,
+            yKernel,
+            isFilterInputInside,
+            destination,
+            destinationStride);
+    }
+
+    private static void PredictWholePixelToSpan(
+        ReadOnlySpan<byte> sourcePixels,
+        Vp9DecodedPlane sourcePlane,
+        int sourceX,
+        int sourceY,
+        int width,
+        int height,
+        bool isFilterInputInside,
+        Span<byte> destination,
+        int destinationStride)
+    {
         if (isFilterInputInside)
         {
-            var centerOffset = sourcePlane.Offset + (sourceY * sourcePlane.Stride) + sourceX;
-            for (var tapY = 0; tapY < SubpelTaps; tapY++)
+            for (var row = 0; row < height; row++)
             {
-                var intermediate = ApplyHorizontalFilterUnclamped(
-                    pixels,
-                    centerOffset + ((tapY - SubpelTapOffset) * sourcePlane.Stride),
-                    xKernel);
-                sum += intermediate * yKernel[tapY];
+                var sourceOffset = sourcePlane.Offset + ((sourceY + row) * sourcePlane.Stride) + sourceX;
+                sourcePixels.Slice(sourceOffset, width).CopyTo(destination.Slice(row * destinationStride, width));
+            }
+
+            return;
+        }
+
+        for (var row = 0; row < height; row++)
+        {
+            var destinationOffset = row * destinationStride;
+            for (var column = 0; column < width; column++)
+            {
+                destination[destinationOffset + column] = ReadClamped(
+                    sourcePixels,
+                    sourcePlane,
+                    sourceX + column,
+                    sourceY + row);
             }
         }
-        else
+    }
+
+    private static void PredictHorizontalToSpan(
+        ReadOnlySpan<byte> sourcePixels,
+        Vp9DecodedPlane sourcePlane,
+        int sourceX,
+        int sourceY,
+        int width,
+        int height,
+        ReadOnlySpan<short> kernel,
+        bool isFilterInputInside,
+        Span<byte> destination,
+        int destinationStride)
+    {
+        for (var row = 0; row < height; row++)
         {
-            for (var tapY = 0; tapY < SubpelTaps; tapY++)
+            var destinationOffset = row * destinationStride;
+            if (isFilterInputInside)
             {
-                var intermediate = ApplyHorizontalFilter(
-                    pixels,
+                var sourceOffset = sourcePlane.Offset + ((sourceY + row) * sourcePlane.Stride) + sourceX;
+                for (var column = 0; column < width; column++)
+                {
+                    destination[destinationOffset + column] = ApplyHorizontalFilterUnclamped(
+                        sourcePixels,
+                        sourceOffset + column,
+                        kernel);
+                }
+
+                continue;
+            }
+
+            for (var column = 0; column < width; column++)
+            {
+                destination[destinationOffset + column] = ApplyHorizontalFilter(
+                    sourcePixels,
                     sourcePlane,
-                    sourceX,
-                    sourceY + tapY - SubpelTapOffset,
+                    sourceX + column,
+                    sourceY + row,
+                    kernel);
+            }
+        }
+    }
+
+    private static void PredictVerticalToSpan(
+        ReadOnlySpan<byte> sourcePixels,
+        Vp9DecodedPlane sourcePlane,
+        int sourceX,
+        int sourceY,
+        int width,
+        int height,
+        ReadOnlySpan<short> kernel,
+        bool isFilterInputInside,
+        Span<byte> destination,
+        int destinationStride)
+    {
+        for (var row = 0; row < height; row++)
+        {
+            var destinationOffset = row * destinationStride;
+            if (isFilterInputInside)
+            {
+                var sourceOffset = sourcePlane.Offset + ((sourceY + row) * sourcePlane.Stride) + sourceX;
+                for (var column = 0; column < width; column++)
+                {
+                    destination[destinationOffset + column] = ApplyVerticalFilterUnclamped(
+                        sourcePixels,
+                        sourceOffset + column,
+                        sourcePlane.Stride,
+                        kernel);
+                }
+
+                continue;
+            }
+
+            for (var column = 0; column < width; column++)
+            {
+                destination[destinationOffset + column] = ApplyVerticalFilter(
+                    sourcePixels,
+                    sourcePlane,
+                    sourceX + column,
+                    sourceY + row,
+                    kernel);
+            }
+        }
+    }
+
+    private static void PredictTwoDimensionalToSpan(
+        ReadOnlySpan<byte> sourcePixels,
+        Vp9DecodedPlane sourcePlane,
+        int sourceX,
+        int sourceY,
+        int width,
+        int height,
+        ReadOnlySpan<short> xKernel,
+        ReadOnlySpan<short> yKernel,
+        bool isFilterInputInside,
+        Span<byte> destination,
+        int destinationStride)
+    {
+        if (!isFilterInputInside)
+        {
+            for (var row = 0; row < height; row++)
+            {
+                var destinationOffset = row * destinationStride;
+                for (var column = 0; column < width; column++)
+                {
+                    var sum = 0;
+                    for (var tapY = 0; tapY < SubpelTaps; tapY++)
+                    {
+                        var intermediate = ApplyHorizontalFilter(
+                            sourcePixels,
+                            sourcePlane,
+                            sourceX + column,
+                            sourceY + row + tapY - SubpelTapOffset,
+                            xKernel);
+                        sum += intermediate * yKernel[tapY];
+                    }
+
+                    destination[destinationOffset + column] = ClipPixel(RoundPowerOfTwo(sum, FilterBits));
+                }
+            }
+
+            return;
+        }
+
+        Span<byte> horizontal = stackalloc byte[MaxTwoDimensionalTempPixels];
+        var tempStride = MaxConvolveBlockDimension;
+        var tempRows = height + SubpelTaps - 1;
+        for (var tempRow = 0; tempRow < tempRows; tempRow++)
+        {
+            var sourceOffset = sourcePlane.Offset +
+                ((sourceY + tempRow - SubpelTapOffset) * sourcePlane.Stride) +
+                sourceX;
+            var tempOffset = tempRow * tempStride;
+            for (var column = 0; column < width; column++)
+            {
+                horizontal[tempOffset + column] = ApplyHorizontalFilterUnclamped(
+                    sourcePixels,
+                    sourceOffset + column,
                     xKernel);
-                sum += intermediate * yKernel[tapY];
             }
         }
 
-        return ClipPixel(RoundPowerOfTwo(sum, FilterBits));
+        for (var row = 0; row < height; row++)
+        {
+            var destinationOffset = row * destinationStride;
+            var tempOffset = row * tempStride;
+            for (var column = 0; column < width; column++)
+            {
+                destination[destinationOffset + column] = ApplyVerticalFilterFromTemp(
+                    horizontal,
+                    tempOffset + column,
+                    tempStride,
+                    yKernel);
+            }
+        }
+    }
+
+    private static void AveragePredictionRows(
+        ReadOnlySpan<byte> prediction0,
+        ReadOnlySpan<byte> prediction1,
+        byte[] destinationPixels,
+        Vp9DecodedPlane destinationPlane,
+        int destinationX,
+        int destinationY,
+        int width,
+        int height,
+        int predictionStride)
+    {
+        for (var row = 0; row < height; row++)
+        {
+            var predictionOffset = row * predictionStride;
+            var destinationOffset = destinationPlane.Offset + ((destinationY + row) * destinationPlane.Stride) + destinationX;
+            for (var column = 0; column < width; column++)
+            {
+                destinationPixels[destinationOffset + column] = (byte)(
+                    (prediction0[predictionOffset + column] + prediction1[predictionOffset + column] + 1) >> 1);
+            }
+        }
     }
 
     private static void CopyPlaneRows(

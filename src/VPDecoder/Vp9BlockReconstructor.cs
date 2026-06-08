@@ -37,7 +37,7 @@ internal static class Vp9BlockReconstructor
         var transformStep4 = Vp9CoefficientEntropyContext.GetTransformSizeIn4x4Blocks(group.TransformSize);
         var width4 = width / 4;
         var height4 = height / 4;
-        var seenBlocks = new bool[expectedBlockCount];
+        Span<bool> seenBlocks = stackalloc bool[expectedBlockCount];
         var planeInfo = GetPlaneInfo(frameBuffer, plane);
         var originX = plane == 0 ? modeInfo.MiColumn * 8 : modeInfo.MiColumn * 4;
         var originY = plane == 0 ? modeInfo.MiRow * 8 : modeInfo.MiRow * 4;

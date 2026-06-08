@@ -462,32 +462,34 @@ internal static class Vp9LoopFilter
 
     public static void ApplyVertical4(byte[] plane, int stride, int startIndex, Vp9LoopFilterThresholds thresholds, int rows = 8)
     {
-        for (var row = 0; row < rows; row++)
+        for (var row = 0; row < rows; row++, startIndex += stride)
         {
-            var index = startIndex + (row * stride);
             Filter4(
                 FilterMask(
                     thresholds.Limit,
                     thresholds.MacroblockLimit,
-                    plane[index - 4],
-                    plane[index - 3],
-                    plane[index - 2],
-                    plane[index - 1],
-                    plane[index],
-                    plane[index + 1],
-                    plane[index + 2],
-                    plane[index + 3]),
+                    plane[startIndex - 4],
+                    plane[startIndex - 3],
+                    plane[startIndex - 2],
+                    plane[startIndex - 1],
+                    plane[startIndex],
+                    plane[startIndex + 1],
+                    plane[startIndex + 2],
+                    plane[startIndex + 3]),
                 thresholds.HighEdgeVarianceThreshold,
                 plane,
-                index - 2,
-                index - 1,
-                index,
-                index + 1);
+                startIndex - 2,
+                startIndex - 1,
+                startIndex,
+                startIndex + 1);
         }
     }
 
     public static void ApplyHorizontal4(byte[] plane, int stride, int startIndex, Vp9LoopFilterThresholds thresholds, int columns = 8)
     {
+        var stride2 = 2 * stride;
+        var stride3 = 3 * stride;
+        var stride4 = 4 * stride;
         for (var column = 0; column < columns; column++)
         {
             var index = startIndex + column;
@@ -495,17 +497,17 @@ internal static class Vp9LoopFilter
                 FilterMask(
                     thresholds.Limit,
                     thresholds.MacroblockLimit,
-                    plane[index - (4 * stride)],
-                    plane[index - (3 * stride)],
-                    plane[index - (2 * stride)],
+                    plane[index - stride4],
+                    plane[index - stride3],
+                    plane[index - stride2],
                     plane[index - stride],
                     plane[index],
                     plane[index + stride],
-                    plane[index + (2 * stride)],
-                    plane[index + (3 * stride)]),
+                    plane[index + stride2],
+                    plane[index + stride3]),
                 thresholds.HighEdgeVarianceThreshold,
                 plane,
-                index - (2 * stride),
+                index - stride2,
                 index - stride,
                 index,
                 index + stride);
@@ -514,17 +516,16 @@ internal static class Vp9LoopFilter
 
     public static void ApplyVertical8(byte[] plane, int stride, int startIndex, Vp9LoopFilterThresholds thresholds, int rows = 8)
     {
-        for (var row = 0; row < rows; row++)
+        for (var row = 0; row < rows; row++, startIndex += stride)
         {
-            var index = startIndex + (row * stride);
-            var p3 = plane[index - 4];
-            var p2 = plane[index - 3];
-            var p1 = plane[index - 2];
-            var p0 = plane[index - 1];
-            var q0 = plane[index];
-            var q1 = plane[index + 1];
-            var q2 = plane[index + 2];
-            var q3 = plane[index + 3];
+            var p3 = plane[startIndex - 4];
+            var p2 = plane[startIndex - 3];
+            var p1 = plane[startIndex - 2];
+            var p0 = plane[startIndex - 1];
+            var q0 = plane[startIndex];
+            var q1 = plane[startIndex + 1];
+            var q2 = plane[startIndex + 2];
+            var q3 = plane[startIndex + 3];
             Filter8(
                 FilterMask(
                     thresholds.Limit,
@@ -540,30 +541,33 @@ internal static class Vp9LoopFilter
                 thresholds.HighEdgeVarianceThreshold,
                 FlatMask4(1, p3, p2, p1, p0, q0, q1, q2, q3),
                 plane,
-                index - 4,
-                index - 3,
-                index - 2,
-                index - 1,
-                index,
-                index + 1,
-                index + 2,
-                index + 3);
+                startIndex - 4,
+                startIndex - 3,
+                startIndex - 2,
+                startIndex - 1,
+                startIndex,
+                startIndex + 1,
+                startIndex + 2,
+                startIndex + 3);
         }
     }
 
     public static void ApplyHorizontal8(byte[] plane, int stride, int startIndex, Vp9LoopFilterThresholds thresholds, int columns = 8)
     {
+        var stride2 = 2 * stride;
+        var stride3 = 3 * stride;
+        var stride4 = 4 * stride;
         for (var column = 0; column < columns; column++)
         {
             var index = startIndex + column;
-            var p3 = plane[index - (4 * stride)];
-            var p2 = plane[index - (3 * stride)];
-            var p1 = plane[index - (2 * stride)];
+            var p3 = plane[index - stride4];
+            var p2 = plane[index - stride3];
+            var p1 = plane[index - stride2];
             var p0 = plane[index - stride];
             var q0 = plane[index];
             var q1 = plane[index + stride];
-            var q2 = plane[index + (2 * stride)];
-            var q3 = plane[index + (3 * stride)];
+            var q2 = plane[index + stride2];
+            var q3 = plane[index + stride3];
             Filter8(
                 FilterMask(
                     thresholds.Limit,
@@ -579,30 +583,29 @@ internal static class Vp9LoopFilter
                 thresholds.HighEdgeVarianceThreshold,
                 FlatMask4(1, p3, p2, p1, p0, q0, q1, q2, q3),
                 plane,
-                index - (4 * stride),
-                index - (3 * stride),
-                index - (2 * stride),
+                index - stride4,
+                index - stride3,
+                index - stride2,
                 index - stride,
                 index,
                 index + stride,
-                index + (2 * stride),
-                index + (3 * stride));
+                index + stride2,
+                index + stride3);
         }
     }
 
     public static void ApplyVertical16(byte[] plane, int stride, int startIndex, Vp9LoopFilterThresholds thresholds, int rows = 8)
     {
-        for (var row = 0; row < rows; row++)
+        for (var row = 0; row < rows; row++, startIndex += stride)
         {
-            var index = startIndex + (row * stride);
-            var p3 = plane[index - 4];
-            var p2 = plane[index - 3];
-            var p1 = plane[index - 2];
-            var p0 = plane[index - 1];
-            var q0 = plane[index];
-            var q1 = plane[index + 1];
-            var q2 = plane[index + 2];
-            var q3 = plane[index + 3];
+            var p3 = plane[startIndex - 4];
+            var p2 = plane[startIndex - 3];
+            var p1 = plane[startIndex - 2];
+            var p0 = plane[startIndex - 1];
+            var q0 = plane[startIndex];
+            var q1 = plane[startIndex + 1];
+            var q2 = plane[startIndex + 2];
+            var q3 = plane[startIndex + 3];
             Filter16(
                 FilterMask(
                     thresholds.Limit,
@@ -619,49 +622,56 @@ internal static class Vp9LoopFilter
                 FlatMask4(1, p3, p2, p1, p0, q0, q1, q2, q3),
                 FlatMask5(
                     1,
-                    plane[index - 8],
-                    plane[index - 7],
-                    plane[index - 6],
-                    plane[index - 5],
+                    plane[startIndex - 8],
+                    plane[startIndex - 7],
+                    plane[startIndex - 6],
+                    plane[startIndex - 5],
                     p0,
                     q0,
-                    plane[index + 4],
-                    plane[index + 5],
-                    plane[index + 6],
-                    plane[index + 7]),
+                    plane[startIndex + 4],
+                    plane[startIndex + 5],
+                    plane[startIndex + 6],
+                    plane[startIndex + 7]),
                 plane,
-                index - 8,
-                index - 7,
-                index - 6,
-                index - 5,
-                index - 4,
-                index - 3,
-                index - 2,
-                index - 1,
-                index,
-                index + 1,
-                index + 2,
-                index + 3,
-                index + 4,
-                index + 5,
-                index + 6,
-                index + 7);
+                startIndex - 8,
+                startIndex - 7,
+                startIndex - 6,
+                startIndex - 5,
+                startIndex - 4,
+                startIndex - 3,
+                startIndex - 2,
+                startIndex - 1,
+                startIndex,
+                startIndex + 1,
+                startIndex + 2,
+                startIndex + 3,
+                startIndex + 4,
+                startIndex + 5,
+                startIndex + 6,
+                startIndex + 7);
         }
     }
 
     public static void ApplyHorizontal16(byte[] plane, int stride, int startIndex, Vp9LoopFilterThresholds thresholds, int columns = 8)
     {
+        var stride2 = 2 * stride;
+        var stride3 = 3 * stride;
+        var stride4 = 4 * stride;
+        var stride5 = 5 * stride;
+        var stride6 = 6 * stride;
+        var stride7 = 7 * stride;
+        var stride8 = 8 * stride;
         for (var column = 0; column < columns; column++)
         {
             var index = startIndex + column;
-            var p3 = plane[index - (4 * stride)];
-            var p2 = plane[index - (3 * stride)];
-            var p1 = plane[index - (2 * stride)];
+            var p3 = plane[index - stride4];
+            var p2 = plane[index - stride3];
+            var p1 = plane[index - stride2];
             var p0 = plane[index - stride];
             var q0 = plane[index];
             var q1 = plane[index + stride];
-            var q2 = plane[index + (2 * stride)];
-            var q3 = plane[index + (3 * stride)];
+            var q2 = plane[index + stride2];
+            var q3 = plane[index + stride3];
             Filter16(
                 FilterMask(
                     thresholds.Limit,
@@ -678,33 +688,33 @@ internal static class Vp9LoopFilter
                 FlatMask4(1, p3, p2, p1, p0, q0, q1, q2, q3),
                 FlatMask5(
                     1,
-                    plane[index - (8 * stride)],
-                    plane[index - (7 * stride)],
-                    plane[index - (6 * stride)],
-                    plane[index - (5 * stride)],
+                    plane[index - stride8],
+                    plane[index - stride7],
+                    plane[index - stride6],
+                    plane[index - stride5],
                     p0,
                     q0,
-                    plane[index + (4 * stride)],
-                    plane[index + (5 * stride)],
-                    plane[index + (6 * stride)],
-                    plane[index + (7 * stride)]),
+                    plane[index + stride4],
+                    plane[index + stride5],
+                    plane[index + stride6],
+                    plane[index + stride7]),
                 plane,
-                index - (8 * stride),
-                index - (7 * stride),
-                index - (6 * stride),
-                index - (5 * stride),
-                index - (4 * stride),
-                index - (3 * stride),
-                index - (2 * stride),
+                index - stride8,
+                index - stride7,
+                index - stride6,
+                index - stride5,
+                index - stride4,
+                index - stride3,
+                index - stride2,
                 index - stride,
                 index,
                 index + stride,
-                index + (2 * stride),
-                index + (3 * stride),
-                index + (4 * stride),
-                index + (5 * stride),
-                index + (6 * stride),
-                index + (7 * stride));
+                index + stride2,
+                index + stride3,
+                index + stride4,
+                index + stride5,
+                index + stride6,
+                index + stride7);
         }
     }
 
@@ -785,6 +795,11 @@ internal static class Vp9LoopFilter
 
     private static void Filter4(int mask, byte threshold, byte[] plane, int op1, int op0, int oq0, int oq1)
     {
+        if (mask == 0)
+        {
+            return;
+        }
+
         var ps1 = ToSigned(plane[op1]);
         var ps0 = ToSigned(plane[op0]);
         var qs0 = ToSigned(plane[oq0]);
