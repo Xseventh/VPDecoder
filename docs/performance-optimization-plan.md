@@ -105,7 +105,10 @@ surface:
 
 - `dotnet build VPDecoder.slnx --no-restore -m:1`
 - `dotnet test VPDecoder.slnx -m:1 --no-restore`
-- 97-frame color and alpha sequence decode from `/tmp/vpdecoder-repro`.
+- `dotnet run --project tools/VPDecoder.Bench -c Release -- <packet-root> color yuv420 <iterations> <frames>`
+- `dotnet run --project tools/VPDecoder.Bench -c Release -- <packet-root> alpha yuv420 <iterations> <frames>`
+- `dotnet run --project tools/VPDecoder.Bench -c Release -- <packet-root> merged bgra8888 <iterations> <frames>`
+- External 97-frame color and alpha repro sequence decode.
 - YUV420 bitwise comparison against the current libvpx reference dumps when
   those dumps are present locally.
 - Record elapsed time and allocated MB for color and alpha `Yuv420`.

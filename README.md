@@ -102,6 +102,9 @@ Performance notes:
   `docs/performance-optimization-plan.md`. The immediate focus is reducing
   inter-frame decode allocations and splitting production reconstruction from
   diagnostic probe paths while preserving bitwise YUV420 alignment.
+- `tools/VPDecoder.Bench` provides a local benchmark harness for raw packet
+  sequences. It does not include sample data; pass a packet directory that
+  contains `frame-000-color.vp9`, `frame-000-alpha.vp9`, and so on.
 
 Broader ordinary inter-frame prediction and VP8 sequence/reference state remain
 follow-up slices. The decoder must continue to return explicit unsupported
