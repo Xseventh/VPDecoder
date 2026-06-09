@@ -1292,3 +1292,49 @@ Additional non-committed local motion trial that did not show stable benefit:
 - Clamped single-axis and 2D-clamped kernel-local/unrolled helpers: reduced
   clamped timing in some single-stream runs, but regressed merged
   `Bgra8888`, so the trial was reverted.
+
+Detailed intra-reconstruction profile slice:
+
+- Added nested profile counters inside intra-coded blocks that appear inside
+  ordinary inter frames.
+- Split intra reconstruction into edge preparation, intra prediction, residual
+  add, DC-only residual add, and inverse-transform residual add.
+- Kept all new counters behind `VPDecoderProfile`, so default Release builds
+  do not pay the counter overhead.
+
+Observed merged `Bgra8888` profile:
+
+| Stage | Average | Parent share |
+| --- | ---: | ---: |
+| `interIntraBlock` | 989 ms | 28.5% of inter reconstruction |
+| `interIntraResidualRead` | 393 ms | 39.7% of intra-inside-inter |
+| `interIntraReconstruct` | 590 ms | 59.6% of intra-inside-inter |
+| `intraEdgePrep` | 22 ms | 3.8% of intra reconstruction |
+| `intraPredict` | 30 ms | 5.2% of intra reconstruction |
+| `intraResidualAdd` | 490 ms | 83.1% of intra reconstruction |
+| `intraDcOnlyAdd` | 3 ms | 0.7% of intra residual add |
+| `intraInverseTransform` | 478 ms | 97.5% of intra residual add |
+
+The profile narrows the intra-coded-block target: edge setup, prediction, and
+DC-only paths are small. The real hot path is full inverse transform plus
+residual add for non-DC blocks.
+
+Additional non-committed local trials that did not show stable benefit:
+
+- VP9 loop-filter scalar inline/clamp cleanup: adding explicit inlining to the
+  edge helpers and replacing `Math.Clamp` in the signed-char clamp with a manual
+  branch regressed same-machine merged Release timing, so the trial was
+  reverted.
+- Hybrid inverse-transform row-copy removal: passing coefficient rows directly
+  into `Transform1D` was effectively noise-level in merged Release timing and
+  did not lower the profiled inverse-transform substage, so the trial was
+  reverted.
+- Hybrid inverse-transform dispatch hoisting: moving the 1D transform switch
+  outside the row/column loops made the helper larger and slightly regressed the
+  profiled inverse-transform substage, so the trial was reverted.
+
+The next reconstruction direction should be transform-size/type frequency
+profiling and then targeted transform kernels for the most common non-DC cases,
+instead of broad helper reshaping. The next loop-filter direction should remain
+structural mask-apply layout cleanup or guarded hardware intrinsics with scalar
+fallback; tiny scalar wrapper changes are not proving useful.

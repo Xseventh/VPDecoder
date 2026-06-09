@@ -15,6 +15,11 @@ internal readonly record struct Vp9PerfCounterSnapshot(
     long InterIntraBlockTicks,
     long InterIntraResidualReadTicks,
     long InterIntraReconstructionTicks,
+    long IntraEdgePreparationTicks,
+    long IntraPredictionTicks,
+    long IntraResidualAddTicks,
+    long IntraDcOnlyAddTicks,
+    long IntraInverseTransformTicks,
     long MotionCopyWholePixelTicks,
     long MotionCopyHorizontalTicks,
     long MotionCopyVerticalTicks,
@@ -73,6 +78,11 @@ internal static class Vp9PerfCounters
     private static long _interIntraBlockTicks;
     private static long _interIntraResidualReadTicks;
     private static long _interIntraReconstructionTicks;
+    private static long _intraEdgePreparationTicks;
+    private static long _intraPredictionTicks;
+    private static long _intraResidualAddTicks;
+    private static long _intraDcOnlyAddTicks;
+    private static long _intraInverseTransformTicks;
     private static long _motionCopyWholePixelTicks;
     private static long _motionCopyHorizontalTicks;
     private static long _motionCopyVerticalTicks;
@@ -119,6 +129,11 @@ internal static class Vp9PerfCounters
         _interIntraBlockTicks = 0;
         _interIntraResidualReadTicks = 0;
         _interIntraReconstructionTicks = 0;
+        _intraEdgePreparationTicks = 0;
+        _intraPredictionTicks = 0;
+        _intraResidualAddTicks = 0;
+        _intraDcOnlyAddTicks = 0;
+        _intraInverseTransformTicks = 0;
         _motionCopyWholePixelTicks = 0;
         _motionCopyHorizontalTicks = 0;
         _motionCopyVerticalTicks = 0;
@@ -162,6 +177,11 @@ internal static class Vp9PerfCounters
             _interIntraBlockTicks,
             _interIntraResidualReadTicks,
             _interIntraReconstructionTicks,
+            _intraEdgePreparationTicks,
+            _intraPredictionTicks,
+            _intraResidualAddTicks,
+            _intraDcOnlyAddTicks,
+            _intraInverseTransformTicks,
             _motionCopyWholePixelTicks,
             _motionCopyHorizontalTicks,
             _motionCopyVerticalTicks,
@@ -212,6 +232,16 @@ internal static class Vp9PerfCounters
     public static void AddInterIntraResidualRead(long start) => _interIntraResidualReadTicks += Stopwatch.GetTimestamp() - start;
 
     public static void AddInterIntraReconstruction(long start) => _interIntraReconstructionTicks += Stopwatch.GetTimestamp() - start;
+
+    public static void AddIntraEdgePreparation(long start) => _intraEdgePreparationTicks += Stopwatch.GetTimestamp() - start;
+
+    public static void AddIntraPrediction(long start) => _intraPredictionTicks += Stopwatch.GetTimestamp() - start;
+
+    public static void AddIntraResidualAdd(long start) => _intraResidualAddTicks += Stopwatch.GetTimestamp() - start;
+
+    public static void AddIntraDcOnlyAdd(long start) => _intraDcOnlyAddTicks += Stopwatch.GetTimestamp() - start;
+
+    public static void AddIntraInverseTransform(long start) => _intraInverseTransformTicks += Stopwatch.GetTimestamp() - start;
 
     public static void AddMotionCopyWholePixel(long start) => _motionCopyWholePixelTicks += Stopwatch.GetTimestamp() - start;
 

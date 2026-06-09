@@ -75,6 +75,9 @@ internal static class Vp9BlockReconstructor
             }
 
             seenBlocks[blockIndex] = true;
+#if VPDECODER_PROFILE
+            var edgeProfileStart = Vp9PerfCounters.Start();
+#endif
             var x = originX + (coefficients.Column4 * 4);
             var y = originY + (coefficients.Row4 * 4);
             var predictionMode = GetPredictionMode(modeInfo, coefficients, plane);
@@ -116,6 +119,9 @@ internal static class Vp9BlockReconstructor
                 ref above,
                 ref left,
                 ref aboveLeft);
+#if VPDECODER_PROFILE
+            Vp9PerfCounters.AddIntraEdgePreparation(edgeProfileStart);
+#endif
 
             var visibleWidth = Math.Min(transformSize, planeInfo.Metadata.Width - x);
             var visibleHeight = Math.Min(transformSize, planeInfo.Metadata.Height - y);
@@ -818,6 +824,9 @@ internal static class Vp9BlockReconstructor
         byte? aboveLeft)
     {
         var predictionDestination = destination.Slice((y * stride) + x);
+#if VPDECODER_PROFILE
+        var predictionProfileStart = Vp9PerfCounters.Start();
+#endif
         Vp9IntraPredictor.Predict(
             predictionMode,
             predictionDestination,
@@ -826,16 +835,25 @@ internal static class Vp9BlockReconstructor
             above,
             left,
             aboveLeft);
+#if VPDECODER_PROFILE
+        Vp9PerfCounters.AddIntraPrediction(predictionProfileStart);
+#endif
 
         if (coefficients.Eob == 0)
         {
             return;
         }
 
+#if VPDECODER_PROFILE
+        var residualProfileStart = Vp9PerfCounters.Start();
+#endif
         if (IsDcOnlyOrEmpty(coefficients) &&
             (transformSize == Vp9TransformSize.Tx32X32 ||
                 coefficients.TransformType == Vp9TransformType.DctDct))
         {
+#if VPDECODER_PROFILE
+            var dcOnlyProfileStart = Vp9PerfCounters.Start();
+#endif
             Vp9DcOnlyReconstructor.AddDcOnly(
                 destination,
                 stride,
@@ -843,9 +861,16 @@ internal static class Vp9BlockReconstructor
                 y,
                 transformSizeInPixels,
                 coefficients.DequantizedCoefficients[0]);
+#if VPDECODER_PROFILE
+            Vp9PerfCounters.AddIntraDcOnlyAdd(dcOnlyProfileStart);
+            Vp9PerfCounters.AddIntraResidualAdd(residualProfileStart);
+#endif
             return;
         }
 
+#if VPDECODER_PROFILE
+        var inverseProfileStart = Vp9PerfCounters.Start();
+#endif
         Vp9InverseTransform.AddBlock(
             destination,
             stride,
@@ -855,6 +880,10 @@ internal static class Vp9BlockReconstructor
             coefficients.TransformType,
             coefficients.DequantizedCoefficients,
             coefficients.Eob);
+#if VPDECODER_PROFILE
+        Vp9PerfCounters.AddIntraInverseTransform(inverseProfileStart);
+        Vp9PerfCounters.AddIntraResidualAdd(residualProfileStart);
+#endif
     }
 
     private static void CopyVisibleBlock(
