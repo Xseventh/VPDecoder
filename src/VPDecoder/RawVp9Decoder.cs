@@ -61,6 +61,9 @@ public sealed class RawVp9Decoder
         bool exposeDecodedFrame)
     {
         Vp9DecodeDiagnostic? diagnostic;
+#if VPDECODER_PROFILE
+        var profileStart = Vp9PerfCounters.Start();
+#endif
         if (!Vp9FrameHeaderParser.TryParse(
                 packet,
                 _referenceFrames.CreateFrameInfos(),
@@ -73,6 +76,9 @@ public sealed class RawVp9Decoder
                 diagnostic ?? Vp9DecodeDiagnostic.InternalDecodeFailure("VP9 header parser failed without a diagnostic."));
         }
 
+#if VPDECODER_PROFILE
+        Vp9PerfCounters.AddHeaderParse(profileStart);
+#endif
         if (header is null)
         {
             return Vp9DecodeResult.Fail(
@@ -97,6 +103,9 @@ public sealed class RawVp9Decoder
         }
 
         var baseFrameContext = GetBaseFrameContext(header);
+#if VPDECODER_PROFILE
+        profileStart = Vp9PerfCounters.Start();
+#endif
         if (!Vp9CompressedHeaderParser.TryParse(packet, header, baseFrameContext, out var compressedHeader, out diagnostic))
         {
             return Vp9DecodeResult.Fail(
@@ -104,6 +113,9 @@ public sealed class RawVp9Decoder
                 header);
         }
 
+#if VPDECODER_PROFILE
+        Vp9PerfCounters.AddCompressedHeaderParse(profileStart);
+#endif
         if (compressedHeader is null)
         {
             return Vp9DecodeResult.Fail(
@@ -111,6 +123,9 @@ public sealed class RawVp9Decoder
                 header);
         }
 
+#if VPDECODER_PROFILE
+        profileStart = Vp9PerfCounters.Start();
+#endif
         if (!Vp9FrameLayoutParser.TryReadTileBuffers(packet, header, out var tileBuffers, out diagnostic))
         {
             return Vp9DecodeResult.Fail(
@@ -119,6 +134,9 @@ public sealed class RawVp9Decoder
                 compressedHeader);
         }
 
+#if VPDECODER_PROFILE
+        Vp9PerfCounters.AddTileLayoutParse(profileStart);
+#endif
         if (tileBuffers.Count != header.TileInfo.TileColumns * header.TileInfo.TileRows)
         {
             return Vp9DecodeResult.Fail(
@@ -148,6 +166,9 @@ public sealed class RawVp9Decoder
                 compressedHeader);
         }
 
+#if VPDECODER_PROFILE
+        profileStart = Vp9PerfCounters.Start();
+#endif
         if (!Vp9TileSyntaxScanner.TryReconstructFullFrameWithSyntax(packet.ToArray(), state, out var reconstructedFrame, out diagnostic))
         {
             return Vp9DecodeResult.Fail(
@@ -156,6 +177,9 @@ public sealed class RawVp9Decoder
                 compressedHeader);
         }
 
+#if VPDECODER_PROFILE
+        Vp9PerfCounters.AddKeyFrameReconstruction(profileStart);
+#endif
         if (reconstructedFrame is null)
         {
             return Vp9DecodeResult.Fail(
@@ -164,6 +188,9 @@ public sealed class RawVp9Decoder
                 compressedHeader);
         }
 
+#if VPDECODER_PROFILE
+        profileStart = Vp9PerfCounters.Start();
+#endif
         if (!Vp9LoopFilter.TryApply(header, reconstructedFrame, out diagnostic))
         {
             return Vp9DecodeResult.Fail(
@@ -172,6 +199,9 @@ public sealed class RawVp9Decoder
                 compressedHeader);
         }
 
+#if VPDECODER_PROFILE
+        Vp9PerfCounters.AddLoopFilter(profileStart);
+#endif
         RefreshLoopFilterDeltaState(header);
         RefreshFrameContext(header, compressedHeader.FrameContext);
         var yuvFrame = reconstructedFrame.Frame;
@@ -187,13 +217,26 @@ public sealed class RawVp9Decoder
             return Vp9DecodeResult.NoDisplay(header, compressedHeader);
         }
 
-        var outputFrame = options.OutputFormat == Vp9OutputPixelFormat.Yuv420
-            ? yuvFrame
-            : Vp9ColorConverter.ConvertYuv420ToPacked(
+        Vp9DecodedFrame outputFrame;
+        if (options.OutputFormat == Vp9OutputPixelFormat.Yuv420)
+        {
+            outputFrame = yuvFrame;
+        }
+        else
+        {
+#if VPDECODER_PROFILE
+            profileStart = Vp9PerfCounters.Start();
+#endif
+            outputFrame = Vp9ColorConverter.ConvertYuv420ToPacked(
                 yuvFrame,
                 header.ColorSpace,
                 header.ColorRange,
                 options.OutputFormat);
+#if VPDECODER_PROFILE
+            Vp9PerfCounters.AddColorConversion(profileStart);
+#endif
+        }
+
         return Vp9DecodeResult.Success(outputFrame, header, compressedHeader);
     }
 
@@ -340,7 +383,13 @@ public sealed class RawVp9Decoder
                 colorResult.CompressedHeader);
         }
 
+#if VPDECODER_PROFILE
+        var profileStart = Vp9PerfCounters.Start();
+#endif
         var merged = MergeAlpha(colorResult, alphaResult);
+#if VPDECODER_PROFILE
+        Vp9PerfCounters.AddAlphaMerge(profileStart);
+#endif
         if (!merged.Succeeded || options.OutputFormat == Vp9OutputPixelFormat.Bgra8888)
         {
             return merged;
@@ -503,6 +552,9 @@ public sealed class RawVp9Decoder
                 compressedHeader);
         }
 
+#if VPDECODER_PROFILE
+        var profileStart = Vp9PerfCounters.Start();
+#endif
         if (!Vp9TileSyntaxScanner.TryReconstructFullInterFrameDirectWithResidualMetadata(
                 packet,
                 header,
@@ -521,6 +573,9 @@ public sealed class RawVp9Decoder
                 compressedHeader);
         }
 
+#if VPDECODER_PROFILE
+        Vp9PerfCounters.AddInterFrameReconstruction(profileStart);
+#endif
         if (yuvFrame is null)
         {
             return Vp9DecodeResult.Fail(
@@ -530,6 +585,9 @@ public sealed class RawVp9Decoder
                 compressedHeader);
         }
 
+#if VPDECODER_PROFILE
+        profileStart = Vp9PerfCounters.Start();
+#endif
         if (!Vp9LoopFilter.TryApplyInterFrame(header, yuvFrame, modeBlocks, out diagnostic))
         {
             return Vp9DecodeResult.Fail(
@@ -538,6 +596,9 @@ public sealed class RawVp9Decoder
                 compressedHeader);
         }
 
+#if VPDECODER_PROFILE
+        Vp9PerfCounters.AddLoopFilter(profileStart);
+#endif
         RefreshLoopFilterDeltaState(header);
         RefreshFrameContext(header, compressedHeader.FrameContext);
         _referenceFrames.Refresh(
@@ -546,6 +607,9 @@ public sealed class RawVp9Decoder
             header.ColorRange,
             header.RefreshFrameFlags,
             cloneFrame: options.OutputFormat == Vp9OutputPixelFormat.Yuv420 && header.ShowFrame && exposeDecodedFrame);
+#if VPDECODER_PROFILE
+        profileStart = Vp9PerfCounters.Start();
+#endif
         _previousFrameMotionVectors = header.ShowFrame
             ? Vp9PreviousFrameMotionVectors.FromModeBlocks(
                 header.Width,
@@ -554,18 +618,34 @@ public sealed class RawVp9Decoder
                 header.TileInfo.MiColumns,
                 modeBlocks)
             : null;
+#if VPDECODER_PROFILE
+        Vp9PerfCounters.AddPreviousMotionVector(profileStart);
+#endif
         if (!header.ShowFrame)
         {
             return Vp9DecodeResult.NoDisplay(header, compressedHeader);
         }
 
-        var outputFrame = options.OutputFormat == Vp9OutputPixelFormat.Yuv420
-            ? yuvFrame
-            : Vp9ColorConverter.ConvertYuv420ToPacked(
+        Vp9DecodedFrame outputFrame;
+        if (options.OutputFormat == Vp9OutputPixelFormat.Yuv420)
+        {
+            outputFrame = yuvFrame;
+        }
+        else
+        {
+#if VPDECODER_PROFILE
+            profileStart = Vp9PerfCounters.Start();
+#endif
+            outputFrame = Vp9ColorConverter.ConvertYuv420ToPacked(
                 yuvFrame,
                 header.ColorSpace,
                 header.ColorRange,
                 options.OutputFormat);
+#if VPDECODER_PROFILE
+            Vp9PerfCounters.AddColorConversion(profileStart);
+#endif
+        }
+
         return Vp9DecodeResult.Success(outputFrame, header, compressedHeader);
     }
 
@@ -655,13 +735,23 @@ public sealed class RawVp9Decoder
 
     private static Vp9DecodedFrame ConvertReferenceFrame(Vp9ReferenceFrame referenceFrame, Vp9OutputPixelFormat outputFormat)
     {
-        return outputFormat == Vp9OutputPixelFormat.Yuv420
-            ? Vp9ReferenceFrameStore.CloneFrame(referenceFrame.Frame)
-            : Vp9ColorConverter.ConvertYuv420ToPacked(
+        if (outputFormat == Vp9OutputPixelFormat.Yuv420)
+        {
+            return Vp9ReferenceFrameStore.CloneFrame(referenceFrame.Frame);
+        }
+
+#if VPDECODER_PROFILE
+        var profileStart = Vp9PerfCounters.Start();
+#endif
+        var outputFrame = Vp9ColorConverter.ConvertYuv420ToPacked(
                 referenceFrame.Frame,
                 referenceFrame.ColorSpace,
                 referenceFrame.ColorRange,
                 outputFormat);
+#if VPDECODER_PROFILE
+        Vp9PerfCounters.AddColorConversion(profileStart);
+#endif
+        return outputFrame;
     }
 
     private static Vp9DecodeDiagnostic? ValidateOptions(Vp9DecodeOptions options)

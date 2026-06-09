@@ -9,8 +9,12 @@
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(VPDecoderProfile)' == 'true'">
+    <DefineConstants>$(DefineConstants);VPDECODER_PROFILE</DefineConstants>
+  </PropertyGroup>
+
   <ItemGroup>
-    <ProjectReference Include="..\..\src\VPDecoder\VPDecoder.csproj" />
+    <ProjectReference Include="..\..\src\VPDecoder\VPDecoder.csproj" AdditionalProperties="VPDecoderProfile=$(VPDecoderProfile)" />
   </ItemGroup>
 
 </Project>

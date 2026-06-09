@@ -14,6 +14,10 @@
     <RepositoryType>git</RepositoryType>
   </PropertyGroup>
 
+  <PropertyGroup Condition="'$(VPDecoderProfile)' == 'true'">
+    <DefineConstants>$(DefineConstants);VPDECODER_PROFILE</DefineConstants>
+  </PropertyGroup>
+
   <ItemGroup>
     <None Include="..\..\README.md" Pack="true" PackagePath="\" />
   </ItemGroup>

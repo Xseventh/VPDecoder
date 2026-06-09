@@ -1003,3 +1003,35 @@ Additional non-committed local trials that did not show stable benefit:
   over-allocated the production metadata lists. Allocation increased by roughly
   75-150 MB over the repro runs and elapsed time regressed, so default
   `List<T>` growth remains better for the current block distribution.
+
+Profile-counter benchmark harness slice:
+
+- Added an opt-in `VPDecoderProfile=true` build property that enables internal
+  VP9 stage counters for benchmark runs.
+- Kept default package, test, and runtime builds free of profiling counters by
+  compiling them only under `VPDECODER_PROFILE`.
+- The benchmark tool now prints a second `vpdecoder-profile` line with average
+  stage milliseconds and percentages for header parse, compressed header parse,
+  tile layout, key-frame reconstruction, inter-frame reconstruction, loop
+  filter, previous-frame MV rebuild, packed color conversion, and alpha merge.
+
+Validation:
+
+- `dotnet build VPDecoder.slnx --no-restore -m:1`
+- `dotnet test VPDecoder.slnx -m:1 --no-restore`
+- Profile benchmark build with `VPDecoderProfile=true`
+- Full 97-frame color and alpha YUV420 comparison against libvpx; both streams
+  remained bitwise identical for every frame.
+
+Observed profile-counter benchmark:
+
+| Stream/output | Average elapsed | Accounted | Inter reconstruction | Loop filter | Color conversion | Alpha merge |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Color `Yuv420` | 2607 ms | 99.1% | 1671 ms / 64.1% | 821 ms / 31.5% | 0 ms / 0.0% | 0 ms / 0.0% |
+| Alpha `Yuv420` | 2538 ms | 99.0% | 1777 ms / 70.0% | 686 ms / 27.0% | 0 ms / 0.0% | 0 ms / 0.0% |
+| Merged `Bgra8888` | 5965 ms | 99.9% | 3388 ms / 56.8% | 1506 ms / 25.2% | 676 ms / 11.3% | 279 ms / 4.7% |
+
+The current bottleneck order is now clear enough to guide the next slice:
+production inter reconstruction remains first, loop filter is second, packed
+color conversion is third for merged output, and alpha merge is small but
+visible.

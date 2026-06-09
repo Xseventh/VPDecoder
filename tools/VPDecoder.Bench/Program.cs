@@ -44,12 +44,18 @@ GC.WaitForPendingFinalizers();
 
 var elapsed = new double[iterations];
 var allocatedBytes = new long[iterations];
+#if VPDECODER_PROFILE
+var profileSnapshots = new Vp9PerfCounterSnapshot[iterations];
+#endif
 var checksum = 0UL;
 for (var iteration = 0; iteration < iterations; iteration++)
 {
     GC.Collect(2, GCCollectionMode.Forced, blocking: true, compacting: true);
     GC.WaitForPendingFinalizers();
 
+#if VPDECODER_PROFILE
+    Vp9PerfCounters.Reset();
+#endif
     var allocatedBefore = GC.GetTotalAllocatedBytes(precise: true);
     var sw = Stopwatch.StartNew();
     checksum = RunOnce(colorPackets, alphaPackets, options, stream == "merged");
@@ -57,6 +63,9 @@ for (var iteration = 0; iteration < iterations; iteration++)
 
     elapsed[iteration] = sw.Elapsed.TotalMilliseconds;
     allocatedBytes[iteration] = GC.GetTotalAllocatedBytes(precise: true) - allocatedBefore;
+#if VPDECODER_PROFILE
+    profileSnapshots[iteration] = Vp9PerfCounters.Snapshot();
+#endif
 }
 
 Array.Sort(elapsed);
@@ -66,6 +75,9 @@ var packetCount = colorPackets.Count + alphaPackets.Count;
 var averageMs = elapsed.Average();
 Console.WriteLine(
     $"vpdecoder stream={stream} format={format} frames={frames} packets={packetCount} iterations={iterations} warmupChecksum={warmupChecksum} checksum={checksum} avgMs={averageMs:F3} medianMs={elapsed[elapsed.Length / 2]:F3} minMs={elapsed[0]:F3} maxMs={elapsed[^1]:F3} packetsPerSec={packetCount / (averageMs / 1000.0):F2} avgAllocMb={allocatedBytes.Average() / (1024.0 * 1024.0):F1} medianAllocMb={allocatedBytes[allocatedBytes.Length / 2] / (1024.0 * 1024.0):F1} minAllocMb={allocatedBytes[0] / (1024.0 * 1024.0):F1} maxAllocMb={allocatedBytes[^1] / (1024.0 * 1024.0):F1}");
+#if VPDECODER_PROFILE
+PrintProfile(profileSnapshots, averageMs);
+#endif
 
 return 0;
 
@@ -197,3 +209,43 @@ static ulong FoldFrameChecksum(Vp9DecodedFrame? frame, ulong checksum)
 
     return checksum;
 }
+
+#if VPDECODER_PROFILE
+static void PrintProfile(Vp9PerfCounterSnapshot[] snapshots, double averageMs)
+{
+    var accountedMs = AverageMs(snapshots, static snapshot => snapshot.AccountedTicks);
+    Console.WriteLine(
+        "vpdecoder-profile " +
+        $"accountedMs={accountedMs:F3} accountedPct={Percent(accountedMs, averageMs):F1} " +
+        FormatStage("header", AverageMs(snapshots, static snapshot => snapshot.HeaderParseTicks), averageMs) + " " +
+        FormatStage("compressedHeader", AverageMs(snapshots, static snapshot => snapshot.CompressedHeaderParseTicks), averageMs) + " " +
+        FormatStage("tileLayout", AverageMs(snapshots, static snapshot => snapshot.TileLayoutParseTicks), averageMs) + " " +
+        FormatStage("keyRecon", AverageMs(snapshots, static snapshot => snapshot.KeyFrameReconstructionTicks), averageMs) + " " +
+        FormatStage("interRecon", AverageMs(snapshots, static snapshot => snapshot.InterFrameReconstructionTicks), averageMs) + " " +
+        FormatStage("loopFilter", AverageMs(snapshots, static snapshot => snapshot.LoopFilterTicks), averageMs) + " " +
+        FormatStage("previousMv", AverageMs(snapshots, static snapshot => snapshot.PreviousMotionVectorTicks), averageMs) + " " +
+        FormatStage("colorConversion", AverageMs(snapshots, static snapshot => snapshot.ColorConversionTicks), averageMs) + " " +
+        FormatStage("alphaMerge", AverageMs(snapshots, static snapshot => snapshot.AlphaMergeTicks), averageMs));
+}
+
+static double AverageMs(Vp9PerfCounterSnapshot[] snapshots, Func<Vp9PerfCounterSnapshot, long> selector)
+{
+    var ticks = 0L;
+    foreach (var snapshot in snapshots)
+    {
+        ticks += selector(snapshot);
+    }
+
+    return Vp9PerfCounterSnapshot.ToMilliseconds(ticks) / snapshots.Length;
+}
+
+static string FormatStage(string name, double stageMs, double averageMs)
+{
+    return $"{name}Ms={stageMs:F3} {name}Pct={Percent(stageMs, averageMs):F1}";
+}
+
+static double Percent(double numerator, double denominator)
+{
+    return denominator <= 0 ? 0 : numerator * 100.0 / denominator;
+}
+#endif
