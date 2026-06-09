@@ -1424,3 +1424,16 @@ Additional non-committed packed-conversion trial that did not show benefit:
   current JIT loop shape more than the removed scalar multiplications help.
   Keep this direction parked unless it is implemented as a narrower BGRA-only
   specialization or a real hardware-intrinsics path with scalar fallback.
+
+Additional non-committed residual token-cache trial that did not show benefit:
+
+- The production inter residual reader was tested without clearing the pooled
+  token-cache scratch span. This is bitwise-safe for the current scan-context
+  model because coefficient contexts only read token positions that have already
+  been written in scan order.
+- Build, tests, and full color/alpha YUV bitwise verification passed, but
+  default Release merged `Bgra8888` regressed from about 5258 ms to about
+  5823 ms.
+- Keep the explicit `tokenCache.Clear()` for now. The JIT/runtime clear path is
+  apparently friendlier than the altered scratch-access shape in this decoder
+  loop.
