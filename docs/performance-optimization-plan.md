@@ -1387,3 +1387,29 @@ small top-level stage, but profile output also showed `alphaMerge` moving from
 about 259 ms to about 255 ms. This is worth keeping as a low-risk scalar LUT
 cleanup, while broader packed conversion LUT work should remain careful about
 green-channel rounding semantics.
+
+Loop-filter 16px branch-gate slice:
+
+- Re-profiled merged `Bgra8888` after the alpha lookup checkpoint. The current
+  top-level bottleneck order was still inter reconstruction, loop filter,
+  packed color conversion, and alpha merge.
+- At the small-code-segment level, loop-filter 16px edges remained prominent:
+  `loopV16` and `loopH16` together accounted for about 960 ms, roughly 18% of
+  merged elapsed time in the profile build.
+- Added a scalar branch gate in the 16px vertical and horizontal edge kernels:
+  compute the loop-filter mask first, return immediately when it is zero, and
+  compute the wider `flat2` predicate only after the 4-tap flat predicate is
+  true. The filtering formulas and sample update order are unchanged.
+
+Observed same-machine Release benchmark:
+
+| Variant | Average elapsed |
+| --- | ---: |
+| Previous alpha-lookup checkpoint | 5289 ms |
+| 16px branch-gate trial | 5258 ms |
+
+The profile-counter run was mixed at the substage level (`H16` improved while
+`V16` stayed in the same range), so this should be treated as a small scalar
+cleanup rather than a major loop-filter win. It remains useful because it cuts
+work from the hottest 16px edge path without changing data layout or introducing
+SIMD.

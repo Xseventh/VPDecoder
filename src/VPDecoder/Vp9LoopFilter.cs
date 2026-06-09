@@ -932,32 +932,53 @@ internal static class Vp9LoopFilter
         var q1 = plane[startIndex + 1];
         var q2 = plane[startIndex + 2];
         var q3 = plane[startIndex + 3];
+        var mask = FilterMask(
+            thresholds.Limit,
+            thresholds.MacroblockLimit,
+            p3,
+            p2,
+            p1,
+            p0,
+            q0,
+            q1,
+            q2,
+            q3);
+        if (mask == 0)
+        {
+            return;
+        }
+
+        var flat = FlatMask4(1, p3, p2, p1, p0, q0, q1, q2, q3);
+        if (flat == 0)
+        {
+            Filter4(
+                mask,
+                thresholds.HighEdgeVarianceThreshold,
+                plane,
+                startIndex - 2,
+                startIndex - 1,
+                startIndex,
+                startIndex + 1);
+            return;
+        }
+
+        var flat2 = FlatMask5(
+            1,
+            plane[startIndex - 8],
+            plane[startIndex - 7],
+            plane[startIndex - 6],
+            plane[startIndex - 5],
+            p0,
+            q0,
+            plane[startIndex + 4],
+            plane[startIndex + 5],
+            plane[startIndex + 6],
+            plane[startIndex + 7]);
         Filter16(
-            FilterMask(
-                thresholds.Limit,
-                thresholds.MacroblockLimit,
-                p3,
-                p2,
-                p1,
-                p0,
-                q0,
-                q1,
-                q2,
-                q3),
+            mask,
             thresholds.HighEdgeVarianceThreshold,
-            FlatMask4(1, p3, p2, p1, p0, q0, q1, q2, q3),
-            FlatMask5(
-                1,
-                plane[startIndex - 8],
-                plane[startIndex - 7],
-                plane[startIndex - 6],
-                plane[startIndex - 5],
-                p0,
-                q0,
-                plane[startIndex + 4],
-                plane[startIndex + 5],
-                plane[startIndex + 6],
-                plane[startIndex + 7]),
+            flat,
+            flat2,
             plane,
             startIndex - 8,
             startIndex - 7,
@@ -1078,32 +1099,53 @@ internal static class Vp9LoopFilter
         var q1 = plane[index + stride];
         var q2 = plane[index + stride2];
         var q3 = plane[index + stride3];
+        var mask = FilterMask(
+            thresholds.Limit,
+            thresholds.MacroblockLimit,
+            p3,
+            p2,
+            p1,
+            p0,
+            q0,
+            q1,
+            q2,
+            q3);
+        if (mask == 0)
+        {
+            return;
+        }
+
+        var flat = FlatMask4(1, p3, p2, p1, p0, q0, q1, q2, q3);
+        if (flat == 0)
+        {
+            Filter4(
+                mask,
+                thresholds.HighEdgeVarianceThreshold,
+                plane,
+                index - stride2,
+                index - stride,
+                index,
+                index + stride);
+            return;
+        }
+
+        var flat2 = FlatMask5(
+            1,
+            plane[index - stride8],
+            plane[index - stride7],
+            plane[index - stride6],
+            plane[index - stride5],
+            p0,
+            q0,
+            plane[index + stride4],
+            plane[index + stride5],
+            plane[index + stride6],
+            plane[index + stride7]);
         Filter16(
-            FilterMask(
-                thresholds.Limit,
-                thresholds.MacroblockLimit,
-                p3,
-                p2,
-                p1,
-                p0,
-                q0,
-                q1,
-                q2,
-                q3),
+            mask,
             thresholds.HighEdgeVarianceThreshold,
-            FlatMask4(1, p3, p2, p1, p0, q0, q1, q2, q3),
-            FlatMask5(
-                1,
-                plane[index - stride8],
-                plane[index - stride7],
-                plane[index - stride6],
-                plane[index - stride5],
-                p0,
-                q0,
-                plane[index + stride4],
-                plane[index + stride5],
-                plane[index + stride6],
-                plane[index + stride7]),
+            flat,
+            flat2,
             plane,
             index - stride8,
             index - stride7,
