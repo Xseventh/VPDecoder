@@ -247,11 +247,20 @@ internal static class Vp9LoopFilter
         var baseX = mask.MiColumn * 8;
         var baseY = mask.MiRow * 8;
         var baseIndex = plane.Offset + (baseY * plane.Stride) + baseX;
+        if (mask.MiRow != 0 &&
+            mask.MiRow + SuperblockSizeInMiUnits <= header.TileInfo.MiRows &&
+            baseX + 64 <= plane.Width &&
+            baseY + 64 <= plane.Height)
+        {
+            ApplyLumaPlaneFull(frame.Pixels, plane.Stride, baseIndex, mask, thresholdsByLevel);
+            return;
+        }
 
         var left16 = mask.LeftY[(int)Vp9TransformSize.Tx16X16];
         var left8 = mask.LeftY[(int)Vp9TransformSize.Tx8X8];
         var left4 = mask.LeftY[(int)Vp9TransformSize.Tx4X4];
         var internal4 = mask.Internal4x4Y;
+        var levels = mask.LevelsY;
         var verticalMask = left16 | left8 | left4 | internal4;
         var rowLimit = Math.Min(SuperblockSizeInMiUnits, header.TileInfo.MiRows - mask.MiRow);
         var fullHeight = baseY + 64 <= plane.Height;
@@ -271,7 +280,7 @@ internal static class Vp9LoopFilter
             var bit = 1UL << bitIndex;
             var startIndex = baseIndex + (row * 8 * plane.Stride) + (column * 8);
             var rows = fullHeight ? 8 : Math.Min(8, plane.Height - (baseY + (row * 8)));
-            ApplyVerticalEdge(frame.Pixels, plane.Stride, startIndex, mask.GetLumaThresholds(bitIndex, thresholdsByLevel), left16, left8, left4, internal4, bit, rows);
+            ApplyVerticalEdge(frame.Pixels, plane.Stride, startIndex, thresholdsByLevel[levels[bitIndex]], left16, left8, left4, internal4, bit, rows);
         }
 
         var above16 = mask.AboveY[(int)Vp9TransformSize.Tx16X16];
@@ -300,11 +309,53 @@ internal static class Vp9LoopFilter
             var columns = fullWidth ? 8 : Math.Min(8, plane.Width - (baseX + (column * 8)));
             if (mask.MiRow + row == 0)
             {
-                ApplyHorizontalInternal4(frame.Pixels, plane.Stride, startIndex, mask.GetLumaThresholds(bitIndex, thresholdsByLevel), internal4, bit, columns);
+                ApplyHorizontalInternal4(frame.Pixels, plane.Stride, startIndex, thresholdsByLevel[levels[bitIndex]], internal4, bit, columns);
                 continue;
             }
 
-            ApplyHorizontalEdge(frame.Pixels, plane.Stride, startIndex, mask.GetLumaThresholds(bitIndex, thresholdsByLevel), above16, above8, above4, internal4, bit, columns);
+            ApplyHorizontalEdge(frame.Pixels, plane.Stride, startIndex, thresholdsByLevel[levels[bitIndex]], above16, above8, above4, internal4, bit, columns);
+        }
+    }
+
+    private static void ApplyLumaPlaneFull(
+        byte[] pixels,
+        int stride,
+        int baseIndex,
+        Vp9LoopFilterSuperblockMask mask,
+        ReadOnlySpan<Vp9LoopFilterThresholds> thresholdsByLevel)
+    {
+        var left16 = mask.LeftY[(int)Vp9TransformSize.Tx16X16];
+        var left8 = mask.LeftY[(int)Vp9TransformSize.Tx8X8];
+        var left4 = mask.LeftY[(int)Vp9TransformSize.Tx4X4];
+        var internal4 = mask.Internal4x4Y;
+        var levels = mask.LevelsY;
+        var activeVertical = left16 | left8 | left4 | internal4;
+        while (activeVertical != 0)
+        {
+            var bitIndex = BitOperations.TrailingZeroCount(activeVertical);
+            activeVertical &= activeVertical - 1;
+
+            var row = bitIndex >> 3;
+            var column = bitIndex & 7;
+            var bit = 1UL << bitIndex;
+            var startIndex = baseIndex + (row * 8 * stride) + (column * 8);
+            ApplyVerticalEdge(pixels, stride, startIndex, thresholdsByLevel[levels[bitIndex]], left16, left8, left4, internal4, bit, rows: 8);
+        }
+
+        var above16 = mask.AboveY[(int)Vp9TransformSize.Tx16X16];
+        var above8 = mask.AboveY[(int)Vp9TransformSize.Tx8X8];
+        var above4 = mask.AboveY[(int)Vp9TransformSize.Tx4X4];
+        var activeHorizontal = above16 | above8 | above4 | internal4;
+        while (activeHorizontal != 0)
+        {
+            var bitIndex = BitOperations.TrailingZeroCount(activeHorizontal);
+            activeHorizontal &= activeHorizontal - 1;
+
+            var row = bitIndex >> 3;
+            var column = bitIndex & 7;
+            var bit = 1UL << bitIndex;
+            var startIndex = baseIndex + (row * 8 * stride) + (column * 8);
+            ApplyHorizontalEdge(pixels, stride, startIndex, thresholdsByLevel[levels[bitIndex]], above16, above8, above4, internal4, bit, columns: 8);
         }
     }
 
@@ -319,11 +370,20 @@ internal static class Vp9LoopFilter
         var baseX = mask.MiColumn * 4;
         var baseY = mask.MiRow * 4;
         var baseIndex = plane.Offset + (baseY * plane.Stride) + baseX;
+        if (mask.MiRow != 0 &&
+            mask.MiRow + SuperblockSizeInMiUnits <= header.TileInfo.MiRows &&
+            baseX + 32 <= plane.Width &&
+            baseY + 32 <= plane.Height)
+        {
+            ApplyChromaPlaneFull(frame.Pixels, plane.Stride, baseIndex, mask, thresholdsByLevel);
+            return;
+        }
 
         var left16 = (uint)mask.LeftUv[(int)Vp9TransformSize.Tx16X16];
         var left8 = (uint)mask.LeftUv[(int)Vp9TransformSize.Tx8X8];
         var left4 = (uint)mask.LeftUv[(int)Vp9TransformSize.Tx4X4];
         var internal4 = (uint)mask.Internal4x4Uv;
+        var levels = mask.LevelsY;
         var verticalMask = left16 | left8 | left4 | internal4;
         var remainingMiRows = header.TileInfo.MiRows - mask.MiRow;
         var rowLimit = remainingMiRows <= 0 ? 0 : Math.Min(4, (remainingMiRows + 1) >> 1);
@@ -344,7 +404,7 @@ internal static class Vp9LoopFilter
             var bit = 1U << bitIndex;
             var startIndex = baseIndex + (row * 8 * plane.Stride) + (column * 8);
             var rows = fullHeight ? 8 : Math.Min(8, plane.Height - (baseY + (row * 8)));
-            ApplyVerticalEdge(frame.Pixels, plane.Stride, startIndex, mask.GetChromaThresholds(row, column, thresholdsByLevel), left16, left8, left4, internal4, bit, rows);
+            ApplyVerticalEdge(frame.Pixels, plane.Stride, startIndex, thresholdsByLevel[levels[(row * 16) + (column * 2)]], left16, left8, left4, internal4, bit, rows);
         }
 
         var above16 = (uint)mask.AboveUv[(int)Vp9TransformSize.Tx16X16];
@@ -382,7 +442,7 @@ internal static class Vp9LoopFilter
             {
                 if (!skipBorderInternal4)
                 {
-                    ApplyHorizontalInternal4(frame.Pixels, plane.Stride, startIndex, mask.GetChromaThresholds(row, column, thresholdsByLevel), internal4, bit, columns);
+                    ApplyHorizontalInternal4(frame.Pixels, plane.Stride, startIndex, thresholdsByLevel[levels[(row * 16) + (column * 2)]], internal4, bit, columns);
                 }
 
                 continue;
@@ -392,13 +452,55 @@ internal static class Vp9LoopFilter
                 frame.Pixels,
                 plane.Stride,
                 startIndex,
-                mask.GetChromaThresholds(row, column, thresholdsByLevel),
+                thresholdsByLevel[levels[(row * 16) + (column * 2)]],
                 above16,
                 above8,
                 above4,
                 skipBorderInternal4 ? 0U : internal4,
                 bit,
                 columns);
+        }
+    }
+
+    private static void ApplyChromaPlaneFull(
+        byte[] pixels,
+        int stride,
+        int baseIndex,
+        Vp9LoopFilterSuperblockMask mask,
+        ReadOnlySpan<Vp9LoopFilterThresholds> thresholdsByLevel)
+    {
+        var left16 = (uint)mask.LeftUv[(int)Vp9TransformSize.Tx16X16];
+        var left8 = (uint)mask.LeftUv[(int)Vp9TransformSize.Tx8X8];
+        var left4 = (uint)mask.LeftUv[(int)Vp9TransformSize.Tx4X4];
+        var internal4 = (uint)mask.Internal4x4Uv;
+        var levels = mask.LevelsY;
+        var activeVertical = left16 | left8 | left4 | internal4;
+        while (activeVertical != 0)
+        {
+            var bitIndex = BitOperations.TrailingZeroCount(activeVertical);
+            activeVertical &= activeVertical - 1;
+
+            var row = bitIndex >> 2;
+            var column = bitIndex & 3;
+            var bit = 1U << bitIndex;
+            var startIndex = baseIndex + (row * 8 * stride) + (column * 8);
+            ApplyVerticalEdge(pixels, stride, startIndex, thresholdsByLevel[levels[(row * 16) + (column * 2)]], left16, left8, left4, internal4, bit, rows: 8);
+        }
+
+        var above16 = (uint)mask.AboveUv[(int)Vp9TransformSize.Tx16X16];
+        var above8 = (uint)mask.AboveUv[(int)Vp9TransformSize.Tx8X8];
+        var above4 = (uint)mask.AboveUv[(int)Vp9TransformSize.Tx4X4];
+        var activeHorizontal = above16 | above8 | above4 | internal4;
+        while (activeHorizontal != 0)
+        {
+            var bitIndex = BitOperations.TrailingZeroCount(activeHorizontal);
+            activeHorizontal &= activeHorizontal - 1;
+
+            var row = bitIndex >> 2;
+            var column = bitIndex & 3;
+            var bit = 1U << bitIndex;
+            var startIndex = baseIndex + (row * 8 * stride) + (column * 8);
+            ApplyHorizontalEdge(pixels, stride, startIndex, thresholdsByLevel[levels[(row * 16) + (column * 2)]], above16, above8, above4, internal4, bit, columns: 8);
         }
     }
 

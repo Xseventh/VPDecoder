@@ -923,6 +923,38 @@ allocation dropped by roughly 15 MB per single stream and roughly 31 MB for
 merged color+alpha. The alpha and merged elapsed times also improved in this
 short run, while color `Yuv420` was essentially flat.
 
+Loop-filter full-superblock fast-path slice:
+
+- Added luma and chroma loop-filter fast paths for full non-top superblocks.
+  These paths skip per-edge border clipping checks and directly use fixed
+  eight-pixel filter spans.
+- Changed hot luma and chroma threshold lookup to index the per-frame threshold
+  table from the existing `LevelsY` grid instead of calling small accessor
+  methods for every filtered edge.
+- Kept the scalar filter math, active-mask order, first-row handling, and
+  partial-edge slow paths unchanged.
+
+Validation:
+
+- `dotnet build VPDecoder.slnx --no-restore -m:1`
+- `dotnet test VPDecoder.slnx -m:1 --no-restore`
+- Full 97-frame color and alpha YUV420 comparison against libvpx; both streams
+  remained bitwise identical for every frame.
+- Color, alpha, and merged benchmark checksums remained unchanged.
+
+Same-machine A/B benchmark against the immediate previous commit:
+
+| Stream/output | Previous average | Fast-path average | Delta |
+| --- | ---: | ---: | ---: |
+| Color `Yuv420` | 2564 ms | 2559 ms | 0.2% faster |
+| Alpha `Yuv420` | 2508 ms | 2462 ms | 1.8% faster |
+| Merged `Bgra8888` | 5994 ms | 5912 ms | 1.4% faster |
+
+This is a small CPU win rather than a major bottleneck shift, but it moves the
+managed loop-filter traversal closer to libvpx's split between pre-clipped
+masks and tight full-block filtering loops without introducing SIMD or unsafe
+code.
+
 Additional non-committed local trials that did not show stable benefit:
 
 - Grid-only direct inter mode metadata: reduced allocation by about 10 MB over
