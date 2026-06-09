@@ -738,6 +738,14 @@ internal static class Vp9MotionCompensator
         Span<byte> horizontal = stackalloc byte[MaxTwoDimensionalTempPixels];
         var tempStride = MaxConvolveBlockDimension;
         var tempRows = height + SubpelTaps - 1;
+        var x0 = xKernel[0];
+        var x1 = xKernel[1];
+        var x2 = xKernel[2];
+        var x3 = xKernel[3];
+        var x4 = xKernel[4];
+        var x5 = xKernel[5];
+        var x6 = xKernel[6];
+        var x7 = xKernel[7];
         for (var tempRow = 0; tempRow < tempRows; tempRow++)
         {
             var sourceOffset = sourcePlane.Offset +
@@ -988,6 +996,14 @@ internal static class Vp9MotionCompensator
         Span<byte> horizontal = stackalloc byte[MaxTwoDimensionalTempPixels];
         var tempStride = MaxConvolveBlockDimension;
         var tempRows = height + SubpelTaps - 1;
+        var x0 = xKernel[0];
+        var x1 = xKernel[1];
+        var x2 = xKernel[2];
+        var x3 = xKernel[3];
+        var x4 = xKernel[4];
+        var x5 = xKernel[5];
+        var x6 = xKernel[6];
+        var x7 = xKernel[7];
         for (var tempRow = 0; tempRow < tempRows; tempRow++)
         {
             var sourceOffset = sourcePlane.Offset +
@@ -999,10 +1015,25 @@ internal static class Vp9MotionCompensator
                 horizontal[tempOffset + column] = ApplyHorizontalFilterUnclamped(
                     sourcePixels,
                     sourceOffset + column,
-                    xKernel);
+                    x0,
+                    x1,
+                    x2,
+                    x3,
+                    x4,
+                    x5,
+                    x6,
+                    x7);
             }
         }
 
+        var y0 = yKernel[0];
+        var y1 = yKernel[1];
+        var y2 = yKernel[2];
+        var y3 = yKernel[3];
+        var y4 = yKernel[4];
+        var y5 = yKernel[5];
+        var y6 = yKernel[6];
+        var y7 = yKernel[7];
         for (var row = 0; row < height; row++)
         {
             var destinationOffset = destinationPlane.Offset + ((destinationY + row) * destinationPlane.Stride) + destinationX;
@@ -1013,7 +1044,14 @@ internal static class Vp9MotionCompensator
                     horizontal,
                     tempOffset + column,
                     tempStride,
-                    yKernel);
+                    y0,
+                    y1,
+                    y2,
+                    y3,
+                    y4,
+                    y5,
+                    y6,
+                    y7);
             }
         }
     }
@@ -1165,6 +1203,32 @@ internal static class Vp9MotionCompensator
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static byte ApplyHorizontalFilterUnclamped(
+        ReadOnlySpan<byte> pixels,
+        int centerOffset,
+        int k0,
+        int k1,
+        int k2,
+        int k3,
+        int k4,
+        int k5,
+        int k6,
+        int k7)
+    {
+        var sum =
+            (pixels[centerOffset - 3] * k0) +
+            (pixels[centerOffset - 2] * k1) +
+            (pixels[centerOffset - 1] * k2) +
+            (pixels[centerOffset] * k3) +
+            (pixels[centerOffset + 1] * k4) +
+            (pixels[centerOffset + 2] * k5) +
+            (pixels[centerOffset + 3] * k6) +
+            (pixels[centerOffset + 4] * k7);
+
+        return ClipPixel(RoundPowerOfTwo(sum, FilterBits));
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static byte ApplyVerticalFilterUnclamped(
         ReadOnlySpan<byte> pixels,
         int centerOffset,
@@ -1200,6 +1264,33 @@ internal static class Vp9MotionCompensator
             (pixels[centerOffset + (5 * stride)] * kernel[5]) +
             (pixels[centerOffset + (6 * stride)] * kernel[6]) +
             (pixels[centerOffset + (7 * stride)] * kernel[7]);
+
+        return ClipPixel(RoundPowerOfTwo(sum, FilterBits));
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static byte ApplyVerticalFilterFromTemp(
+        ReadOnlySpan<byte> pixels,
+        int centerOffset,
+        int stride,
+        int k0,
+        int k1,
+        int k2,
+        int k3,
+        int k4,
+        int k5,
+        int k6,
+        int k7)
+    {
+        var sum =
+            (pixels[centerOffset] * k0) +
+            (pixels[centerOffset + stride] * k1) +
+            (pixels[centerOffset + (2 * stride)] * k2) +
+            (pixels[centerOffset + (3 * stride)] * k3) +
+            (pixels[centerOffset + (4 * stride)] * k4) +
+            (pixels[centerOffset + (5 * stride)] * k5) +
+            (pixels[centerOffset + (6 * stride)] * k6) +
+            (pixels[centerOffset + (7 * stride)] * k7);
 
         return ClipPixel(RoundPowerOfTwo(sum, FilterBits));
     }

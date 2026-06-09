@@ -1134,3 +1134,31 @@ Observed motion profile:
 The next motion-compensation candidates should be 2D subpel first, whole-pixel
 copy second, and horizontal/vertical scalar filters third. Compound whole-pixel
 average is too small to prioritize.
+
+2D subpel kernel-local slice:
+
+- Specialized the unclamped 2D subpel temp-buffer path by loading the horizontal
+  and vertical 8-tap kernel coefficients into local integer variables before
+  the inner loops.
+- Kept the same separable two-pass VP9 filtering order, intermediate clipping,
+  rounding, fixed 64-byte temporary stride, and scalar fallback behavior.
+
+Validation:
+
+- `dotnet build VPDecoder.slnx --no-restore -m:1`
+- `dotnet test VPDecoder.slnx -m:1 --no-restore`
+- Profile benchmark build with `VPDecoderProfile=true`
+- Full 97-frame color and alpha YUV420 comparison against libvpx; both streams
+  remained bitwise identical for every frame.
+
+Same-machine benchmark against the immediate motion-profile checkpoint:
+
+| Stream/output | Previous average | Kernel-local average | Delta |
+| --- | ---: | ---: | ---: |
+| Color `Yuv420` | 2626 ms | 2616 ms | 0.4% faster |
+| Alpha `Yuv420` | 2536 ms | 2521 ms | 0.6% faster |
+| Merged `Bgra8888` | 5882 ms | 5848 ms | 0.6% faster |
+
+The measured merged `motionCopy2d` substage moved from about 322 ms to about
+313 ms. This is small, but it is a real reduction in the largest motion
+subpath without changing the decoder architecture.
