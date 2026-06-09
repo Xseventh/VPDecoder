@@ -447,11 +447,12 @@ public static class Vp9ColorConverter
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static byte ClipPixel(int value)
     {
-        return value <= 0
-            ? (byte)0
-            : value >= 255
-                ? (byte)255
-                : (byte)value;
+        if ((uint)value <= byte.MaxValue)
+        {
+            return (byte)value;
+        }
+
+        return value < byte.MinValue ? byte.MinValue : byte.MaxValue;
     }
 
     private static Vp9YuvToRgbMatrix GetMatrix(Vp9ColorSpace colorSpace)

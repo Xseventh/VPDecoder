@@ -955,6 +955,33 @@ managed loop-filter traversal closer to libvpx's split between pre-clipped
 masks and tight full-block filtering loops without introducing SIMD or unsafe
 code.
 
+Packed color-conversion clip helper slice:
+
+- Changed the packed-output color conversion `ClipPixel` helper to use an
+  unsigned in-range check with a single saturation fallback, matching the
+  motion-compensation helper shape that benchmarked well.
+- Kept the YUV-to-RGB math, pair-based YUV420 chroma reuse, output byte order,
+  and public API unchanged.
+
+Validation:
+
+- `dotnet build VPDecoder.slnx --no-restore -m:1`
+- `dotnet test VPDecoder.slnx -m:1 --no-restore`
+- Full 97-frame color and alpha YUV420 comparison against libvpx; both streams
+  remained bitwise identical for every frame.
+- Packed color and merged color+alpha BGRA benchmark checksums remained
+  unchanged.
+
+Same-machine A/B benchmark against the previous helper shape:
+
+| Stream/output | Previous average | Clip helper average | Delta |
+| --- | ---: | ---: | ---: |
+| Color `Bgra8888` | 3338 ms | 3247 ms | 2.7% faster |
+| Merged `Bgra8888` | 6025 ms | 5932 ms | 1.6% faster |
+
+This is a small packed-output-specific win and does not affect `Yuv420` output
+or decoder state semantics.
+
 Additional non-committed local trials that did not show stable benefit:
 
 - Grid-only direct inter mode metadata: reduced allocation by about 10 MB over
