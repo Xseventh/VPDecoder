@@ -1366,3 +1366,24 @@ about 7% of profiled intra inverse-transform time. `TX32` and `TX16` together
 are about 81%, while `DctDct` alone is about 65%. The next small-but-aligned
 trial should therefore look at `TX32`/`TX16` DCT paths, for example clipping and
 residual-add loops, before spending time on ADST-heavy or TX4-specific kernels.
+
+Alpha merge Cr-to-R lookup slice:
+
+- Added a stack-allocated 256-entry Cr-to-R lookup table for YUV alpha merge.
+- Kept alpha composition bit-exact with the existing red-channel conversion:
+  studio range still uses `LimitedCrToR * (v - 128)`, and full range still uses
+  `(FullCrToR * (v - 128)) >> 8`.
+- The lookup is per merge call and uses no heap allocation.
+
+Observed same-machine A/B on merged `Bgra8888`:
+
+| Variant | Average elapsed |
+| --- | ---: |
+| Baseline alpha merge multiply | 5292 ms |
+| Cr-to-R lookup | 5289 ms |
+
+The total elapsed gain is intentionally small because alpha merge is only a
+small top-level stage, but profile output also showed `alphaMerge` moving from
+about 259 ms to about 255 ms. This is worth keeping as a low-risk scalar LUT
+cleanup, while broader packed conversion LUT work should remain careful about
+green-channel rounding semantics.

@@ -97,8 +97,10 @@ public static class Vp9ColorConverter
         var alphaPixels = alphaFrame.Pixels;
         var colorPixels = colorFrame.Pixels;
         var matrix = GetMatrix(alphaColorSpace);
+        Span<int> chromaRByV = stackalloc int[256];
         if (alphaColorRange == Vp9ColorRange.Studio)
         {
+            FillStudioCrToRTable(matrix, chromaRByV);
             MergeStudioRangeRedChannelAsBgraAlpha(
                 alphaPixels,
                 yPlane,
@@ -106,11 +108,12 @@ public static class Vp9ColorConverter
                 colorFrame.Width,
                 colorFrame.Height,
                 colorFrame.Stride,
-                matrix,
+                chromaRByV,
                 colorPixels);
         }
         else
         {
+            FillFullCrToRTable(matrix, chromaRByV);
             MergeFullRangeRedChannelAsBgraAlpha(
                 alphaPixels,
                 yPlane,
@@ -118,7 +121,7 @@ public static class Vp9ColorConverter
                 colorFrame.Width,
                 colorFrame.Height,
                 colorFrame.Stride,
-                matrix,
+                chromaRByV,
                 colorPixels);
         }
 
@@ -312,7 +315,7 @@ public static class Vp9ColorConverter
         int width,
         int height,
         int stride,
-        Vp9YuvToRgbMatrix matrix,
+        ReadOnlySpan<int> chromaRByV,
         byte[] colorPixels)
     {
         for (var y = 0; y < height; y++)
@@ -323,7 +326,7 @@ public static class Vp9ColorConverter
             var evenWidth = width & ~1;
             for (var x = 0; x < evenWidth; x += 2)
             {
-                var chromaR = matrix.LimitedCrToR * (alphaPixels[vRow + (x >> 1)] - 128);
+                var chromaR = chromaRByV[alphaPixels[vRow + (x >> 1)]];
                 var outputOffset = outRow + (x * 4) + 3;
                 colorPixels[outputOffset] = ConvertStudioRedSample(alphaPixels[yRow + x], chromaR);
                 colorPixels[outputOffset + 4] = ConvertStudioRedSample(alphaPixels[yRow + x + 1], chromaR);
@@ -331,7 +334,7 @@ public static class Vp9ColorConverter
 
             if (evenWidth < width)
             {
-                var chromaR = matrix.LimitedCrToR * (alphaPixels[vRow + (evenWidth >> 1)] - 128);
+                var chromaR = chromaRByV[alphaPixels[vRow + (evenWidth >> 1)]];
                 colorPixels[outRow + (evenWidth * 4) + 3] = ConvertStudioRedSample(alphaPixels[yRow + evenWidth], chromaR);
             }
         }
@@ -344,7 +347,7 @@ public static class Vp9ColorConverter
         int width,
         int height,
         int stride,
-        Vp9YuvToRgbMatrix matrix,
+        ReadOnlySpan<int> chromaRByV,
         byte[] colorPixels)
     {
         for (var y = 0; y < height; y++)
@@ -355,7 +358,7 @@ public static class Vp9ColorConverter
             var evenWidth = width & ~1;
             for (var x = 0; x < evenWidth; x += 2)
             {
-                var chromaR = (matrix.FullCrToR * (alphaPixels[vRow + (x >> 1)] - 128)) >> 8;
+                var chromaR = chromaRByV[alphaPixels[vRow + (x >> 1)]];
                 var outputOffset = outRow + (x * 4) + 3;
                 colorPixels[outputOffset] = ConvertFullRedSample(alphaPixels[yRow + x], chromaR);
                 colorPixels[outputOffset + 4] = ConvertFullRedSample(alphaPixels[yRow + x + 1], chromaR);
@@ -363,9 +366,25 @@ public static class Vp9ColorConverter
 
             if (evenWidth < width)
             {
-                var chromaR = (matrix.FullCrToR * (alphaPixels[vRow + (evenWidth >> 1)] - 128)) >> 8;
+                var chromaR = chromaRByV[alphaPixels[vRow + (evenWidth >> 1)]];
                 colorPixels[outRow + (evenWidth * 4) + 3] = ConvertFullRedSample(alphaPixels[yRow + evenWidth], chromaR);
             }
+        }
+    }
+
+    private static void FillStudioCrToRTable(Vp9YuvToRgbMatrix matrix, Span<int> chromaRByV)
+    {
+        for (var value = 0; value < chromaRByV.Length; value++)
+        {
+            chromaRByV[value] = matrix.LimitedCrToR * (value - 128);
+        }
+    }
+
+    private static void FillFullCrToRTable(Vp9YuvToRgbMatrix matrix, Span<int> chromaRByV)
+    {
+        for (var value = 0; value < chromaRByV.Length; value++)
+        {
+            chromaRByV[value] = (matrix.FullCrToR * (value - 128)) >> 8;
         }
     }
 
