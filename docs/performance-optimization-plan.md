@@ -963,3 +963,6 @@ Additional non-committed local trials that did not show stable benefit:
   but made color, alpha, and packed runs slower.
 - Reference refresh flag zero-clone guard: correct in isolation, but the repro
   did not show a measurable current-path benefit.
+- Branchless loop-filter mask helpers: preserved build, tests, and full
+  97-frame libvpx bitwise alignment, but same-machine A/B made color `Yuv420`
+  and alpha `Yuv420` roughly 6-8% slower than the short-circuit helper shape.
