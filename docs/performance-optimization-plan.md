@@ -1009,6 +1009,10 @@ Additional non-committed local trials that did not show stable benefit:
   `Bgra8888` elapsed time. The extra helper split appears to hurt the current
   JIT/inlining shape more than repeated reference checks cost, so the trial was
   reverted.
+- Whole-pixel motion copy with `Array.Copy`: preserved build and tests, and
+  slightly reduced the measured whole-copy substage for some runs, but total
+  color, alpha, and merged elapsed times regressed versus `Span.CopyTo`.
+  The row-level `Span.CopyTo` shape remains the better default.
 
 Profile-counter benchmark harness slice:
 
