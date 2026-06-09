@@ -1003,6 +1003,12 @@ Additional non-committed local trials that did not show stable benefit:
   over-allocated the production metadata lists. Allocation increased by roughly
   75-150 MB over the repro runs and elapsed time regressed, so default
   `List<T>` growth remains better for the current block distribution.
+- Motion-compensation compatible-reference entry points: moving reference-frame
+  compatibility checks from each plane call to each prediction block preserved
+  build and tests, but profile A/B regressed `interPredictionMs` and merged
+  `Bgra8888` elapsed time. The extra helper split appears to hurt the current
+  JIT/inlining shape more than repeated reference checks cost, so the trial was
+  reverted.
 
 Profile-counter benchmark harness slice:
 
