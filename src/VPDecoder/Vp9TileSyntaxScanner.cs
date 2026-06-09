@@ -1116,7 +1116,7 @@ internal static class Vp9TileSyntaxScanner
                             null,
                             out var predictedModeBlock,
                             out diagnostic,
-                            previousFrameMotionVectors))
+                            eligiblePreviousFrameMotionVectors))
                     {
                         return false;
                     }
@@ -3651,7 +3651,7 @@ internal static class Vp9TileSyntaxScanner
         Vp9InterBlockModeInfoGrid? predictedModeBlockGrid,
         out Vp9InterBlockModeInfoProbe predictedModeBlock,
         out Vp9DecodeDiagnostic? diagnostic,
-        Vp9PreviousFrameMotionVectors? previousFrameMotionVectors = null)
+        Vp9PreviousFrameMotionVectors? eligiblePreviousFrameMotionVectors = null)
     {
         predictedModeBlock = modeBlock;
         if (modeBlock.ModeInfo.CompoundReferenceFrame is { } compoundReferenceFrame)
@@ -3683,7 +3683,6 @@ internal static class Vp9TileSyntaxScanner
             return false;
         }
 
-        var eligiblePreviousFrameMotionVectors = GetEligiblePreviousFrameMotionVectors(header, previousFrameMotionVectors);
         var candidates = predictedModeBlockGrid is not null
             ? Vp9InterPredictor.ClampReferenceMotionVectorCandidates(
                 header,

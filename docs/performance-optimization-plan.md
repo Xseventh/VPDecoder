@@ -1035,3 +1035,32 @@ The current bottleneck order is now clear enough to guide the next slice:
 production inter reconstruction remains first, loop filter is second, packed
 color conversion is third for merged output, and alpha merge is small but
 visible.
+
+Previous-frame MV eligibility reuse slice:
+
+- Reused the already-filtered previous-frame MV metadata through inter
+  prediction instead of rechecking frame compatibility for every predicted
+  block.
+- Kept the old probe helpers and direct reconstruction semantics unchanged;
+  callers that do not have eligible previous-frame MV metadata still pass
+  `null`.
+
+Validation:
+
+- `dotnet build VPDecoder.slnx --no-restore -m:1`
+- `dotnet test VPDecoder.slnx -m:1 --no-restore`
+- Profile benchmark build with `VPDecoderProfile=true`
+- Full 97-frame color and alpha YUV420 comparison against libvpx; both streams
+  remained bitwise identical for every frame.
+
+Same-machine benchmark against the immediate profile-counter checkpoint:
+
+| Stream/output | Previous average | Reuse average | Delta |
+| --- | ---: | ---: | ---: |
+| Color `Yuv420` | 2607 ms | 2597 ms | 0.4% faster |
+| Alpha `Yuv420` | 2538 ms | 2540 ms | 0.1% slower |
+| Merged `Bgra8888` | 5965 ms | 5927 ms | 0.6% faster |
+
+This is only a tiny CPU cleanup. It is kept because it removes repeated work
+from the dominant inter reconstruction stage while preserving bitwise output
+and keeping alpha effectively in the same range.
