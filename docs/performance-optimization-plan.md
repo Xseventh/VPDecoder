@@ -1247,3 +1247,48 @@ The next loop-filter direction, if this stage remains worth prioritizing,
 should be a more structural luma/chroma mask-apply layout cleanup or a guarded
 hardware-intrinsics path with scalar fallback. Further scalar dual wrapping is
 not attractive without a larger data-layout change.
+
+Motion single-axis kernel-local slice:
+
+- Extended the earlier 2D subpel kernel-local approach to unclamped
+  horizontal-only, vertical-only, and compound filtered-to-span prediction
+  paths.
+- Kept clamped prediction on the original span-kernel helper shape after a
+  local trial showed worse merged elapsed time.
+- Kept the same VP9 8-tap coefficients, rounding, clipping, filter selection,
+  motion-vector validation, and reference-frame diagnostics.
+
+Validation:
+
+- `dotnet build VPDecoder.slnx --no-restore -m:1`
+- `dotnet test VPDecoder.slnx -m:1 --no-restore`
+- Profile benchmark build with `VPDecoderProfile=true`
+- Full 97-frame color and alpha YUV420 comparison against libvpx; both streams
+  remained bitwise identical for every frame.
+
+Observed profile after the slice:
+
+| Stream/output | Average elapsed | Inter prediction | Horizontal | Vertical | 2D subpel | Clamped | Compound filtered |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Color `Yuv420` | 2653 ms | 540 ms | 82 ms | 54 ms | 120 ms | 20 ms | 31 ms |
+| Alpha `Yuv420` | 2563 ms | 719 ms | 78 ms | 97 ms | 201 ms | 61 ms | 102 ms |
+| Merged `Bgra8888` | 5985 ms | 1228 ms | 155 ms | 147 ms | 316 ms | 81 ms | 129 ms |
+
+Default Release benchmark after the slice:
+
+| Stream/output | Average elapsed |
+| --- | ---: |
+| Color `Yuv420` | 2562 ms |
+| Alpha `Yuv420` | 2509 ms |
+| Merged `Bgra8888` | 5853 ms |
+
+The motion substage counters moved in the intended direction, especially
+vertical-only and compound filtered prediction. Total merged elapsed remains
+mostly noise-level relative to the prior `5844 ms` checkpoint because loop
+filter and reconstruction timings vary more than this small scalar cleanup.
+
+Additional non-committed local motion trial that did not show stable benefit:
+
+- Clamped single-axis and 2D-clamped kernel-local/unrolled helpers: reduced
+  clamped timing in some single-stream runs, but regressed merged
+  `Bgra8888`, so the trial was reverted.
