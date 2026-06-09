@@ -966,3 +966,8 @@ Additional non-committed local trials that did not show stable benefit:
 - Branchless loop-filter mask helpers: preserved build, tests, and full
   97-frame libvpx bitwise alignment, but same-machine A/B made color `Yuv420`
   and alpha `Yuv420` roughly 6-8% slower than the short-circuit helper shape.
+- Exact-width 2D subpel temporary stride: preserved build, tests, and full
+  97-frame libvpx bitwise alignment. It improved color `Yuv420` by roughly
+  3.5% in same-machine A/B, but slowed alpha `Yuv420` by about 1.3% and merged
+  `Bgra8888` by about 1%, so the fixed 64-wide temporary stride remains the
+  better default for the current color+alpha workload.
