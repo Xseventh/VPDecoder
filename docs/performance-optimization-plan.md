@@ -998,3 +998,8 @@ Additional non-committed local trials that did not show stable benefit:
   3.5% in same-machine A/B, but slowed alpha `Yuv420` by about 1.3% and merged
   `Bgra8888` by about 1%, so the fixed 64-wide temporary stride remains the
   better default for the current color+alpha workload.
+- Direct inter mode-block list pre-sizing: preserved build, tests, and full
+  97-frame libvpx bitwise alignment, but pre-sizing by visible MI area
+  over-allocated the production metadata lists. Allocation increased by roughly
+  75-150 MB over the repro runs and elapsed time regressed, so default
+  `List<T>` growth remains better for the current block distribution.
