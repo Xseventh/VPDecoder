@@ -1413,3 +1413,14 @@ The profile-counter run was mixed at the substage level (`H16` improved while
 cleanup rather than a major loop-filter win. It remains useful because it cuts
 work from the hottest 16px edge path without changing data layout or introducing
 SIMD.
+
+Additional non-committed packed-conversion trial that did not show benefit:
+
+- A broader scalar chroma LUT for packed YUV-to-RGB conversion was tested with
+  four stack-allocated 256-entry tables: Cr-to-R, Cb-to-G, Cr-to-G, and Cb-to-B.
+- The packed checksum stayed unchanged, but default Release merged `Bgra8888`
+  regressed from about 5258 ms to about 5782 ms on the same sequence.
+- The likely cause is that the extra stack spans and helper parameters hurt the
+  current JIT loop shape more than the removed scalar multiplications help.
+  Keep this direction parked unless it is implemented as a narrower BGRA-only
+  specialization or a real hardware-intrinsics path with scalar fallback.
