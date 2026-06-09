@@ -233,6 +233,8 @@ static void PrintProfile(Vp9PerfCounterSnapshot[] snapshots, double averageMs)
         FormatNestedStage("motionAverageFiltered", AverageMs(snapshots, static snapshot => snapshot.MotionAverageFilteredTicks), AverageMs(snapshots, static snapshot => snapshot.InterPredictionTicks)) + " " +
         FormatNestedStage("interResidual", AverageMs(snapshots, static snapshot => snapshot.InterResidualTicks), AverageMs(snapshots, static snapshot => snapshot.InterFrameReconstructionTicks)) + " " +
         FormatNestedStage("interIntraBlock", AverageMs(snapshots, static snapshot => snapshot.InterIntraBlockTicks), AverageMs(snapshots, static snapshot => snapshot.InterFrameReconstructionTicks)) + " " +
+        FormatNestedStage("interIntraResidualRead", AverageMs(snapshots, static snapshot => snapshot.InterIntraResidualReadTicks), AverageMs(snapshots, static snapshot => snapshot.InterIntraBlockTicks)) + " " +
+        FormatNestedStage("interIntraReconstruct", AverageMs(snapshots, static snapshot => snapshot.InterIntraReconstructionTicks), AverageMs(snapshots, static snapshot => snapshot.InterIntraBlockTicks)) + " " +
         FormatStage("loopFilter", AverageMs(snapshots, static snapshot => snapshot.LoopFilterTicks), averageMs) + " " +
         FormatStage("previousMv", AverageMs(snapshots, static snapshot => snapshot.PreviousMotionVectorTicks), averageMs) + " " +
         FormatStage("colorConversion", AverageMs(snapshots, static snapshot => snapshot.ColorConversionTicks), averageMs) + " " +

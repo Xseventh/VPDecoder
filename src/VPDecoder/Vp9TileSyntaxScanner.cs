@@ -2793,7 +2793,8 @@ internal static class Vp9TileSyntaxScanner
         {
             residualScratch.Groups.Clear();
 #if VPDECODER_PROFILE
-            profileStart = Vp9PerfCounters.Start();
+            var intraBlockProfileStart = Vp9PerfCounters.Start();
+            var intraReadProfileStart = intraBlockProfileStart;
 #endif
             ReadInterBlockCoefficientGroups(
                 ref reader,
@@ -2803,6 +2804,9 @@ internal static class Vp9TileSyntaxScanner
                 modeBlock,
                 entropyContext,
                 residualScratch.Groups);
+#if VPDECODER_PROFILE
+            Vp9PerfCounters.AddInterIntraResidualRead(intraReadProfileStart);
+#endif
             if (reader.HasError)
             {
                 diagnostic = Vp9DecodeDiagnostic.TruncatedPacket(
@@ -2818,6 +2822,9 @@ internal static class Vp9TileSyntaxScanner
             }
 
             var intraModeInfo = modeBlock.ToIntraModeInfoProbe();
+#if VPDECODER_PROFILE
+            var intraReconstructProfileStart = Vp9PerfCounters.Start();
+#endif
             for (var plane = 0; plane < 3; plane++)
             {
                 Vp9BlockReconstructor.ReconstructDcOnlyGroup(
@@ -2829,7 +2836,8 @@ internal static class Vp9TileSyntaxScanner
             }
 
 #if VPDECODER_PROFILE
-            Vp9PerfCounters.AddInterIntraBlock(profileStart);
+            Vp9PerfCounters.AddInterIntraReconstruction(intraReconstructProfileStart);
+            Vp9PerfCounters.AddInterIntraBlock(intraBlockProfileStart);
 #endif
             predictedModeBlocks.Add(modeBlock);
             predictedModeBlockGrid.Set(modeBlock);

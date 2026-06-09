@@ -1162,3 +1162,32 @@ Same-machine benchmark against the immediate motion-profile checkpoint:
 The measured merged `motionCopy2d` substage moved from about 322 ms to about
 313 ms. This is small, but it is a real reduction in the largest motion
 subpath without changing the decoder architecture.
+
+Detailed intra-inside-inter profile slice:
+
+- Added nested profile counters for ordinary-inter frames whose mode-info marks
+  a block as intra-coded.
+- Split the existing `interIntraBlock` timing into residual coefficient group
+  reads and intra reconstruction.
+- Kept the counters nested under `interIntraBlock`, so top-level accounted
+  timing remains comparable with earlier runs.
+
+Validation:
+
+- `dotnet build VPDecoder.slnx --no-restore -m:1`
+- `dotnet test VPDecoder.slnx -m:1 --no-restore`
+- Profile benchmark build with `VPDecoderProfile=true`
+- Full 97-frame color and alpha YUV420 comparison against libvpx; both streams
+  remained bitwise identical for every frame.
+
+Observed intra-inside-inter profile:
+
+| Stream/output | Intra inside inter | Residual read | Intra reconstruction |
+| --- | ---: | ---: | ---: |
+| Color `Yuv420` | 507 ms | 211 ms / 41.7% | 290 ms / 57.2% |
+| Alpha `Yuv420` | 441 ms | 175 ms / 39.8% | 260 ms / 59.1% |
+| Merged `Bgra8888` | 928 ms | 384 ms / 41.3% | 535 ms / 57.6% |
+
+The next intra-inside-inter target should be reconstruction first. Residual
+read remains large, but reconstruction is the bigger half and may have simpler
+scalar-loop cleanup opportunities.
