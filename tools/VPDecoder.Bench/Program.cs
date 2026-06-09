@@ -236,20 +236,41 @@ static void PrintProfile(Vp9PerfCounterSnapshot[] snapshots, double averageMs)
         FormatNestedStage("interIntraResidualRead", AverageMs(snapshots, static snapshot => snapshot.InterIntraResidualReadTicks), AverageMs(snapshots, static snapshot => snapshot.InterIntraBlockTicks)) + " " +
         FormatNestedStage("interIntraReconstruct", AverageMs(snapshots, static snapshot => snapshot.InterIntraReconstructionTicks), AverageMs(snapshots, static snapshot => snapshot.InterIntraBlockTicks)) + " " +
         FormatStage("loopFilter", AverageMs(snapshots, static snapshot => snapshot.LoopFilterTicks), averageMs) + " " +
+        FormatNestedStage("loopMaskBuild", AverageMs(snapshots, static snapshot => snapshot.LoopFilterMaskBuildTicks), AverageMs(snapshots, static snapshot => snapshot.LoopFilterTicks), parentName: "Loop") + " " +
+        FormatNestedStage("loopApply", AverageMs(snapshots, static snapshot => snapshot.LoopFilterApplyTicks), AverageMs(snapshots, static snapshot => snapshot.LoopFilterTicks), parentName: "Loop") + " " +
+        FormatNestedStage("loopLuma", AverageMs(snapshots, static snapshot => snapshot.LoopFilterLumaTicks), AverageMs(snapshots, static snapshot => snapshot.LoopFilterApplyTicks), parentName: "LoopApply") + " " +
+        FormatNestedStage("loopChroma", AverageMs(snapshots, static snapshot => snapshot.LoopFilterChromaTicks), AverageMs(snapshots, static snapshot => snapshot.LoopFilterApplyTicks), parentName: "LoopApply") + " " +
+        FormatNestedStage("loopV4", AverageMs(snapshots, static snapshot => snapshot.LoopFilterVertical4Ticks), AverageMs(snapshots, static snapshot => snapshot.LoopFilterApplyTicks), parentName: "LoopApply") + " " +
+        FormatNestedStage("loopV8", AverageMs(snapshots, static snapshot => snapshot.LoopFilterVertical8Ticks), AverageMs(snapshots, static snapshot => snapshot.LoopFilterApplyTicks), parentName: "LoopApply") + " " +
+        FormatNestedStage("loopV16", AverageMs(snapshots, static snapshot => snapshot.LoopFilterVertical16Ticks), AverageMs(snapshots, static snapshot => snapshot.LoopFilterApplyTicks), parentName: "LoopApply") + " " +
+        FormatNestedStage("loopH4", AverageMs(snapshots, static snapshot => snapshot.LoopFilterHorizontal4Ticks), AverageMs(snapshots, static snapshot => snapshot.LoopFilterApplyTicks), parentName: "LoopApply") + " " +
+        FormatNestedStage("loopH8", AverageMs(snapshots, static snapshot => snapshot.LoopFilterHorizontal8Ticks), AverageMs(snapshots, static snapshot => snapshot.LoopFilterApplyTicks), parentName: "LoopApply") + " " +
+        FormatNestedStage("loopH16", AverageMs(snapshots, static snapshot => snapshot.LoopFilterHorizontal16Ticks), AverageMs(snapshots, static snapshot => snapshot.LoopFilterApplyTicks), parentName: "LoopApply") + " " +
+        FormatCounter("loopV4Calls", Average(snapshots, static snapshot => snapshot.LoopFilterVertical4Calls)) + " " +
+        FormatCounter("loopV8Calls", Average(snapshots, static snapshot => snapshot.LoopFilterVertical8Calls)) + " " +
+        FormatCounter("loopV16Calls", Average(snapshots, static snapshot => snapshot.LoopFilterVertical16Calls)) + " " +
+        FormatCounter("loopH4Calls", Average(snapshots, static snapshot => snapshot.LoopFilterHorizontal4Calls)) + " " +
+        FormatCounter("loopH8Calls", Average(snapshots, static snapshot => snapshot.LoopFilterHorizontal8Calls)) + " " +
+        FormatCounter("loopH16Calls", Average(snapshots, static snapshot => snapshot.LoopFilterHorizontal16Calls)) + " " +
         FormatStage("previousMv", AverageMs(snapshots, static snapshot => snapshot.PreviousMotionVectorTicks), averageMs) + " " +
         FormatStage("colorConversion", AverageMs(snapshots, static snapshot => snapshot.ColorConversionTicks), averageMs) + " " +
         FormatStage("alphaMerge", AverageMs(snapshots, static snapshot => snapshot.AlphaMergeTicks), averageMs));
 }
 
-static double AverageMs(Vp9PerfCounterSnapshot[] snapshots, Func<Vp9PerfCounterSnapshot, long> selector)
+static double Average(Vp9PerfCounterSnapshot[] snapshots, Func<Vp9PerfCounterSnapshot, long> selector)
 {
-    var ticks = 0L;
+    var total = 0L;
     foreach (var snapshot in snapshots)
     {
-        ticks += selector(snapshot);
+        total += selector(snapshot);
     }
 
-    return Vp9PerfCounterSnapshot.ToMilliseconds(ticks) / snapshots.Length;
+    return (double)total / snapshots.Length;
+}
+
+static double AverageMs(Vp9PerfCounterSnapshot[] snapshots, Func<Vp9PerfCounterSnapshot, long> selector)
+{
+    return Vp9PerfCounterSnapshot.ToMilliseconds((long)Average(snapshots, selector));
 }
 
 static string FormatStage(string name, double stageMs, double averageMs)
@@ -257,9 +278,14 @@ static string FormatStage(string name, double stageMs, double averageMs)
     return $"{name}Ms={stageMs:F3} {name}Pct={Percent(stageMs, averageMs):F1}";
 }
 
-static string FormatNestedStage(string name, double stageMs, double parentMs)
+static string FormatNestedStage(string name, double stageMs, double parentMs, string parentName = "Inter")
 {
-    return $"{name}Ms={stageMs:F3} {name}OfInterPct={Percent(stageMs, parentMs):F1}";
+    return $"{name}Ms={stageMs:F3} {name}Of{parentName}Pct={Percent(stageMs, parentMs):F1}";
+}
+
+static string FormatCounter(string name, double value)
+{
+    return $"{name}={value:F0}";
 }
 
 static double Percent(double numerator, double denominator)

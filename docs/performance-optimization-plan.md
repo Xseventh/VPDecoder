@@ -1191,3 +1191,59 @@ Observed intra-inside-inter profile:
 The next intra-inside-inter target should be reconstruction first. Residual
 read remains large, but reconstruction is the bigger half and may have simpler
 scalar-loop cleanup opportunities.
+
+Detailed loop-filter profile and fixed-width scalar slice:
+
+- Added nested profile counters for loop-filter mask building, mask application,
+  luma/chroma plane work, and the six scalar edge kernels:
+  vertical/horizontal 4px, 8px, and 16px.
+- Default builds remain unchanged because the detailed counters are compiled
+  only with `VPDecoderProfile=true`.
+- Specialized the scalar edge kernels with fixed 8-row / 8-column paths before
+  falling back to the existing clipped-boundary loops.
+- Kept the VP9 filtering formula, edge order, threshold handling, mask builder,
+  and unsupported diagnostics unchanged.
+
+Validation:
+
+- `dotnet build VPDecoder.slnx --no-restore -m:1`
+- `dotnet test VPDecoder.slnx -m:1 --no-restore`
+- Profile benchmark build with `VPDecoderProfile=true`
+- Full 97-frame color and alpha YUV420 comparison against libvpx; both streams
+  remained bitwise identical for every frame.
+
+Observed loop-filter profile after the slice:
+
+| Stream/output | Average elapsed | Loop filter | Mask build | Apply | Luma | Chroma | V16 | H16 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Color `Yuv420` | 2672 ms | 857 ms / 32.1% total | 30 ms / 3.5% loop | 827 ms / 96.5% loop | 449 ms / 54.3% apply | 373 ms / 45.1% apply | 296 ms / 35.8% apply | 257 ms / 31.1% apply |
+| Alpha `Yuv420` | 2597 ms | 717 ms / 27.6% total | 21 ms / 2.9% loop | 696 ms / 97.1% loop | 398 ms / 57.1% apply | 294 ms / 42.2% apply | 291 ms / 41.7% apply | 242 ms / 34.7% apply |
+| Merged `Bgra8888` | 6073 ms | 1579 ms / 26.0% total | 48 ms / 3.1% loop | 1531 ms / 96.9% loop | 847 ms / 55.3% apply | 671 ms / 43.8% apply | 589 ms / 38.5% apply | 497 ms / 32.5% apply |
+
+The detailed counters show mask construction is small. The hot work remains
+actual scalar 16px filtering, especially `V16` and `H16`, with luma slightly
+larger than chroma.
+
+Default Release benchmark after the slice:
+
+| Stream/output | Average elapsed |
+| --- | ---: |
+| Color `Yuv420` | 2556 ms |
+| Alpha `Yuv420` | 2505 ms |
+| Merged `Bgra8888` | 5844 ms |
+
+Additional non-committed local loop-filter trials that did not show stable
+benefit:
+
+- Full-superblock edge dispatch directly to fixed 8-row/8-column cores:
+  preserved build and checksums, but regressed merged `Bgra8888` in the
+  same-machine profile run, so the trial was reverted.
+- Scalar 16px dual-edge handling inspired by libvpx `*_16_dual`: reduced the
+  number of profiled 16px kernel calls, but merged elapsed time regressed. The
+  C scalar path benefits from a pointer/count loop shape that did not translate
+  cleanly to the current C# layout, so the trial was reverted.
+
+The next loop-filter direction, if this stage remains worth prioritizing,
+should be a more structural luma/chroma mask-apply layout cleanup or a guarded
+hardware-intrinsics path with scalar fallback. Further scalar dual wrapping is
+not attractive without a larger data-layout change.

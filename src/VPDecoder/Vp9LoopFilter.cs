@@ -23,15 +23,27 @@ internal static class Vp9LoopFilter
         }
 
         IReadOnlyList<Vp9LoopFilterSuperblockMask> masks;
+#if VPDECODER_PROFILE
+        var profileStart = Vp9PerfCounters.Start();
+#endif
         var masksBuilt = header.FrameType == Vp9FrameType.KeyFrame
             ? Vp9LoopFilterMaskBuilder.TryBuildKeyFrameMasks(header, reconstructedFrame, out masks, out diagnostic)
             : Vp9LoopFilterMaskBuilder.TryBuildInterFrameMasks(header, reconstructedFrame, out masks, out diagnostic);
+#if VPDECODER_PROFILE
+        Vp9PerfCounters.AddLoopFilterMaskBuild(profileStart);
+#endif
         if (!masksBuilt)
         {
             return false;
         }
 
+#if VPDECODER_PROFILE
+        profileStart = Vp9PerfCounters.Start();
+#endif
         ApplyMasks(reconstructedFrame.Frame, header, masks);
+#if VPDECODER_PROFILE
+        Vp9PerfCounters.AddLoopFilterApply(profileStart);
+#endif
 
         return true;
     }
@@ -47,6 +59,9 @@ internal static class Vp9LoopFilter
             return false;
         }
 
+#if VPDECODER_PROFILE
+        var profileStart = Vp9PerfCounters.Start();
+#endif
         if (!Vp9LoopFilterMaskBuilder.TryBuildInterFrameMasks(
                 header,
                 frame,
@@ -54,10 +69,22 @@ internal static class Vp9LoopFilter
                 out var masks,
                 out diagnostic))
         {
+#if VPDECODER_PROFILE
+            Vp9PerfCounters.AddLoopFilterMaskBuild(profileStart);
+#endif
             return false;
         }
+#if VPDECODER_PROFILE
+        Vp9PerfCounters.AddLoopFilterMaskBuild(profileStart);
+#endif
 
+#if VPDECODER_PROFILE
+        profileStart = Vp9PerfCounters.Start();
+#endif
         ApplyMasks(frame, header, masks);
+#if VPDECODER_PROFILE
+        Vp9PerfCounters.AddLoopFilterApply(profileStart);
+#endif
         return true;
     }
 
@@ -200,9 +227,23 @@ internal static class Vp9LoopFilter
         FillThresholdTable(header.LoopFilter.SharpnessLevel, thresholdsByLevel);
         foreach (var mask in masks)
         {
+#if VPDECODER_PROFILE
+            var profileStart = Vp9PerfCounters.Start();
+#endif
             ApplyLumaPlane(frame, header, mask, thresholdsByLevel);
+#if VPDECODER_PROFILE
+            Vp9PerfCounters.AddLoopFilterLuma(profileStart);
+            profileStart = Vp9PerfCounters.Start();
+#endif
             ApplyChromaPlane(frame, header, mask, thresholdsByLevel, planeIndex: 1);
+#if VPDECODER_PROFILE
+            Vp9PerfCounters.AddLoopFilterChroma(profileStart);
+            profileStart = Vp9PerfCounters.Start();
+#endif
             ApplyChromaPlane(frame, header, mask, thresholdsByLevel, planeIndex: 2);
+#if VPDECODER_PROFILE
+            Vp9PerfCounters.AddLoopFilterChroma(profileStart);
+#endif
         }
     }
 
@@ -590,198 +631,357 @@ internal static class Vp9LoopFilter
 
     public static void ApplyVertical4(byte[] plane, int stride, int startIndex, Vp9LoopFilterThresholds thresholds, int rows = 8)
     {
-        for (var row = 0; row < rows; row++, startIndex += stride)
+#if VPDECODER_PROFILE
+        var profileStart = Vp9PerfCounters.Start();
+#endif
+        if (rows == 8)
         {
-            Filter4(
-                FilterMask(
-                    thresholds.Limit,
-                    thresholds.MacroblockLimit,
-                    plane[startIndex - 4],
-                    plane[startIndex - 3],
-                    plane[startIndex - 2],
-                    plane[startIndex - 1],
-                    plane[startIndex],
-                    plane[startIndex + 1],
-                    plane[startIndex + 2],
-                    plane[startIndex + 3]),
-                thresholds.HighEdgeVarianceThreshold,
-                plane,
-                startIndex - 2,
-                startIndex - 1,
-                startIndex,
-                startIndex + 1);
+            ApplyVertical4Rows8(plane, stride, startIndex, thresholds);
         }
+        else
+        {
+            for (var row = 0; row < rows; row++, startIndex += stride)
+            {
+                ApplyVertical4One(plane, startIndex, thresholds);
+            }
+        }
+#if VPDECODER_PROFILE
+        Vp9PerfCounters.AddLoopFilterVertical4(profileStart);
+#endif
+    }
+
+    private static void ApplyVertical4Rows8(byte[] plane, int stride, int startIndex, Vp9LoopFilterThresholds thresholds)
+    {
+        for (var row = 0; row < 8; row++, startIndex += stride)
+        {
+            ApplyVertical4One(plane, startIndex, thresholds);
+        }
+    }
+
+    private static void ApplyVertical4One(byte[] plane, int startIndex, Vp9LoopFilterThresholds thresholds)
+    {
+        Filter4(
+            FilterMask(
+                thresholds.Limit,
+                thresholds.MacroblockLimit,
+                plane[startIndex - 4],
+                plane[startIndex - 3],
+                plane[startIndex - 2],
+                plane[startIndex - 1],
+                plane[startIndex],
+                plane[startIndex + 1],
+                plane[startIndex + 2],
+                plane[startIndex + 3]),
+            thresholds.HighEdgeVarianceThreshold,
+            plane,
+            startIndex - 2,
+            startIndex - 1,
+            startIndex,
+            startIndex + 1);
     }
 
     public static void ApplyHorizontal4(byte[] plane, int stride, int startIndex, Vp9LoopFilterThresholds thresholds, int columns = 8)
     {
+#if VPDECODER_PROFILE
+        var profileStart = Vp9PerfCounters.Start();
+#endif
         var stride2 = 2 * stride;
         var stride3 = 3 * stride;
         var stride4 = 4 * stride;
-        for (var column = 0; column < columns; column++)
+        if (columns == 8)
         {
-            var index = startIndex + column;
-            Filter4(
-                FilterMask(
-                    thresholds.Limit,
-                    thresholds.MacroblockLimit,
-                    plane[index - stride4],
-                    plane[index - stride3],
-                    plane[index - stride2],
-                    plane[index - stride],
-                    plane[index],
-                    plane[index + stride],
-                    plane[index + stride2],
-                    plane[index + stride3]),
-                thresholds.HighEdgeVarianceThreshold,
-                plane,
-                index - stride2,
-                index - stride,
-                index,
-                index + stride);
+            ApplyHorizontal4Columns8(plane, startIndex, thresholds, stride, stride2, stride3, stride4);
         }
+        else
+        {
+            for (var column = 0; column < columns; column++)
+            {
+                ApplyHorizontal4One(plane, startIndex + column, thresholds, stride, stride2, stride3, stride4);
+            }
+        }
+#if VPDECODER_PROFILE
+        Vp9PerfCounters.AddLoopFilterHorizontal4(profileStart);
+#endif
+    }
+
+    private static void ApplyHorizontal4Columns8(
+        byte[] plane,
+        int startIndex,
+        Vp9LoopFilterThresholds thresholds,
+        int stride,
+        int stride2,
+        int stride3,
+        int stride4)
+    {
+        for (var column = 0; column < 8; column++)
+        {
+            ApplyHorizontal4One(plane, startIndex + column, thresholds, stride, stride2, stride3, stride4);
+        }
+    }
+
+    private static void ApplyHorizontal4One(
+        byte[] plane,
+        int index,
+        Vp9LoopFilterThresholds thresholds,
+        int stride,
+        int stride2,
+        int stride3,
+        int stride4)
+    {
+        Filter4(
+            FilterMask(
+                thresholds.Limit,
+                thresholds.MacroblockLimit,
+                plane[index - stride4],
+                plane[index - stride3],
+                plane[index - stride2],
+                plane[index - stride],
+                plane[index],
+                plane[index + stride],
+                plane[index + stride2],
+                plane[index + stride3]),
+            thresholds.HighEdgeVarianceThreshold,
+            plane,
+            index - stride2,
+            index - stride,
+            index,
+            index + stride);
     }
 
     public static void ApplyVertical8(byte[] plane, int stride, int startIndex, Vp9LoopFilterThresholds thresholds, int rows = 8)
     {
-        for (var row = 0; row < rows; row++, startIndex += stride)
+#if VPDECODER_PROFILE
+        var profileStart = Vp9PerfCounters.Start();
+#endif
+        if (rows == 8)
         {
-            var p3 = plane[startIndex - 4];
-            var p2 = plane[startIndex - 3];
-            var p1 = plane[startIndex - 2];
-            var p0 = plane[startIndex - 1];
-            var q0 = plane[startIndex];
-            var q1 = plane[startIndex + 1];
-            var q2 = plane[startIndex + 2];
-            var q3 = plane[startIndex + 3];
-            Filter8(
-                FilterMask(
-                    thresholds.Limit,
-                    thresholds.MacroblockLimit,
-                    p3,
-                    p2,
-                    p1,
-                    p0,
-                    q0,
-                    q1,
-                    q2,
-                    q3),
-                thresholds.HighEdgeVarianceThreshold,
-                FlatMask4(1, p3, p2, p1, p0, q0, q1, q2, q3),
-                plane,
-                startIndex - 4,
-                startIndex - 3,
-                startIndex - 2,
-                startIndex - 1,
-                startIndex,
-                startIndex + 1,
-                startIndex + 2,
-                startIndex + 3);
+            ApplyVertical8Rows8(plane, stride, startIndex, thresholds);
         }
+        else
+        {
+            for (var row = 0; row < rows; row++, startIndex += stride)
+            {
+                ApplyVertical8One(plane, startIndex, thresholds);
+            }
+        }
+#if VPDECODER_PROFILE
+        Vp9PerfCounters.AddLoopFilterVertical8(profileStart);
+#endif
+    }
+
+    private static void ApplyVertical8Rows8(byte[] plane, int stride, int startIndex, Vp9LoopFilterThresholds thresholds)
+    {
+        for (var row = 0; row < 8; row++, startIndex += stride)
+        {
+            ApplyVertical8One(plane, startIndex, thresholds);
+        }
+    }
+
+    private static void ApplyVertical8One(byte[] plane, int startIndex, Vp9LoopFilterThresholds thresholds)
+    {
+        var p3 = plane[startIndex - 4];
+        var p2 = plane[startIndex - 3];
+        var p1 = plane[startIndex - 2];
+        var p0 = plane[startIndex - 1];
+        var q0 = plane[startIndex];
+        var q1 = plane[startIndex + 1];
+        var q2 = plane[startIndex + 2];
+        var q3 = plane[startIndex + 3];
+        Filter8(
+            FilterMask(
+                thresholds.Limit,
+                thresholds.MacroblockLimit,
+                p3,
+                p2,
+                p1,
+                p0,
+                q0,
+                q1,
+                q2,
+                q3),
+            thresholds.HighEdgeVarianceThreshold,
+            FlatMask4(1, p3, p2, p1, p0, q0, q1, q2, q3),
+            plane,
+            startIndex - 4,
+            startIndex - 3,
+            startIndex - 2,
+            startIndex - 1,
+            startIndex,
+            startIndex + 1,
+            startIndex + 2,
+            startIndex + 3);
     }
 
     public static void ApplyHorizontal8(byte[] plane, int stride, int startIndex, Vp9LoopFilterThresholds thresholds, int columns = 8)
     {
+#if VPDECODER_PROFILE
+        var profileStart = Vp9PerfCounters.Start();
+#endif
         var stride2 = 2 * stride;
         var stride3 = 3 * stride;
         var stride4 = 4 * stride;
-        for (var column = 0; column < columns; column++)
+        if (columns == 8)
         {
-            var index = startIndex + column;
-            var p3 = plane[index - stride4];
-            var p2 = plane[index - stride3];
-            var p1 = plane[index - stride2];
-            var p0 = plane[index - stride];
-            var q0 = plane[index];
-            var q1 = plane[index + stride];
-            var q2 = plane[index + stride2];
-            var q3 = plane[index + stride3];
-            Filter8(
-                FilterMask(
-                    thresholds.Limit,
-                    thresholds.MacroblockLimit,
-                    p3,
-                    p2,
-                    p1,
-                    p0,
-                    q0,
-                    q1,
-                    q2,
-                    q3),
-                thresholds.HighEdgeVarianceThreshold,
-                FlatMask4(1, p3, p2, p1, p0, q0, q1, q2, q3),
-                plane,
-                index - stride4,
-                index - stride3,
-                index - stride2,
-                index - stride,
-                index,
-                index + stride,
-                index + stride2,
-                index + stride3);
+            ApplyHorizontal8Columns8(plane, startIndex, thresholds, stride, stride2, stride3, stride4);
         }
+        else
+        {
+            for (var column = 0; column < columns; column++)
+            {
+                ApplyHorizontal8One(plane, startIndex + column, thresholds, stride, stride2, stride3, stride4);
+            }
+        }
+#if VPDECODER_PROFILE
+        Vp9PerfCounters.AddLoopFilterHorizontal8(profileStart);
+#endif
+    }
+
+    private static void ApplyHorizontal8Columns8(
+        byte[] plane,
+        int startIndex,
+        Vp9LoopFilterThresholds thresholds,
+        int stride,
+        int stride2,
+        int stride3,
+        int stride4)
+    {
+        for (var column = 0; column < 8; column++)
+        {
+            ApplyHorizontal8One(plane, startIndex + column, thresholds, stride, stride2, stride3, stride4);
+        }
+    }
+
+    private static void ApplyHorizontal8One(
+        byte[] plane,
+        int index,
+        Vp9LoopFilterThresholds thresholds,
+        int stride,
+        int stride2,
+        int stride3,
+        int stride4)
+    {
+        var p3 = plane[index - stride4];
+        var p2 = plane[index - stride3];
+        var p1 = plane[index - stride2];
+        var p0 = plane[index - stride];
+        var q0 = plane[index];
+        var q1 = plane[index + stride];
+        var q2 = plane[index + stride2];
+        var q3 = plane[index + stride3];
+        Filter8(
+            FilterMask(
+                thresholds.Limit,
+                thresholds.MacroblockLimit,
+                p3,
+                p2,
+                p1,
+                p0,
+                q0,
+                q1,
+                q2,
+                q3),
+            thresholds.HighEdgeVarianceThreshold,
+            FlatMask4(1, p3, p2, p1, p0, q0, q1, q2, q3),
+            plane,
+            index - stride4,
+            index - stride3,
+            index - stride2,
+            index - stride,
+            index,
+            index + stride,
+            index + stride2,
+            index + stride3);
     }
 
     public static void ApplyVertical16(byte[] plane, int stride, int startIndex, Vp9LoopFilterThresholds thresholds, int rows = 8)
     {
-        for (var row = 0; row < rows; row++, startIndex += stride)
+#if VPDECODER_PROFILE
+        var profileStart = Vp9PerfCounters.Start();
+#endif
+        if (rows == 8)
         {
-            var p3 = plane[startIndex - 4];
-            var p2 = plane[startIndex - 3];
-            var p1 = plane[startIndex - 2];
-            var p0 = plane[startIndex - 1];
-            var q0 = plane[startIndex];
-            var q1 = plane[startIndex + 1];
-            var q2 = plane[startIndex + 2];
-            var q3 = plane[startIndex + 3];
-            Filter16(
-                FilterMask(
-                    thresholds.Limit,
-                    thresholds.MacroblockLimit,
-                    p3,
-                    p2,
-                    p1,
-                    p0,
-                    q0,
-                    q1,
-                    q2,
-                    q3),
-                thresholds.HighEdgeVarianceThreshold,
-                FlatMask4(1, p3, p2, p1, p0, q0, q1, q2, q3),
-                FlatMask5(
-                    1,
-                    plane[startIndex - 8],
-                    plane[startIndex - 7],
-                    plane[startIndex - 6],
-                    plane[startIndex - 5],
-                    p0,
-                    q0,
-                    plane[startIndex + 4],
-                    plane[startIndex + 5],
-                    plane[startIndex + 6],
-                    plane[startIndex + 7]),
-                plane,
-                startIndex - 8,
-                startIndex - 7,
-                startIndex - 6,
-                startIndex - 5,
-                startIndex - 4,
-                startIndex - 3,
-                startIndex - 2,
-                startIndex - 1,
-                startIndex,
-                startIndex + 1,
-                startIndex + 2,
-                startIndex + 3,
-                startIndex + 4,
-                startIndex + 5,
-                startIndex + 6,
-                startIndex + 7);
+            ApplyVertical16Rows8(plane, stride, startIndex, thresholds);
         }
+        else
+        {
+            for (var row = 0; row < rows; row++, startIndex += stride)
+            {
+                ApplyVertical16One(plane, startIndex, thresholds);
+            }
+        }
+#if VPDECODER_PROFILE
+        Vp9PerfCounters.AddLoopFilterVertical16(profileStart);
+#endif
+    }
+
+    private static void ApplyVertical16Rows8(byte[] plane, int stride, int startIndex, Vp9LoopFilterThresholds thresholds)
+    {
+        for (var row = 0; row < 8; row++, startIndex += stride)
+        {
+            ApplyVertical16One(plane, startIndex, thresholds);
+        }
+    }
+
+    private static void ApplyVertical16One(byte[] plane, int startIndex, Vp9LoopFilterThresholds thresholds)
+    {
+        var p3 = plane[startIndex - 4];
+        var p2 = plane[startIndex - 3];
+        var p1 = plane[startIndex - 2];
+        var p0 = plane[startIndex - 1];
+        var q0 = plane[startIndex];
+        var q1 = plane[startIndex + 1];
+        var q2 = plane[startIndex + 2];
+        var q3 = plane[startIndex + 3];
+        Filter16(
+            FilterMask(
+                thresholds.Limit,
+                thresholds.MacroblockLimit,
+                p3,
+                p2,
+                p1,
+                p0,
+                q0,
+                q1,
+                q2,
+                q3),
+            thresholds.HighEdgeVarianceThreshold,
+            FlatMask4(1, p3, p2, p1, p0, q0, q1, q2, q3),
+            FlatMask5(
+                1,
+                plane[startIndex - 8],
+                plane[startIndex - 7],
+                plane[startIndex - 6],
+                plane[startIndex - 5],
+                p0,
+                q0,
+                plane[startIndex + 4],
+                plane[startIndex + 5],
+                plane[startIndex + 6],
+                plane[startIndex + 7]),
+            plane,
+            startIndex - 8,
+            startIndex - 7,
+            startIndex - 6,
+            startIndex - 5,
+            startIndex - 4,
+            startIndex - 3,
+            startIndex - 2,
+            startIndex - 1,
+            startIndex,
+            startIndex + 1,
+            startIndex + 2,
+            startIndex + 3,
+            startIndex + 4,
+            startIndex + 5,
+            startIndex + 6,
+            startIndex + 7);
     }
 
     public static void ApplyHorizontal16(byte[] plane, int stride, int startIndex, Vp9LoopFilterThresholds thresholds, int columns = 8)
     {
+#if VPDECODER_PROFILE
+        var profileStart = Vp9PerfCounters.Start();
+#endif
         var stride2 = 2 * stride;
         var stride3 = 3 * stride;
         var stride4 = 4 * stride;
@@ -789,61 +989,138 @@ internal static class Vp9LoopFilter
         var stride6 = 6 * stride;
         var stride7 = 7 * stride;
         var stride8 = 8 * stride;
-        for (var column = 0; column < columns; column++)
+        if (columns == 8)
         {
-            var index = startIndex + column;
-            var p3 = plane[index - stride4];
-            var p2 = plane[index - stride3];
-            var p1 = plane[index - stride2];
-            var p0 = plane[index - stride];
-            var q0 = plane[index];
-            var q1 = plane[index + stride];
-            var q2 = plane[index + stride2];
-            var q3 = plane[index + stride3];
-            Filter16(
-                FilterMask(
-                    thresholds.Limit,
-                    thresholds.MacroblockLimit,
-                    p3,
-                    p2,
-                    p1,
-                    p0,
-                    q0,
-                    q1,
-                    q2,
-                    q3),
-                thresholds.HighEdgeVarianceThreshold,
-                FlatMask4(1, p3, p2, p1, p0, q0, q1, q2, q3),
-                FlatMask5(
-                    1,
-                    plane[index - stride8],
-                    plane[index - stride7],
-                    plane[index - stride6],
-                    plane[index - stride5],
-                    p0,
-                    q0,
-                    plane[index + stride4],
-                    plane[index + stride5],
-                    plane[index + stride6],
-                    plane[index + stride7]),
+            ApplyHorizontal16Columns8(
                 plane,
-                index - stride8,
-                index - stride7,
-                index - stride6,
-                index - stride5,
-                index - stride4,
-                index - stride3,
-                index - stride2,
-                index - stride,
-                index,
-                index + stride,
-                index + stride2,
-                index + stride3,
-                index + stride4,
-                index + stride5,
-                index + stride6,
-                index + stride7);
+                stride,
+                startIndex,
+                thresholds,
+                stride2,
+                stride3,
+                stride4,
+                stride5,
+                stride6,
+                stride7,
+                stride8);
         }
+        else
+        {
+            for (var column = 0; column < columns; column++)
+            {
+                ApplyHorizontal16One(
+                    plane,
+                    startIndex + column,
+                    stride,
+                    thresholds,
+                    stride2,
+                    stride3,
+                    stride4,
+                    stride5,
+                    stride6,
+                    stride7,
+                    stride8);
+            }
+        }
+#if VPDECODER_PROFILE
+        Vp9PerfCounters.AddLoopFilterHorizontal16(profileStart);
+#endif
+    }
+
+    private static void ApplyHorizontal16Columns8(
+        byte[] plane,
+        int stride,
+        int startIndex,
+        Vp9LoopFilterThresholds thresholds,
+        int stride2,
+        int stride3,
+        int stride4,
+        int stride5,
+        int stride6,
+        int stride7,
+        int stride8)
+    {
+        for (var column = 0; column < 8; column++)
+        {
+            ApplyHorizontal16One(
+                plane,
+                startIndex + column,
+                stride,
+                thresholds,
+                stride2,
+                stride3,
+                stride4,
+                stride5,
+                stride6,
+                stride7,
+                stride8);
+        }
+    }
+
+    private static void ApplyHorizontal16One(
+        byte[] plane,
+        int index,
+        int stride,
+        Vp9LoopFilterThresholds thresholds,
+        int stride2,
+        int stride3,
+        int stride4,
+        int stride5,
+        int stride6,
+        int stride7,
+        int stride8)
+    {
+        var p3 = plane[index - stride4];
+        var p2 = plane[index - stride3];
+        var p1 = plane[index - stride2];
+        var p0 = plane[index - stride];
+        var q0 = plane[index];
+        var q1 = plane[index + stride];
+        var q2 = plane[index + stride2];
+        var q3 = plane[index + stride3];
+        Filter16(
+            FilterMask(
+                thresholds.Limit,
+                thresholds.MacroblockLimit,
+                p3,
+                p2,
+                p1,
+                p0,
+                q0,
+                q1,
+                q2,
+                q3),
+            thresholds.HighEdgeVarianceThreshold,
+            FlatMask4(1, p3, p2, p1, p0, q0, q1, q2, q3),
+            FlatMask5(
+                1,
+                plane[index - stride8],
+                plane[index - stride7],
+                plane[index - stride6],
+                plane[index - stride5],
+                p0,
+                q0,
+                plane[index + stride4],
+                plane[index + stride5],
+                plane[index + stride6],
+                plane[index + stride7]),
+            plane,
+            index - stride8,
+            index - stride7,
+            index - stride6,
+            index - stride5,
+            index - stride4,
+            index - stride3,
+            index - stride2,
+            index - stride,
+            index,
+            index + stride,
+            index + stride2,
+            index + stride3,
+            index + stride4,
+            index + stride5,
+            index + stride6,
+            index + stride7);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

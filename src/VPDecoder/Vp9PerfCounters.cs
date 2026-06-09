@@ -23,6 +23,22 @@ internal readonly record struct Vp9PerfCounterSnapshot(
     long MotionAverageWholePixelTicks,
     long MotionAverageFilteredTicks,
     long LoopFilterTicks,
+    long LoopFilterMaskBuildTicks,
+    long LoopFilterApplyTicks,
+    long LoopFilterLumaTicks,
+    long LoopFilterChromaTicks,
+    long LoopFilterVertical4Ticks,
+    long LoopFilterVertical8Ticks,
+    long LoopFilterVertical16Ticks,
+    long LoopFilterHorizontal4Ticks,
+    long LoopFilterHorizontal8Ticks,
+    long LoopFilterHorizontal16Ticks,
+    long LoopFilterVertical4Calls,
+    long LoopFilterVertical8Calls,
+    long LoopFilterVertical16Calls,
+    long LoopFilterHorizontal4Calls,
+    long LoopFilterHorizontal8Calls,
+    long LoopFilterHorizontal16Calls,
     long PreviousMotionVectorTicks,
     long ColorConversionTicks,
     long AlphaMergeTicks)
@@ -65,6 +81,22 @@ internal static class Vp9PerfCounters
     private static long _motionAverageWholePixelTicks;
     private static long _motionAverageFilteredTicks;
     private static long _loopFilterTicks;
+    private static long _loopFilterMaskBuildTicks;
+    private static long _loopFilterApplyTicks;
+    private static long _loopFilterLumaTicks;
+    private static long _loopFilterChromaTicks;
+    private static long _loopFilterVertical4Ticks;
+    private static long _loopFilterVertical8Ticks;
+    private static long _loopFilterVertical16Ticks;
+    private static long _loopFilterHorizontal4Ticks;
+    private static long _loopFilterHorizontal8Ticks;
+    private static long _loopFilterHorizontal16Ticks;
+    private static long _loopFilterVertical4Calls;
+    private static long _loopFilterVertical8Calls;
+    private static long _loopFilterVertical16Calls;
+    private static long _loopFilterHorizontal4Calls;
+    private static long _loopFilterHorizontal8Calls;
+    private static long _loopFilterHorizontal16Calls;
     private static long _previousMotionVectorTicks;
     private static long _colorConversionTicks;
     private static long _alphaMergeTicks;
@@ -95,6 +127,22 @@ internal static class Vp9PerfCounters
         _motionAverageWholePixelTicks = 0;
         _motionAverageFilteredTicks = 0;
         _loopFilterTicks = 0;
+        _loopFilterMaskBuildTicks = 0;
+        _loopFilterApplyTicks = 0;
+        _loopFilterLumaTicks = 0;
+        _loopFilterChromaTicks = 0;
+        _loopFilterVertical4Ticks = 0;
+        _loopFilterVertical8Ticks = 0;
+        _loopFilterVertical16Ticks = 0;
+        _loopFilterHorizontal4Ticks = 0;
+        _loopFilterHorizontal8Ticks = 0;
+        _loopFilterHorizontal16Ticks = 0;
+        _loopFilterVertical4Calls = 0;
+        _loopFilterVertical8Calls = 0;
+        _loopFilterVertical16Calls = 0;
+        _loopFilterHorizontal4Calls = 0;
+        _loopFilterHorizontal8Calls = 0;
+        _loopFilterHorizontal16Calls = 0;
         _previousMotionVectorTicks = 0;
         _colorConversionTicks = 0;
         _alphaMergeTicks = 0;
@@ -122,6 +170,22 @@ internal static class Vp9PerfCounters
             _motionAverageWholePixelTicks,
             _motionAverageFilteredTicks,
             _loopFilterTicks,
+            _loopFilterMaskBuildTicks,
+            _loopFilterApplyTicks,
+            _loopFilterLumaTicks,
+            _loopFilterChromaTicks,
+            _loopFilterVertical4Ticks,
+            _loopFilterVertical8Ticks,
+            _loopFilterVertical16Ticks,
+            _loopFilterHorizontal4Ticks,
+            _loopFilterHorizontal8Ticks,
+            _loopFilterHorizontal16Ticks,
+            _loopFilterVertical4Calls,
+            _loopFilterVertical8Calls,
+            _loopFilterVertical16Calls,
+            _loopFilterHorizontal4Calls,
+            _loopFilterHorizontal8Calls,
+            _loopFilterHorizontal16Calls,
             _previousMotionVectorTicks,
             _colorConversionTicks,
             _alphaMergeTicks);
@@ -164,6 +228,50 @@ internal static class Vp9PerfCounters
     public static void AddMotionAverageFiltered(long start) => _motionAverageFilteredTicks += Stopwatch.GetTimestamp() - start;
 
     public static void AddLoopFilter(long start) => _loopFilterTicks += Stopwatch.GetTimestamp() - start;
+
+    public static void AddLoopFilterMaskBuild(long start) => _loopFilterMaskBuildTicks += Stopwatch.GetTimestamp() - start;
+
+    public static void AddLoopFilterApply(long start) => _loopFilterApplyTicks += Stopwatch.GetTimestamp() - start;
+
+    public static void AddLoopFilterLuma(long start) => _loopFilterLumaTicks += Stopwatch.GetTimestamp() - start;
+
+    public static void AddLoopFilterChroma(long start) => _loopFilterChromaTicks += Stopwatch.GetTimestamp() - start;
+
+    public static void AddLoopFilterVertical4(long start)
+    {
+        _loopFilterVertical4Ticks += Stopwatch.GetTimestamp() - start;
+        _loopFilterVertical4Calls++;
+    }
+
+    public static void AddLoopFilterVertical8(long start)
+    {
+        _loopFilterVertical8Ticks += Stopwatch.GetTimestamp() - start;
+        _loopFilterVertical8Calls++;
+    }
+
+    public static void AddLoopFilterVertical16(long start)
+    {
+        _loopFilterVertical16Ticks += Stopwatch.GetTimestamp() - start;
+        _loopFilterVertical16Calls++;
+    }
+
+    public static void AddLoopFilterHorizontal4(long start)
+    {
+        _loopFilterHorizontal4Ticks += Stopwatch.GetTimestamp() - start;
+        _loopFilterHorizontal4Calls++;
+    }
+
+    public static void AddLoopFilterHorizontal8(long start)
+    {
+        _loopFilterHorizontal8Ticks += Stopwatch.GetTimestamp() - start;
+        _loopFilterHorizontal8Calls++;
+    }
+
+    public static void AddLoopFilterHorizontal16(long start)
+    {
+        _loopFilterHorizontal16Ticks += Stopwatch.GetTimestamp() - start;
+        _loopFilterHorizontal16Calls++;
+    }
 
     public static void AddPreviousMotionVector(long start) => _previousMotionVectorTicks += Stopwatch.GetTimestamp() - start;
 
