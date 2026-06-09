@@ -2762,6 +2762,9 @@ internal static class Vp9TileSyntaxScanner
         out Vp9DecodeDiagnostic? diagnostic,
         Vp9PreviousFrameMotionVectors? previousFrameMotionVectors)
     {
+#if VPDECODER_PROFILE
+        var profileStart = Vp9PerfCounters.Start();
+#endif
         if (!TryReadInterBlockModeInfoCore(
                 ref reader,
                 header,
@@ -2781,11 +2784,17 @@ internal static class Vp9TileSyntaxScanner
             return false;
         }
 
+#if VPDECODER_PROFILE
+        Vp9PerfCounters.AddInterModeInfo(profileStart);
+#endif
         decodedModeBlocks.Add(modeBlock);
         decodedModeBlockGrid.Set(modeBlock);
         if (!modeBlock.ModeInfo.IsInterBlock)
         {
             residualScratch.Groups.Clear();
+#if VPDECODER_PROFILE
+            profileStart = Vp9PerfCounters.Start();
+#endif
             ReadInterBlockCoefficientGroups(
                 ref reader,
                 header,
@@ -2819,11 +2828,17 @@ internal static class Vp9TileSyntaxScanner
                     plane);
             }
 
+#if VPDECODER_PROFILE
+            Vp9PerfCounters.AddInterIntraBlock(profileStart);
+#endif
             predictedModeBlocks.Add(modeBlock);
             predictedModeBlockGrid.Set(modeBlock);
             return true;
         }
 
+#if VPDECODER_PROFILE
+        profileStart = Vp9PerfCounters.Start();
+#endif
         if (!TryPredictInterBlock(
                 referenceFrames,
                 header,
@@ -2838,9 +2853,15 @@ internal static class Vp9TileSyntaxScanner
             return false;
         }
 
+#if VPDECODER_PROFILE
+        Vp9PerfCounters.AddInterPrediction(profileStart);
+#endif
         var eobTotal = 0;
         var coefficientScratch = residualScratch.CoefficientScratch;
         var tokenScratch = residualScratch.TokenScratch;
+#if VPDECODER_PROFILE
+        profileStart = Vp9PerfCounters.Start();
+#endif
         for (var plane = 0; plane < 3; plane++)
         {
             eobTotal += Vp9ResidualSyntax.ReadAndAddInterPlaneCoefficientBlocks(
@@ -2856,6 +2877,9 @@ internal static class Vp9TileSyntaxScanner
                 tokenScratch);
         }
 
+#if VPDECODER_PROFILE
+        Vp9PerfCounters.AddInterResidual(profileStart);
+#endif
         if (reader.HasError)
         {
             diagnostic = Vp9DecodeDiagnostic.TruncatedPacket(

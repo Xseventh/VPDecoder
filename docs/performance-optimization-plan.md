@@ -1064,3 +1064,33 @@ Same-machine benchmark against the immediate profile-counter checkpoint:
 This is only a tiny CPU cleanup. It is kept because it removes repeated work
 from the dominant inter reconstruction stage while preserving bitwise output
 and keeping alpha effectively in the same range.
+
+Detailed inter-reconstruction profile slice:
+
+- Added nested profile counters inside the direct ordinary-inter production
+  path for mode/MV syntax, inter prediction, inter residual, and intra blocks
+  inside inter frames.
+- Kept these counters nested under `interRecon`, so the top-level accounted
+  timing does not double-count sub-stages.
+- Default builds remain unchanged because the detailed counters are compiled
+  only with `VPDecoderProfile=true`.
+
+Validation:
+
+- `dotnet build VPDecoder.slnx --no-restore -m:1`
+- `dotnet test VPDecoder.slnx -m:1 --no-restore`
+- Profile benchmark build with `VPDecoderProfile=true`
+- Full 97-frame color and alpha YUV420 comparison against libvpx; both streams
+  remained bitwise identical for every frame.
+
+Observed detailed profile:
+
+| Stream/output | Inter reconstruction | Mode/MV syntax | Inter prediction | Inter residual | Intra inside inter |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Color `Yuv420` | 1680 ms / 64.2% total | 202 ms / 12.0% inter | 515 ms / 30.6% inter | 310 ms / 18.5% inter | 495 ms / 29.5% inter |
+| Alpha `Yuv420` | 1789 ms / 70.4% total | 138 ms / 7.7% inter | 707 ms / 39.5% inter | 373 ms / 20.8% inter | 434 ms / 24.2% inter |
+| Merged `Bgra8888` | 3316 ms / 56.7% total | 316 ms / 9.5% inter | 1176 ms / 35.5% inter | 668 ms / 20.1% inter | 940 ms / 28.3% inter |
+
+The next optimization order within inter reconstruction should be:
+inter prediction first, intra blocks inside inter frames second, inter residual
+third, and mode/MV syntax last.

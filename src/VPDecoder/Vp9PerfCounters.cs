@@ -9,6 +9,10 @@ internal readonly record struct Vp9PerfCounterSnapshot(
     long TileLayoutParseTicks,
     long KeyFrameReconstructionTicks,
     long InterFrameReconstructionTicks,
+    long InterModeInfoTicks,
+    long InterPredictionTicks,
+    long InterResidualTicks,
+    long InterIntraBlockTicks,
     long LoopFilterTicks,
     long PreviousMotionVectorTicks,
     long ColorConversionTicks,
@@ -38,6 +42,10 @@ internal static class Vp9PerfCounters
     private static long _tileLayoutParseTicks;
     private static long _keyFrameReconstructionTicks;
     private static long _interFrameReconstructionTicks;
+    private static long _interModeInfoTicks;
+    private static long _interPredictionTicks;
+    private static long _interResidualTicks;
+    private static long _interIntraBlockTicks;
     private static long _loopFilterTicks;
     private static long _previousMotionVectorTicks;
     private static long _colorConversionTicks;
@@ -55,6 +63,10 @@ internal static class Vp9PerfCounters
         _tileLayoutParseTicks = 0;
         _keyFrameReconstructionTicks = 0;
         _interFrameReconstructionTicks = 0;
+        _interModeInfoTicks = 0;
+        _interPredictionTicks = 0;
+        _interResidualTicks = 0;
+        _interIntraBlockTicks = 0;
         _loopFilterTicks = 0;
         _previousMotionVectorTicks = 0;
         _colorConversionTicks = 0;
@@ -69,6 +81,10 @@ internal static class Vp9PerfCounters
             _tileLayoutParseTicks,
             _keyFrameReconstructionTicks,
             _interFrameReconstructionTicks,
+            _interModeInfoTicks,
+            _interPredictionTicks,
+            _interResidualTicks,
+            _interIntraBlockTicks,
             _loopFilterTicks,
             _previousMotionVectorTicks,
             _colorConversionTicks,
@@ -84,6 +100,14 @@ internal static class Vp9PerfCounters
     public static void AddKeyFrameReconstruction(long start) => _keyFrameReconstructionTicks += Stopwatch.GetTimestamp() - start;
 
     public static void AddInterFrameReconstruction(long start) => _interFrameReconstructionTicks += Stopwatch.GetTimestamp() - start;
+
+    public static void AddInterModeInfo(long start) => _interModeInfoTicks += Stopwatch.GetTimestamp() - start;
+
+    public static void AddInterPrediction(long start) => _interPredictionTicks += Stopwatch.GetTimestamp() - start;
+
+    public static void AddInterResidual(long start) => _interResidualTicks += Stopwatch.GetTimestamp() - start;
+
+    public static void AddInterIntraBlock(long start) => _interIntraBlockTicks += Stopwatch.GetTimestamp() - start;
 
     public static void AddLoopFilter(long start) => _loopFilterTicks += Stopwatch.GetTimestamp() - start;
 

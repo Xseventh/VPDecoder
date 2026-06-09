@@ -222,6 +222,10 @@ static void PrintProfile(Vp9PerfCounterSnapshot[] snapshots, double averageMs)
         FormatStage("tileLayout", AverageMs(snapshots, static snapshot => snapshot.TileLayoutParseTicks), averageMs) + " " +
         FormatStage("keyRecon", AverageMs(snapshots, static snapshot => snapshot.KeyFrameReconstructionTicks), averageMs) + " " +
         FormatStage("interRecon", AverageMs(snapshots, static snapshot => snapshot.InterFrameReconstructionTicks), averageMs) + " " +
+        FormatNestedStage("interModeInfo", AverageMs(snapshots, static snapshot => snapshot.InterModeInfoTicks), AverageMs(snapshots, static snapshot => snapshot.InterFrameReconstructionTicks)) + " " +
+        FormatNestedStage("interPrediction", AverageMs(snapshots, static snapshot => snapshot.InterPredictionTicks), AverageMs(snapshots, static snapshot => snapshot.InterFrameReconstructionTicks)) + " " +
+        FormatNestedStage("interResidual", AverageMs(snapshots, static snapshot => snapshot.InterResidualTicks), AverageMs(snapshots, static snapshot => snapshot.InterFrameReconstructionTicks)) + " " +
+        FormatNestedStage("interIntraBlock", AverageMs(snapshots, static snapshot => snapshot.InterIntraBlockTicks), AverageMs(snapshots, static snapshot => snapshot.InterFrameReconstructionTicks)) + " " +
         FormatStage("loopFilter", AverageMs(snapshots, static snapshot => snapshot.LoopFilterTicks), averageMs) + " " +
         FormatStage("previousMv", AverageMs(snapshots, static snapshot => snapshot.PreviousMotionVectorTicks), averageMs) + " " +
         FormatStage("colorConversion", AverageMs(snapshots, static snapshot => snapshot.ColorConversionTicks), averageMs) + " " +
@@ -242,6 +246,11 @@ static double AverageMs(Vp9PerfCounterSnapshot[] snapshots, Func<Vp9PerfCounterS
 static string FormatStage(string name, double stageMs, double averageMs)
 {
     return $"{name}Ms={stageMs:F3} {name}Pct={Percent(stageMs, averageMs):F1}";
+}
+
+static string FormatNestedStage(string name, double stageMs, double parentMs)
+{
+    return $"{name}Ms={stageMs:F3} {name}OfInterPct={Percent(stageMs, parentMs):F1}";
 }
 
 static double Percent(double numerator, double denominator)
