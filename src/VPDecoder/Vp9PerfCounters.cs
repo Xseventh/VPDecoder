@@ -20,6 +20,10 @@ internal readonly record struct Vp9PerfCounterSnapshot(
     long IntraResidualAddTicks,
     long IntraDcOnlyAddTicks,
     long IntraInverseTransformTicks,
+    long[] IntraInverseTransformSizeTicks,
+    long[] IntraInverseTransformSizeCalls,
+    long[] IntraInverseTransformTypeTicks,
+    long[] IntraInverseTransformTypeCalls,
     long MotionCopyWholePixelTicks,
     long MotionCopyHorizontalTicks,
     long MotionCopyVerticalTicks,
@@ -83,6 +87,10 @@ internal static class Vp9PerfCounters
     private static long _intraResidualAddTicks;
     private static long _intraDcOnlyAddTicks;
     private static long _intraInverseTransformTicks;
+    private static readonly long[] _intraInverseTransformSizeTicks = new long[4];
+    private static readonly long[] _intraInverseTransformSizeCalls = new long[4];
+    private static readonly long[] _intraInverseTransformTypeTicks = new long[4];
+    private static readonly long[] _intraInverseTransformTypeCalls = new long[4];
     private static long _motionCopyWholePixelTicks;
     private static long _motionCopyHorizontalTicks;
     private static long _motionCopyVerticalTicks;
@@ -134,6 +142,10 @@ internal static class Vp9PerfCounters
         _intraResidualAddTicks = 0;
         _intraDcOnlyAddTicks = 0;
         _intraInverseTransformTicks = 0;
+        Array.Clear(_intraInverseTransformSizeTicks);
+        Array.Clear(_intraInverseTransformSizeCalls);
+        Array.Clear(_intraInverseTransformTypeTicks);
+        Array.Clear(_intraInverseTransformTypeCalls);
         _motionCopyWholePixelTicks = 0;
         _motionCopyHorizontalTicks = 0;
         _motionCopyVerticalTicks = 0;
@@ -182,6 +194,10 @@ internal static class Vp9PerfCounters
             _intraResidualAddTicks,
             _intraDcOnlyAddTicks,
             _intraInverseTransformTicks,
+            (long[])_intraInverseTransformSizeTicks.Clone(),
+            (long[])_intraInverseTransformSizeCalls.Clone(),
+            (long[])_intraInverseTransformTypeTicks.Clone(),
+            (long[])_intraInverseTransformTypeCalls.Clone(),
             _motionCopyWholePixelTicks,
             _motionCopyHorizontalTicks,
             _motionCopyVerticalTicks,
@@ -242,6 +258,26 @@ internal static class Vp9PerfCounters
     public static void AddIntraDcOnlyAdd(long start) => _intraDcOnlyAddTicks += Stopwatch.GetTimestamp() - start;
 
     public static void AddIntraInverseTransform(long start) => _intraInverseTransformTicks += Stopwatch.GetTimestamp() - start;
+
+    public static void AddIntraInverseTransform(long start, Vp9TransformSize transformSize, Vp9TransformType transformType)
+    {
+        var elapsed = Stopwatch.GetTimestamp() - start;
+        _intraInverseTransformTicks += elapsed;
+
+        var sizeIndex = (int)transformSize;
+        if ((uint)sizeIndex < (uint)_intraInverseTransformSizeTicks.Length)
+        {
+            _intraInverseTransformSizeTicks[sizeIndex] += elapsed;
+            _intraInverseTransformSizeCalls[sizeIndex]++;
+        }
+
+        var typeIndex = (int)transformType;
+        if ((uint)typeIndex < (uint)_intraInverseTransformTypeTicks.Length)
+        {
+            _intraInverseTransformTypeTicks[typeIndex] += elapsed;
+            _intraInverseTransformTypeCalls[typeIndex]++;
+        }
+    }
 
     public static void AddMotionCopyWholePixel(long start) => _motionCopyWholePixelTicks += Stopwatch.GetTimestamp() - start;
 

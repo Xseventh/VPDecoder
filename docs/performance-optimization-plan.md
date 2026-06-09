@@ -1338,3 +1338,31 @@ profiling and then targeted transform kernels for the most common non-DC cases,
 instead of broad helper reshaping. The next loop-filter direction should remain
 structural mask-apply layout cleanup or guarded hardware intrinsics with scalar
 fallback; tiny scalar wrapper changes are not proving useful.
+
+Intra inverse transform size/type profile slice:
+
+- Added profile-only size and transform-type counters under
+  `intraInverseTransform`.
+- Counted both elapsed ticks and call counts by transform size and by
+  `Vp9TransformType`.
+- Kept the counters aggregate-only to avoid per-block trace allocation.
+
+Observed merged `Bgra8888` intra inverse transform distribution:
+
+| Dimension | Average | Share | Calls |
+| --- | ---: | ---: | ---: |
+| `TX4` | 29 ms | 6.7% | 171871 |
+| `TX8` | 54 ms | 12.3% | 81182 |
+| `TX16` | 150 ms | 34.0% | 44813 |
+| `TX32` | 207 ms | 47.0% | 15234 |
+| `DctDct` | 285 ms | 64.7% | 120154 |
+| `AdstDct` | 72 ms | 16.4% | 66530 |
+| `DctAdst` | 45 ms | 10.1% | 49754 |
+| `AdstAdst` | 39 ms | 8.8% | 76662 |
+
+This shifts the next reconstruction optimization target toward large
+DCT-heavy transforms. Even though `TX4` has the most calls, it contributes only
+about 7% of profiled intra inverse-transform time. `TX32` and `TX16` together
+are about 81%, while `DctDct` alone is about 65%. The next small-but-aligned
+trial should therefore look at `TX32`/`TX16` DCT paths, for example clipping and
+residual-add loops, before spending time on ADST-heavy or TX4-specific kernels.

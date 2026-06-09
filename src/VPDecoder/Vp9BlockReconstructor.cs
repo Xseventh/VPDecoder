@@ -881,7 +881,7 @@ internal static class Vp9BlockReconstructor
             coefficients.DequantizedCoefficients,
             coefficients.Eob);
 #if VPDECODER_PROFILE
-        Vp9PerfCounters.AddIntraInverseTransform(inverseProfileStart);
+        Vp9PerfCounters.AddIntraInverseTransform(inverseProfileStart, transformSize, coefficients.TransformType);
         Vp9PerfCounters.AddIntraResidualAdd(residualProfileStart);
 #endif
     }
