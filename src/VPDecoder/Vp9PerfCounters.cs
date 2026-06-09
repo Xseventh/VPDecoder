@@ -13,6 +13,13 @@ internal readonly record struct Vp9PerfCounterSnapshot(
     long InterPredictionTicks,
     long InterResidualTicks,
     long InterIntraBlockTicks,
+    long MotionCopyWholePixelTicks,
+    long MotionCopyHorizontalTicks,
+    long MotionCopyVerticalTicks,
+    long MotionCopyTwoDimensionalTicks,
+    long MotionCopyClampedTicks,
+    long MotionAverageWholePixelTicks,
+    long MotionAverageFilteredTicks,
     long LoopFilterTicks,
     long PreviousMotionVectorTicks,
     long ColorConversionTicks,
@@ -46,6 +53,13 @@ internal static class Vp9PerfCounters
     private static long _interPredictionTicks;
     private static long _interResidualTicks;
     private static long _interIntraBlockTicks;
+    private static long _motionCopyWholePixelTicks;
+    private static long _motionCopyHorizontalTicks;
+    private static long _motionCopyVerticalTicks;
+    private static long _motionCopyTwoDimensionalTicks;
+    private static long _motionCopyClampedTicks;
+    private static long _motionAverageWholePixelTicks;
+    private static long _motionAverageFilteredTicks;
     private static long _loopFilterTicks;
     private static long _previousMotionVectorTicks;
     private static long _colorConversionTicks;
@@ -67,6 +81,13 @@ internal static class Vp9PerfCounters
         _interPredictionTicks = 0;
         _interResidualTicks = 0;
         _interIntraBlockTicks = 0;
+        _motionCopyWholePixelTicks = 0;
+        _motionCopyHorizontalTicks = 0;
+        _motionCopyVerticalTicks = 0;
+        _motionCopyTwoDimensionalTicks = 0;
+        _motionCopyClampedTicks = 0;
+        _motionAverageWholePixelTicks = 0;
+        _motionAverageFilteredTicks = 0;
         _loopFilterTicks = 0;
         _previousMotionVectorTicks = 0;
         _colorConversionTicks = 0;
@@ -85,6 +106,13 @@ internal static class Vp9PerfCounters
             _interPredictionTicks,
             _interResidualTicks,
             _interIntraBlockTicks,
+            _motionCopyWholePixelTicks,
+            _motionCopyHorizontalTicks,
+            _motionCopyVerticalTicks,
+            _motionCopyTwoDimensionalTicks,
+            _motionCopyClampedTicks,
+            _motionAverageWholePixelTicks,
+            _motionAverageFilteredTicks,
             _loopFilterTicks,
             _previousMotionVectorTicks,
             _colorConversionTicks,
@@ -108,6 +136,20 @@ internal static class Vp9PerfCounters
     public static void AddInterResidual(long start) => _interResidualTicks += Stopwatch.GetTimestamp() - start;
 
     public static void AddInterIntraBlock(long start) => _interIntraBlockTicks += Stopwatch.GetTimestamp() - start;
+
+    public static void AddMotionCopyWholePixel(long start) => _motionCopyWholePixelTicks += Stopwatch.GetTimestamp() - start;
+
+    public static void AddMotionCopyHorizontal(long start) => _motionCopyHorizontalTicks += Stopwatch.GetTimestamp() - start;
+
+    public static void AddMotionCopyVertical(long start) => _motionCopyVerticalTicks += Stopwatch.GetTimestamp() - start;
+
+    public static void AddMotionCopyTwoDimensional(long start) => _motionCopyTwoDimensionalTicks += Stopwatch.GetTimestamp() - start;
+
+    public static void AddMotionCopyClamped(long start) => _motionCopyClampedTicks += Stopwatch.GetTimestamp() - start;
+
+    public static void AddMotionAverageWholePixel(long start) => _motionAverageWholePixelTicks += Stopwatch.GetTimestamp() - start;
+
+    public static void AddMotionAverageFiltered(long start) => _motionAverageFilteredTicks += Stopwatch.GetTimestamp() - start;
 
     public static void AddLoopFilter(long start) => _loopFilterTicks += Stopwatch.GetTimestamp() - start;
 

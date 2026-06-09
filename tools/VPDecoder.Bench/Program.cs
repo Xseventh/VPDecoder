@@ -224,6 +224,13 @@ static void PrintProfile(Vp9PerfCounterSnapshot[] snapshots, double averageMs)
         FormatStage("interRecon", AverageMs(snapshots, static snapshot => snapshot.InterFrameReconstructionTicks), averageMs) + " " +
         FormatNestedStage("interModeInfo", AverageMs(snapshots, static snapshot => snapshot.InterModeInfoTicks), AverageMs(snapshots, static snapshot => snapshot.InterFrameReconstructionTicks)) + " " +
         FormatNestedStage("interPrediction", AverageMs(snapshots, static snapshot => snapshot.InterPredictionTicks), AverageMs(snapshots, static snapshot => snapshot.InterFrameReconstructionTicks)) + " " +
+        FormatNestedStage("motionCopyWhole", AverageMs(snapshots, static snapshot => snapshot.MotionCopyWholePixelTicks), AverageMs(snapshots, static snapshot => snapshot.InterPredictionTicks)) + " " +
+        FormatNestedStage("motionCopyHorizontal", AverageMs(snapshots, static snapshot => snapshot.MotionCopyHorizontalTicks), AverageMs(snapshots, static snapshot => snapshot.InterPredictionTicks)) + " " +
+        FormatNestedStage("motionCopyVertical", AverageMs(snapshots, static snapshot => snapshot.MotionCopyVerticalTicks), AverageMs(snapshots, static snapshot => snapshot.InterPredictionTicks)) + " " +
+        FormatNestedStage("motionCopy2d", AverageMs(snapshots, static snapshot => snapshot.MotionCopyTwoDimensionalTicks), AverageMs(snapshots, static snapshot => snapshot.InterPredictionTicks)) + " " +
+        FormatNestedStage("motionCopyClamped", AverageMs(snapshots, static snapshot => snapshot.MotionCopyClampedTicks), AverageMs(snapshots, static snapshot => snapshot.InterPredictionTicks)) + " " +
+        FormatNestedStage("motionAverageWhole", AverageMs(snapshots, static snapshot => snapshot.MotionAverageWholePixelTicks), AverageMs(snapshots, static snapshot => snapshot.InterPredictionTicks)) + " " +
+        FormatNestedStage("motionAverageFiltered", AverageMs(snapshots, static snapshot => snapshot.MotionAverageFilteredTicks), AverageMs(snapshots, static snapshot => snapshot.InterPredictionTicks)) + " " +
         FormatNestedStage("interResidual", AverageMs(snapshots, static snapshot => snapshot.InterResidualTicks), AverageMs(snapshots, static snapshot => snapshot.InterFrameReconstructionTicks)) + " " +
         FormatNestedStage("interIntraBlock", AverageMs(snapshots, static snapshot => snapshot.InterIntraBlockTicks), AverageMs(snapshots, static snapshot => snapshot.InterFrameReconstructionTicks)) + " " +
         FormatStage("loopFilter", AverageMs(snapshots, static snapshot => snapshot.LoopFilterTicks), averageMs) + " " +

@@ -169,6 +169,9 @@ internal static class Vp9MotionCompensator
             subpelY == 0 &&
             IsInside(sourcePlane, sourceX, sourceY, width, height))
         {
+#if VPDECODER_PROFILE
+            var profileStart = Vp9PerfCounters.Start();
+#endif
             CopyPlaneRows(
                 referenceFrame.Pixels,
                 sourcePlane,
@@ -180,6 +183,9 @@ internal static class Vp9MotionCompensator
                 destinationY,
                 width,
                 height);
+#if VPDECODER_PROFILE
+            Vp9PerfCounters.AddMotionCopyWholePixel(profileStart);
+#endif
             return true;
         }
 
@@ -192,6 +198,9 @@ internal static class Vp9MotionCompensator
             var xKernel = kernels.Slice(subpelX * SubpelTaps, SubpelTaps);
             if (IsHorizontalFilterInputInside(sourcePlane, sourceX, sourceY, width, height))
             {
+#if VPDECODER_PROFILE
+                var profileStart = Vp9PerfCounters.Start();
+#endif
                 PredictHorizontalRows(
                     sourcePixels,
                     sourcePlane,
@@ -204,9 +213,15 @@ internal static class Vp9MotionCompensator
                     width,
                     height,
                     xKernel);
+#if VPDECODER_PROFILE
+                Vp9PerfCounters.AddMotionCopyHorizontal(profileStart);
+#endif
                 return true;
             }
 
+#if VPDECODER_PROFILE
+            var clampedProfileStart = Vp9PerfCounters.Start();
+#endif
             PredictHorizontalRowsClamped(
                 sourcePixels,
                 sourcePlane,
@@ -219,6 +234,9 @@ internal static class Vp9MotionCompensator
                 width,
                 height,
                 xKernel);
+#if VPDECODER_PROFILE
+            Vp9PerfCounters.AddMotionCopyClamped(clampedProfileStart);
+#endif
             return true;
         }
 
@@ -227,6 +245,9 @@ internal static class Vp9MotionCompensator
             var yKernel = kernels.Slice(subpelY * SubpelTaps, SubpelTaps);
             if (IsVerticalFilterInputInside(sourcePlane, sourceX, sourceY, width, height))
             {
+#if VPDECODER_PROFILE
+                var profileStart = Vp9PerfCounters.Start();
+#endif
                 PredictVerticalRows(
                     sourcePixels,
                     sourcePlane,
@@ -239,9 +260,15 @@ internal static class Vp9MotionCompensator
                     width,
                     height,
                     yKernel);
+#if VPDECODER_PROFILE
+                Vp9PerfCounters.AddMotionCopyVertical(profileStart);
+#endif
                 return true;
             }
 
+#if VPDECODER_PROFILE
+            var clampedProfileStart = Vp9PerfCounters.Start();
+#endif
             PredictVerticalRowsClamped(
                 sourcePixels,
                 sourcePlane,
@@ -254,6 +281,9 @@ internal static class Vp9MotionCompensator
                 width,
                 height,
                 yKernel);
+#if VPDECODER_PROFILE
+            Vp9PerfCounters.AddMotionCopyClamped(clampedProfileStart);
+#endif
             return true;
         }
 
@@ -261,6 +291,9 @@ internal static class Vp9MotionCompensator
         var twoDimensionalYKernel = kernels.Slice(subpelY * SubpelTaps, SubpelTaps);
         if (IsTwoDimensionalFilterInputInside(sourcePlane, sourceX, sourceY, width, height))
         {
+#if VPDECODER_PROFILE
+            var profileStart = Vp9PerfCounters.Start();
+#endif
             PredictTwoDimensionalRows(
                 sourcePixels,
                 sourcePlane,
@@ -274,9 +307,15 @@ internal static class Vp9MotionCompensator
                 height,
                 twoDimensionalXKernel,
                 twoDimensionalYKernel);
+#if VPDECODER_PROFILE
+            Vp9PerfCounters.AddMotionCopyTwoDimensional(profileStart);
+#endif
             return true;
         }
 
+#if VPDECODER_PROFILE
+        var twoDimensionalClampedProfileStart = Vp9PerfCounters.Start();
+#endif
         PredictTwoDimensionalRowsClamped(
             sourcePixels,
             sourcePlane,
@@ -290,6 +329,9 @@ internal static class Vp9MotionCompensator
             height,
             twoDimensionalXKernel,
             twoDimensionalYKernel);
+#if VPDECODER_PROFILE
+        Vp9PerfCounters.AddMotionCopyClamped(twoDimensionalClampedProfileStart);
+#endif
         return true;
     }
 
@@ -361,6 +403,9 @@ internal static class Vp9MotionCompensator
             IsInside(sourcePlane0, sourceX0, sourceY0, width, height) &&
             IsInside(sourcePlane1, sourceX1, sourceY1, width, height))
         {
+#if VPDECODER_PROFILE
+            var profileStart = Vp9PerfCounters.Start();
+#endif
             AveragePlaneRows(
                 referenceFrame0.Pixels,
                 sourcePlane0,
@@ -376,6 +421,9 @@ internal static class Vp9MotionCompensator
                 destinationY,
                 width,
                 height);
+#if VPDECODER_PROFILE
+            Vp9PerfCounters.AddMotionAverageWholePixel(profileStart);
+#endif
             return true;
         }
 
@@ -405,6 +453,9 @@ internal static class Vp9MotionCompensator
             subpelY1);
         Span<byte> prediction0 = stackalloc byte[MaxConvolveBlockPixels];
         Span<byte> prediction1 = stackalloc byte[MaxConvolveBlockPixels];
+#if VPDECODER_PROFILE
+        var filteredProfileStart = Vp9PerfCounters.Start();
+#endif
         PredictPlaneBlockToSpan(
             sourcePixels0,
             sourcePlane0,
@@ -443,6 +494,9 @@ internal static class Vp9MotionCompensator
             width,
             height,
             MaxConvolveBlockDimension);
+#if VPDECODER_PROFILE
+        Vp9PerfCounters.AddMotionAverageFiltered(filteredProfileStart);
+#endif
 
         return true;
     }

@@ -1100,3 +1100,33 @@ Observed detailed profile:
 The next optimization order within inter reconstruction should be:
 inter prediction first, intra blocks inside inter frames second, inter residual
 third, and mode/MV syntax last.
+
+Detailed motion-compensation profile slice:
+
+- Added nested profile counters for single-reference whole-pixel copy,
+  horizontal-only subpel, vertical-only subpel, 2D subpel, clamped subpel,
+  compound whole-pixel average, and compound filtered average.
+- Kept these counters nested under `interPrediction`, so top-level accounted
+  timing and inter-reconstruction timing remain comparable with earlier runs.
+- Default builds remain unchanged because the counters are compiled only with
+  `VPDecoderProfile=true`.
+
+Validation:
+
+- `dotnet build VPDecoder.slnx --no-restore -m:1`
+- `dotnet test VPDecoder.slnx -m:1 --no-restore`
+- Profile benchmark build with `VPDecoderProfile=true`
+- Full 97-frame color and alpha YUV420 comparison against libvpx; both streams
+  remained bitwise identical for every frame.
+
+Observed motion profile:
+
+| Stream/output | Inter prediction | Whole copy | Horizontal | Vertical | 2D subpel | Clamped | Compound whole | Compound filtered |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Color `Yuv420` | 549 ms | 147 ms / 26.7% | 82 ms / 15.0% | 56 ms / 10.2% | 121 ms / 22.0% | 20 ms / 3.7% | 8 ms / 1.5% | 31 ms / 5.7% |
+| Alpha `Yuv420` | 732 ms | 110 ms / 15.1% | 79 ms / 10.7% | 99 ms / 13.5% | 208 ms / 28.4% | 61 ms / 8.4% | 8 ms / 1.1% | 103 ms / 14.0% |
+| Merged `Bgra8888` | 1227 ms | 243 ms / 19.8% | 156 ms / 12.7% | 151 ms / 12.3% | 322 ms / 26.3% | 80 ms / 6.5% | 15 ms / 1.2% | 130 ms / 10.6% |
+
+The next motion-compensation candidates should be 2D subpel first, whole-pixel
+copy second, and horizontal/vertical scalar filters third. Compound whole-pixel
+average is too small to prioritize.
